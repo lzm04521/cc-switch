@@ -32,3 +32,5 @@ CODEBUDDY.md
 mainWindow.js
 codegraph.json
 /doc/
+
+package-lock.json
