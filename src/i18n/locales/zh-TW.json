@@ -900,7 +900,9 @@
       "defaultCostMultiplierRequired": "預設倍率不能為空",
       "defaultCostMultiplierInvalid": "預設倍率格式不正確"
     },
-    "saveFailedGeneric": "儲存失敗，請重試"
+    "saveFailedGeneric": "儲存失敗，請重試",
+    "zcodeConfigDir": "ZCode 設定目錄",
+    "browsePlaceholderZcode": "例如 C:\\Users\\<使用者名稱>\\.zcode"
   },
   "apps": {
     "claude": "Claude",
@@ -913,7 +915,8 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
-    "pi": "Pi"
+    "pi": "Pi",
+    "zcode": "ZCode"
   },
   "pi": {
     "empty": {
@@ -3255,5 +3258,8 @@
     "expiredHint": "請執行 {{tool}} 命令重新整理登入",
     "queryFailed": "查詢失敗",
     "refresh": "重新整理"
+  },
+  "zcode": {
+    "providerManagedExternally": "ZCode 的 provider 在 ZCode 應用程式內自行管理。"
   }
 }

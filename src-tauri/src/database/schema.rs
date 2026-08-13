@@ -67,7 +67,8 @@ impl Database {
             enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
             enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
             enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
-            enabled_hermes BOOLEAN NOT NULL DEFAULT 0
+            enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+            enabled_zcode BOOLEAN NOT NULL DEFAULT 0
         )",
             [],
         )
@@ -97,6 +98,7 @@ impl Database {
             enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
             enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+            enabled_zcode BOOLEAN NOT NULL DEFAULT 0,
             installed_at INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0
@@ -545,9 +547,14 @@ impl Database {
                         Self::set_user_version(conn, 17)?;
                     }
                     17 => {
-                        log::info!("迁移数据库从 v17 到 v18（会话日志字节游标列）");
+                        log::info!("迁移数据库从 v17 到 v18（Skills/MCP 添加 ZCode 支持）");
                         Self::migrate_v17_to_v18(conn)?;
                         Self::set_user_version(conn, 18)?;
+                    }
+                    19 => {
+                        log::info!("迁移数据库从 v19 到 v20（会话日志字节游标列）");
+                        Self::migrate_v19_to_v20(conn)?;
+                        Self::set_user_version(conn, 20)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1577,15 +1584,16 @@ impl Database {
         .map_err(|error| AppError::Database(format!("创建会话用量去重账本失败: {error}")))
     }
 
-    /// v17 -> v18: Claude 会话日志的字节游标列与尾部指纹列。
+    /// v19 -> v20: Claude 会话日志的字节游标列与尾部指纹列。
+    /// （上游 v3.20.1 的 v17->v18 迁移；fork 的 v18/v19 已被 zcode/dsh 占用，故顺延为 v20）
     ///
-    /// 独立成版而非搭 v17 车：v17 已在开发库上执行过（迁移不会重跑，
-    /// `CREATE TABLE IF NOT EXISTS` 也不补列），追加进 v17 会让这些库
+    /// 独立成版而非搭前车：前版已在开发库上执行过（迁移不会重跑，
+    /// `CREATE TABLE IF NOT EXISTS` 也不补列），追加进前版会让这些库
     /// 永远缺列。存量行保持 NULL，首轮扫描按旧行号游标转换为字节位置
     /// 后继续增量；之后写入字节偏移走 seek 增量，并记录游标边界前的
     /// 尾部指纹用于识别外部重写（截断由 size 检测，同尺寸/更大的替换
     /// 只有指纹能发现）。
-    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+    fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
         // 缺表的库（异常/测试夹具）跳过：create_tables 会以含列的新 DDL 建表。
         if Self::table_exists(conn, "session_log_sync")? {
             Self::add_column_if_missing(conn, "session_log_sync", "last_byte_offset", "INTEGER")?;
@@ -1594,6 +1602,28 @@ impl Database {
                 "session_log_sync",
                 "last_tail_fingerprint",
                 "INTEGER",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// v17 -> v18: 为 mcp_servers 和 skills 表添加 enabled_zcode 列。
+    /// （fork 的 ZCode 支持迁移；上游 v3.20.0 的 v17 已被去重账本迁移占用，故顺延为 v18）
+    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+        if Self::table_exists(conn, "mcp_servers")? {
+            Self::add_column_if_missing(
+                conn,
+                "mcp_servers",
+                "enabled_zcode",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )?;
+        }
+        if Self::table_exists(conn, "skills")? {
+            Self::add_column_if_missing(
+                conn,
+                "skills",
+                "enabled_zcode",
+                "BOOLEAN NOT NULL DEFAULT 0",
             )?;
         }
         Ok(())
@@ -3386,6 +3416,51 @@ mod tests {
     }
 
     #[test]
+    fn migrate_v16_to_v17_adds_zcode_skill_and_mcp_flags() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE mcp_servers (
+                id TEXT PRIMARY KEY,
+                enabled_codex BOOLEAN NOT NULL DEFAULT 0
+            );
+            CREATE TABLE skills (
+                id TEXT PRIMARY KEY,
+                enabled_codex BOOLEAN NOT NULL DEFAULT 0
+            );",
+        )?;
+        conn.execute(
+            "INSERT INTO mcp_servers (id, enabled_codex) VALUES ('mcp-1', 1)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO skills (id, enabled_codex) VALUES ('skill-1', 1)",
+            [],
+        )?;
+        Database::set_user_version(&conn, 16)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(&conn, "mcp_servers", "enabled_zcode")?);
+        assert!(Database::has_column(&conn, "skills", "enabled_zcode")?);
+        let mcp_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_codex, enabled_zcode FROM mcp_servers WHERE id = 'mcp-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let skill_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_codex, enabled_zcode FROM skills WHERE id = 'skill-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        // 旧行默认 false，保留既有 enabled_codex 值
+        assert_eq!(mcp_values, (1, 0));
+        assert_eq!(skill_values, (1, 0));
+
+        Ok(())
+    }
+
+    #[test]
     fn migrate_v15_to_v16_resets_only_codex_session_usage() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
@@ -3445,9 +3520,9 @@ mod tests {
     }
 
     #[test]
-    fn migrate_v17_to_v18_adds_byte_cursor_to_existing_sync_table() -> Result<(), AppError> {
-        // 真实升级路径：v17 库带旧 DDL 的 session_log_sync（无字节游标列，
-        // 字节游标曾短暂搭 v17 车、已执行过 v17 的开发库正是这个形状）
+    fn migrate_v19_to_v20_adds_byte_cursor_to_existing_sync_table() -> Result<(), AppError> {
+        // 真实升级路径：v19 库带旧 DDL 的 session_log_sync（无字节游标列，
+        // 字节游标曾短暂搭前版车、已执行过前版的开发库正是这个形状）
         // 与存量游标行，迁移后列补上、存量行保持 NULL（首轮按行号转换）
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(
@@ -3459,7 +3534,7 @@ mod tests {
              );
              INSERT INTO session_log_sync VALUES ('/tmp/a.jsonl', 5, 3, 1);",
         )?;
-        Database::set_user_version(&conn, 17)?;
+        Database::set_user_version(&conn, 19)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 

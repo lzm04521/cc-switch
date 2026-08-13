@@ -899,7 +899,9 @@
       "defaultCostMultiplierRequired": "默认倍率不能为空",
       "defaultCostMultiplierInvalid": "默认倍率格式不正确"
     },
-    "saveFailedGeneric": "保存失败，请重试"
+    "saveFailedGeneric": "保存失败，请重试",
+    "zcodeConfigDir": "ZCode 配置目录",
+    "browsePlaceholderZcode": "例如 C:\\Users\\<用户名>\\.zcode"
   },
   "apps": {
     "claude": "Claude",
@@ -912,7 +914,8 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
-    "pi": "Pi"
+    "pi": "Pi",
+    "zcode": "ZCode"
   },
   "pi": {
     "empty": {
@@ -3254,5 +3257,8 @@
     "expiredHint": "请运行 {{tool}} 命令刷新登录",
     "queryFailed": "查询失败",
     "refresh": "刷新"
+  },
+  "zcode": {
+    "providerManagedExternally": "zcode 的 provider 在 zcode 应用内自行管理，代理开关与 Profile 亦不适用于 zcode。"
   }
 }

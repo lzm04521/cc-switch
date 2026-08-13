@@ -224,6 +224,23 @@ function App() {
     }
   }, [visibleApps, activeApp]);
 
+  // zcode 的 provider 由 zcode 应用内自管：切到 zcode 时把视图重定向到
+  // 允许的功能页（skills 为默认页），避免停留在 providers/代理等无效视图。
+  useEffect(() => {
+    if (activeApp !== "zcode") return;
+    const allowedViews: View[] = [
+      "skills",
+      "skillsDiscovery",
+      "prompts",
+      "mcp",
+      "sessions",
+      "settings",
+    ];
+    if (!allowedViews.includes(currentView)) {
+      setCurrentView("skills");
+    }
+  }, [activeApp, currentView]);
+
   // Fallback from sessions view when switching to an app without session support
   useEffect(() => {
     if (currentView === "mcp" && sharedFeatureApp === "pi") {
@@ -239,7 +256,8 @@ function App() {
       sharedFeatureApp !== "openclaw" &&
       sharedFeatureApp !== "gemini" &&
       sharedFeatureApp !== "hermes" &&
-      sharedFeatureApp !== "pi"
+      sharedFeatureApp !== "pi" &&
+      sharedFeatureApp !== "zcode"
     ) {
       setCurrentView("providers");
     }
@@ -1400,7 +1418,7 @@ function App() {
             {/* 弹性中段：空间不足时由 AppSwitcher 自行收纳溢出应用；
                 justify-end + overflow-hidden 只裁剪 resize 瞬间的过渡帧 */}
             <div className="flex flex-1 min-w-0 items-center justify-end overflow-hidden py-4">
-              {currentView === "providers" && (
+              {(currentView === "providers" || activeApp === "zcode") && (
                 <AppSwitcher
                   activeApp={activeApp}
                   onSwitch={setActiveApp}
@@ -1747,6 +1765,11 @@ function App() {
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in">
         {isOpenClawView && openclawHealthWarnings.length > 0 && (
           <OpenClawHealthBanner warnings={openclawHealthWarnings} />
+        )}
+        {activeApp === "zcode" && (
+          <div className="flex-shrink-0 mx-6 mt-4 px-4 py-2.5 rounded-lg border border-sky-500/20 bg-sky-500/5 text-xs text-muted-foreground">
+            {t("zcode.providerManagedExternally")}
+          </div>
         )}
         {renderContent()}
       </main>
