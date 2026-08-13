@@ -237,6 +237,8 @@ impl Provider {
                 );
                 (base_url, api_key)
             }
+            // zcode 的 provider 由 zcode 应用内自管，settings 中无可用凭据
+            AppType::Zcode => (String::new(), String::new()),
         };
 
         // Normalize like the JS-script path (extract_base_url_from_provider) so a

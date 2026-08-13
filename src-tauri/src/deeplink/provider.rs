@@ -157,6 +157,13 @@ pub(crate) fn build_provider_from_request(
                 "Pi providers must be added from the Pi provider page".to_string(),
             ));
         }
+        AppType::Zcode => {
+            return Err(AppError::localized(
+                "zcode.deeplink.provider_unsupported",
+                "zcode 的 provider 由 zcode 应用内自管，不支持通过深链接导入",
+                "ZCode providers are managed inside the ZCode app; deep link import is not supported",
+            ))
+        }
     };
 
     // Build usage script configuration if provided

@@ -142,6 +142,9 @@ impl ConfigService {
                 // Pi owns its shared models/settings documents; this legacy
                 // single-provider live-sync path must not rewrite them.
             }
+            AppType::Zcode => {
+                // zcode 的 provider 由 zcode 应用内自管，无 live 同步
+            }
         }
 
         Ok(())

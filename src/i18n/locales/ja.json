@@ -897,7 +897,9 @@
       "defaultCostMultiplierRequired": "デフォルト倍率は必須です",
       "defaultCostMultiplierInvalid": "デフォルト倍率の形式が正しくありません"
     },
-    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください"
+    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください",
+    "zcodeConfigDir": "ZCode 設定ディレクトリ",
+    "browsePlaceholderZcode": "例: C:\\Users\\<ユーザー名>\\.zcode"
   },
   "apps": {
     "claude": "Claude",
@@ -910,7 +912,8 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
-    "pi": "Pi"
+    "pi": "Pi",
+    "zcode": "ZCode"
   },
   "pi": {
     "empty": {
@@ -3245,5 +3248,8 @@
     "expiredHint": "{{tool}}コマンドを実行してログインを更新してください",
     "queryFailed": "クエリに失敗しました",
     "refresh": "更新"
+  },
+  "zcode": {
+    "providerManagedExternally": "ZCode のプロバイダーは ZCode アプリ内で管理されます。"
   }
 }
