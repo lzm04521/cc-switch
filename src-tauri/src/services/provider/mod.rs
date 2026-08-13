@@ -3489,6 +3489,7 @@ impl ProviderService {
             AppType::OpenCode => Self::extract_opencode_common_config(&provider.settings_config),
             AppType::OpenClaw => Self::extract_openclaw_common_config(&provider.settings_config),
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
+            AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
         }
     }
 
@@ -3506,6 +3507,7 @@ impl ProviderService {
             AppType::OpenCode => Self::extract_opencode_common_config(settings_config),
             AppType::OpenClaw => Self::extract_openclaw_common_config(settings_config),
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
+            AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
         }
     }
 
@@ -4271,6 +4273,9 @@ impl ProviderService {
                     ));
                 }
             }
+            AppType::Zcode => {
+                // zcode 的 provider 由 zcode 应用内自管，cc-switch 不做校验
+            }
         }
 
         // Validate and clean UsageScript configuration (common for all app types)
@@ -4499,6 +4504,11 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
+            AppType::Zcode => Err(AppError::localized(
+                "zcode.provider.managed_externally",
+                "zcode 的 provider 由 zcode 应用内自管，无凭据可提取",
+                "ZCode providers are managed inside the ZCode app; no credentials to extract",
+            )),
         }
     }
 }

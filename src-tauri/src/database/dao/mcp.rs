@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension, Row};
 
 const MCP_SERVER_SELECT: &str =
-    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes FROM mcp_servers";
+    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_zcode FROM mcp_servers";
 
 fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let id: String = row.get(0)?;
@@ -25,6 +25,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let enabled_grokbuild: bool = row.get(10)?;
     let enabled_opencode: bool = row.get(11)?;
     let enabled_hermes: bool = row.get(12)?;
+    let enabled_zcode: bool = row.get(13)?;
 
     let server = serde_json::from_str(&server_config_str).unwrap_or_default();
     let tags = serde_json::from_str(&tags_str).unwrap_or_default();
@@ -42,6 +43,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
                 grokbuild: enabled_grokbuild,
                 opencode: enabled_opencode,
                 hermes: enabled_hermes,
+                zcode: enabled_zcode,
             },
             description,
             homepage,
@@ -90,6 +92,7 @@ impl Database {
             AppType::GrokBuild => Some("enabled_grokbuild"),
             AppType::OpenCode => Some("enabled_opencode"),
             AppType::Hermes => Some("enabled_hermes"),
+            AppType::Zcode => Some("enabled_zcode"),
             // These applications intentionally have no MCP flag in the SSOT.
             AppType::ClaudeDesktop | AppType::OpenClaw => None,
         };
@@ -120,8 +123,8 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (
                 id, name, server_config, description, homepage, docs, tags,
-                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_zcode
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 server.id,
                 server.name,
@@ -139,6 +142,7 @@ impl Database {
                 server.apps.grokbuild,
                 server.apps.opencode,
                 server.apps.hermes,
+                server.apps.zcode,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -264,5 +268,31 @@ mod tests {
                 .expect("server exists");
             assert_eq!(returned.apps, original.apps);
         }
+    }
+
+    #[test]
+    fn zcode_flag_roundtrip() {
+        let db = Database::memory().expect("create memory db");
+        db.save_mcp_server(&test_server()).expect("seed server");
+
+        let enabled = db
+            .update_mcp_server_app_enabled("shared-server", &AppType::Zcode, true)
+            .expect("enable zcode")
+            .expect("server exists");
+        assert!(enabled.apps.zcode);
+        assert!(enabled.apps.gemini);
+
+        let stored = db
+            .get_all_mcp_servers()
+            .expect("read servers")
+            .shift_remove("shared-server")
+            .expect("stored server");
+        assert!(stored.apps.zcode);
+
+        let disabled = db
+            .update_mcp_server_app_enabled("shared-server", &AppType::Zcode, false)
+            .expect("disable zcode")
+            .expect("server exists");
+        assert!(!disabled.apps.zcode);
     }
 }

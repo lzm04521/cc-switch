@@ -138,6 +138,9 @@ impl ConfigService {
             AppType::Hermes => {
                 // Hermes uses additive mode, no live sync needed
             }
+            AppType::Zcode => {
+                // zcode 的 provider 由 zcode 应用内自管，无 live 同步
+            }
         }
 
         Ok(())

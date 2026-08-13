@@ -33,12 +33,10 @@ let skillUpdatesMock: SkillUpdateInfo[] = [];
 let checkUpdatesFetching = false;
 let toggleSkillAppPending = false;
 let toggleSkillAppVariables:
-  | { id: string; app: "claude"; enabled: boolean }
-  | undefined;
+  { id: string; app: "claude"; enabled: boolean } | undefined;
 let bulkToggleSkillAppPending = false;
 let bulkToggleSkillAppVariables:
-  | { ids: string[]; app: "claude"; enabled: boolean }
-  | undefined;
+  { ids: string[]; app: "claude"; enabled: boolean } | undefined;
 
 vi.mock("sonner", () => ({
   toast: {
@@ -123,6 +121,7 @@ const makeInstalledSkill = (
     opencode: false,
     openclaw: false,
     hermes: false,
+    zcode: false,
   };
   const { apps, ...skillOverrides } = overrides;
 

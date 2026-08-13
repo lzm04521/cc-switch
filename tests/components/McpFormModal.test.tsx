@@ -445,6 +445,7 @@ type = "stdio"
       opencode: false,
       openclaw: false,
       hermes: false,
+      zcode: false,
     });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).not.toHaveBeenCalled();
