@@ -39,7 +39,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   openclaw: true,
   hermes: true,
   pi: true,
-  zcode: true,
+  zcode: false, // 默认不显示，需用户手动启用
 };
 
 /** App IDs shown in Skills panels. */

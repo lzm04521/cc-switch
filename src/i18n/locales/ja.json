@@ -2169,6 +2169,7 @@
     "loading": "読み込み中...",
     "searchPlaceholder": "プロンプトの名前、説明、内容を検索...",
     "searchAriaLabel": "管理中のプロンプトを検索",
+    "appFilterTooltip": "アプリ切替",
     "noSearchResults": "検索に一致するプロンプトがありません",
     "name": "名前",
     "namePlaceholder": "例: デフォルトプロジェクトプロンプト",
@@ -3250,6 +3251,6 @@
     "refresh": "更新"
   },
   "zcode": {
-    "providerManagedExternally": "ZCode のプロバイダーは ZCode アプリ内で管理されます。"
+    "providerManagedExternally": "ZCode のプロバイダーは ZCode アプリ内で自己管理されます。プロバイダーの追加・切替・設定は ZCode アプリ内で行ってください。"
   }
 }
