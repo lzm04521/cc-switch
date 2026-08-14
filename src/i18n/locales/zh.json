@@ -1971,6 +1971,7 @@
     "loading": "加载中...",
     "searchPlaceholder": "搜索提示词名称、描述或内容...",
     "searchAriaLabel": "搜索已管理的提示词",
+    "appFilterTooltip": "应用切换",
     "noSearchResults": "未找到匹配的提示词",
     "name": "名称",
     "namePlaceholder": "例如：项目默认提示词",
@@ -3052,6 +3053,6 @@
     "refresh": "刷新"
   },
   "zcode": {
-    "providerManagedExternally": "zcode 的 provider 在 zcode 应用内自行管理，代理开关与 Profile 亦不适用于 zcode。"
+    "providerManagedExternally": "ZCode 的 provider 由 ZCode 应用内自管，请前往 ZCode 应用内新增、切换或配置 provider。"
   }
 }

@@ -46,7 +46,7 @@ pub struct VisibleApps {
     pub openclaw: bool,
     #[serde(default)]
     pub hermes: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub zcode: bool,
 }
 
@@ -61,7 +61,7 @@ impl Default for VisibleApps {
             opencode: true,
             openclaw: true,
             hermes: false, // 默认不显示，需用户手动启用
-            zcode: true,
+            zcode: false,  // 默认不显示，需用户手动启用
         }
     }
 }

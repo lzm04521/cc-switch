@@ -6,6 +6,13 @@ import { usePromptActions } from "@/hooks/usePromptActions";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { ManagementListSearch } from "@/components/common/ManagementListSearch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import PromptListItem from "./PromptListItem";
 import PromptFormPanel from "./PromptFormPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -21,6 +28,22 @@ interface PromptPanelProps {
 export interface PromptPanelHandle {
   openAdd: () => void;
 }
+
+// 提示词页面支持切换的 agent 列表（与会话管理一致，去掉 all 聚合项）
+const PROMPT_APP_OPTIONS: Array<{
+  value: AppId;
+  icon: string;
+  labelKey: string;
+}> = [
+  { value: "claude", icon: "claude", labelKey: "apps.claudeCode" },
+  { value: "codex", icon: "openai", labelKey: "apps.codex" },
+  { value: "gemini", icon: "gemini", labelKey: "apps.gemini" },
+  { value: "grokbuild", icon: "grok", labelKey: "apps.grokbuild" },
+  { value: "opencode", icon: "opencode", labelKey: "apps.opencode" },
+  { value: "openclaw", icon: "openclaw", labelKey: "apps.openclaw" },
+  { value: "hermes", icon: "hermes", labelKey: "apps.hermes" },
+  { value: "zcode", icon: "zcode", labelKey: "apps.zcode" },
+];
 
 const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
   (
@@ -46,6 +69,14 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
     const overlayOpenRef = React.useRef(false);
     const externalReloadQueuedRef = React.useRef(false);
 
+    // 页面内可切换的 agent，初始值取外部传入的 appId；
+    // 外部 prop 变化时同步（保持与原有 rerender 行为一致），
+    // 同时允许用户通过下拉框手动覆盖。
+    const [selectedAppId, setSelectedAppId] = useState<AppId>(appId);
+    useEffect(() => {
+      setSelectedAppId(appId);
+    }, [appId]);
+
     const {
       prompts,
       loading,
@@ -53,7 +84,7 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
       savePrompt,
       deletePrompt,
       toggleEnabled,
-    } = usePromptActions(appId);
+    } = usePromptActions(selectedAppId);
     const reloadRef = React.useRef(reload);
     reloadRef.current = reload;
 
@@ -116,7 +147,7 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
 
     useEffect(() => {
       if (open) void runExternalReload();
-    }, [appId, open, runExternalReload]);
+    }, [selectedAppId, open, runExternalReload]);
 
     useEffect(() => {
       setSearchQuery("");
@@ -127,14 +158,14 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
       if (externalReloadQueuedRef.current) {
         void runExternalReload();
       }
-    }, [appId, runExternalReload]);
+    }, [selectedAppId, runExternalReload]);
 
     // Listen for prompt import events from deep link
     useEffect(() => {
       const handlePromptImported = (event: Event) => {
         const customEvent = event as CustomEvent;
         // Reload if the import is for this app
-        if (customEvent.detail?.app === appId) {
+        if (customEvent.detail?.app === selectedAppId) {
           void runExternalReload();
         }
       };
@@ -143,7 +174,7 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
       return () => {
         window.removeEventListener("prompt-imported", handlePromptImported);
       };
-    }, [appId, runExternalReload]);
+    }, [selectedAppId, runExternalReload]);
 
     // 应用项目 Profile 会切换激活的 prompt（prompts 非 react-query，需主动 reload）
     useTauriEvent("profile-applied", runExternalReload);
@@ -265,11 +296,55 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
     return (
       <div className="flex flex-col flex-1 min-h-0 px-6">
         <div className="flex-shrink-0 py-4 glass rounded-xl border border-white/10 mb-4 px-6">
-          <div className="text-sm text-muted-foreground">
-            {t("prompts.count", { count: promptEntries.length })} ·{" "}
-            {enabledPrompt
-              ? t("prompts.enabledName", { name: enabledPrompt[1].name })
-              : t("prompts.noneEnabled")}
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-muted-foreground">
+              {t("prompts.count", { count: promptEntries.length })} ·{" "}
+              {enabledPrompt
+                ? t("prompts.enabledName", { name: enabledPrompt[1].name })
+                : t("prompts.noneEnabled")}
+            </div>
+            <Select
+              value={selectedAppId}
+              onValueChange={(value) => setSelectedAppId(value as AppId)}
+            >
+              <SelectTrigger
+                className="h-8 w-auto gap-1.5 border-border-default bg-background text-sm"
+                aria-label={t("prompts.appFilterTooltip", {
+                  defaultValue: "应用切换",
+                })}
+              >
+                <ProviderIcon
+                  icon={
+                    PROMPT_APP_OPTIONS.find(
+                      (opt) => opt.value === selectedAppId,
+                    )?.icon ?? "claude"
+                  }
+                  name={selectedAppId}
+                  size={14}
+                />
+                <span>
+                  {t(
+                    PROMPT_APP_OPTIONS.find(
+                      (opt) => opt.value === selectedAppId,
+                    )?.labelKey ?? "apps.claudeCode",
+                  )}
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                {PROMPT_APP_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <div className="flex items-center gap-2">
+                      <ProviderIcon
+                        icon={opt.icon}
+                        name={opt.value}
+                        size={14}
+                      />
+                      <span>{t(opt.labelKey)}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -324,7 +399,7 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
 
         {isFormOpen && (
           <PromptFormPanel
-            appId={appId}
+            appId={selectedAppId}
             editingId={editingId || undefined}
             initialData={editingId ? prompts[editingId] : undefined}
             onSave={handleSave}
