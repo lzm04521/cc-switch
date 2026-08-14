@@ -2179,6 +2179,7 @@
     "loading": "載入中...",
     "searchPlaceholder": "搜尋提示詞名稱、描述或內容...",
     "searchAriaLabel": "搜尋已管理的提示詞",
+    "appFilterTooltip": "應用切換",
     "noSearchResults": "未找到相符的提示詞",
     "name": "名稱",
     "namePlaceholder": "例如：專案預設提示詞",
@@ -3260,6 +3261,6 @@
     "refresh": "重新整理"
   },
   "zcode": {
-    "providerManagedExternally": "ZCode 的 provider 在 ZCode 應用程式內自行管理。"
+    "providerManagedExternally": "ZCode 的 provider 由 ZCode 應用程式內自管，請前往 ZCode 應用程式內新增、切換或設定 provider。"
   }
 }

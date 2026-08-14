@@ -2178,6 +2178,7 @@
     "loading": "Loading...",
     "searchPlaceholder": "Search prompt name, description, or content...",
     "searchAriaLabel": "Search managed prompts",
+    "appFilterTooltip": "Switch app",
     "noSearchResults": "No prompts match your search",
     "name": "Name",
     "namePlaceholder": "e.g., Default Project Prompt",
@@ -3259,6 +3260,6 @@
     "refresh": "Refresh"
   },
   "zcode": {
-    "providerManagedExternally": "ZCode providers are managed inside the ZCode app. Configure providers, proxies and profiles there."
+    "providerManagedExternally": "ZCode providers are managed inside the ZCode app. Please add, switch or configure providers directly in ZCode."
   }
 }

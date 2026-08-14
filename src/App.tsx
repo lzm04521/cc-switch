@@ -27,6 +27,7 @@ import {
   LayoutDashboard,
   Loader2,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -225,10 +226,12 @@ function App() {
   }, [visibleApps, activeApp]);
 
   // zcode 的 provider 由 zcode 应用内自管：切到 zcode 时把视图重定向到
-  // 允许的功能页（skills 为默认页），避免停留在 providers/代理等无效视图。
+  // 允许的功能页（providers 为默认页，但隐藏新增/路由/统计等管理功能，
+  // 仅展示 provider 列表并提示在 zcode 应用内维护），避免停留在代理等无效视图。
   useEffect(() => {
     if (activeApp !== "zcode") return;
     const allowedViews: View[] = [
+      "providers",
       "skills",
       "skillsDiscovery",
       "prompts",
@@ -237,7 +240,7 @@ function App() {
       "settings",
     ];
     if (!allowedViews.includes(currentView)) {
-      setCurrentView("skills");
+      setCurrentView("providers");
     }
   }, [activeApp, currentView]);
 
@@ -334,7 +337,8 @@ function App() {
     sharedFeatureApp === "openclaw" ||
     sharedFeatureApp === "gemini" ||
     sharedFeatureApp === "hermes" ||
-    sharedFeatureApp === "pi";
+    sharedFeatureApp === "pi" ||
+    sharedFeatureApp === "zcode";
   const hasMcpSupport = sharedFeatureApp !== "pi";
 
   const {
@@ -1108,6 +1112,18 @@ function App() {
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
+              {activeApp === "zcode" ? (
+                // zcode 的 provider 由 zcode 应用内自管，cc-switch 不提供
+                // 新增/路由/统计等管理功能，仅展示一条提示。
+                <div className="flex flex-1 flex-col items-center justify-center text-center">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-sky-500/10">
+                    <Info className="h-7 w-7 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+                    {t("zcode.providerManagedExternally")}
+                  </p>
+                </div>
+              ) : (
               <div className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1">
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -1174,6 +1190,7 @@ function App() {
                   </motion.div>
                 </AnimatePresence>
               </div>
+              )}
             </div>
           );
       }
@@ -1745,15 +1762,17 @@ function App() {
                       </AnimatePresence>
                     </div>
 
-                    <Button
-                      onClick={() => setIsAddOpen(true)}
-                      size="icon"
-                      className={`ml-2 ${addActionButtonClass}`}
-                      aria-label={t("provider.addNewProvider")}
-                      title={t("provider.addNewProvider")}
-                    >
-                      <Plus className="w-5 h-5" />
-                    </Button>
+                    {activeApp !== "zcode" && (
+                      <Button
+                        onClick={() => setIsAddOpen(true)}
+                        size="icon"
+                        className={`ml-2 ${addActionButtonClass}`}
+                        aria-label={t("provider.addNewProvider")}
+                        title={t("provider.addNewProvider")}
+                      >
+                        <Plus className="w-5 h-5" />
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -1765,11 +1784,6 @@ function App() {
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in">
         {isOpenClawView && openclawHealthWarnings.length > 0 && (
           <OpenClawHealthBanner warnings={openclawHealthWarnings} />
-        )}
-        {activeApp === "zcode" && (
-          <div className="flex-shrink-0 mx-6 mt-4 px-4 py-2.5 rounded-lg border border-sky-500/20 bg-sky-500/5 text-xs text-muted-foreground">
-            {t("zcode.providerManagedExternally")}
-          </div>
         )}
         {renderContent()}
       </main>
