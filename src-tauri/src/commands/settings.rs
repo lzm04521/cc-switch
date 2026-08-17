@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 /// 应用更新下载进度（通过 `update-download-progress` 事件发给前端）。
@@ -60,6 +60,7 @@ pub async fn get_settings() -> Result<crate::settings::AppSettings, String> {
 /// 保存设置
 #[tauri::command]
 pub async fn save_settings(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppState>,
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
@@ -68,7 +69,21 @@ pub async fn save_settings(
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
+    let floating_ball_enabled_changed =
+        merged.floating_ball.enabled != existing.floating_ball.enabled;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
+
+    // 悬浮球开关联动：立即显示/隐藏悬浮球窗口 + 刷新托盘菜单勾选态
+    if floating_ball_enabled_changed {
+        crate::floating_ball::ensure_ball_window(&app_handle);
+        // 与托盘 toggle_floating_ball 分支同款写法：异步刷新托盘菜单勾选态
+        let app_handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::update_tray_menu(app_handle.clone(), app_handle.state()).await {
+                log::error!("刷新托盘菜单失败: {e}");
+            }
+        });
+    }
 
     // 统一会话开关变更时立即重写当前官方 Codex 供应商的 live 配置，
     // 不必等下一次切换才生效。

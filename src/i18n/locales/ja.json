@@ -697,6 +697,8 @@
     "autoLaunchFailed": "自動起動の設定に失敗しました",
     "minimizeToTray": "閉じるときトレイへ最小化",
     "minimizeToTrayDescription": "チェックすると閉じるボタンでトレイに隠し、オフならアプリを終了します。",
+    "floatingBall": "フローティングボール",
+    "floatingBallDescription": "フローティングボールを表示してプロバイダーをすばやく切り替え",
     "useAppWindowControls": "アプリ内ウィンドウボタンを有効化",
     "useAppWindowControlsDescription": "有効にすると、アプリヘッダーに最小化・最大化/復元・閉じるボタンを表示します。",
     "enableClaudePluginIntegration": "Claude Code 拡張に適用",
@@ -3261,5 +3263,10 @@
   },
   "zcode": {
     "providerManagedExternally": "ZCode のプロバイダーは ZCode アプリ内で自己管理されます。プロバイダーの追加・切替・設定は ZCode アプリ内で行ってください。"
+  },
+  "floatingBall": {
+    "openMainWindow": "メイン画面を開く",
+    "empty": "（プロバイダーなし）",
+    "switchFailed": "切り替えに失敗しました。再試行してください"
   }
 }

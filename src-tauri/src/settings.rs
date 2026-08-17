@@ -342,6 +342,21 @@ pub struct CodexOfficialHistoryUnifyMigration {
     pub codex_config_dir: Option<String>,
 }
 
+/// 悬浮球（快速切换 Provider 的置顶悬浮窗）设置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FloatingBallSettings {
+    /// 是否启用悬浮球（默认开启；旧配置缺字段时兜底为 true）
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for FloatingBallSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// 应用设置结构
 ///
 /// 存储设备级别设置，保存在本地 `~/.cc-switch/settings.json`，不随数据库同步。
@@ -354,6 +369,9 @@ pub struct AppSettings {
     pub show_in_tray: bool,
     #[serde(default = "default_minimize_to_tray_on_close")]
     pub minimize_to_tray_on_close: bool,
+    /// 悬浮球设置（默认开启）
+    #[serde(default)]
+    pub floating_ball: FloatingBallSettings,
     #[serde(default)]
     pub use_app_window_controls: bool,
     /// 是否启用 Claude 插件联动
@@ -527,6 +545,7 @@ impl Default for AppSettings {
         Self {
             show_in_tray: true,
             minimize_to_tray_on_close: true,
+            floating_ball: FloatingBallSettings::default(),
             use_app_window_controls: false,
             enable_claude_plugin_integration: false,
             skip_claude_onboarding: false,
@@ -1251,5 +1270,29 @@ mod tests {
             resolve_override_path(r"~\pi\agent"),
             home.join("pi").join("agent")
         );
+    }
+}
+
+#[cfg(test)]
+mod floating_ball_settings_tests {
+    use super::*;
+
+    #[test]
+    fn floating_ball_settings_default_enabled() {
+        // 旧版 settings.json 无 floatingBall 字段 → 默认开启
+        let s: FloatingBallSettings = serde_json::from_str("{}").expect("解析失败");
+        assert!(s.enabled);
+    }
+
+    #[test]
+    fn floating_ball_settings_explicit_disabled() {
+        let s: FloatingBallSettings =
+            serde_json::from_str(r#"{"enabled":false}"#).expect("解析失败");
+        assert!(!s.enabled);
+    }
+
+    #[test]
+    fn floating_ball_settings_default_impl_enabled() {
+        assert!(FloatingBallSettings::default().enabled);
     }
 }
