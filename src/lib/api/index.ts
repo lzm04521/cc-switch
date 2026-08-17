@@ -31,3 +31,5 @@ export type {
   ManagedAuthStatus,
   ManagedAuthDeviceCodeResponse,
 } from "./auth";
+export { floatingBallApi, useFloatingBallSections } from "./floatingBall";
+export type { BallSection, BallProviderInfo } from "./floatingBall";

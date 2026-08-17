@@ -23,6 +23,32 @@
         "resizable": true,
         "fullscreen": false,
         "center": true
+      },
+      {
+        "label": "ball",
+        "title": "",
+        "width": 56,
+        "height": 56,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false
+      },
+      {
+        "label": "panel",
+        "title": "",
+        "width": 300,
+        "height": 480,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {

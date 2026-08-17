@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "enables the default permissions",
-  "windows": ["main"],
+  "windows": ["main", "ball", "panel"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -15,6 +15,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "core:window:allow-set-decorations",
+    "core:window:allow-set-position",
     "process:allow-restart",
     "dialog:default"
   ]

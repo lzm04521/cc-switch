@@ -36,6 +36,7 @@ mod session_manager;
 mod settings;
 mod store;
 
+mod floating_ball;
 mod tray;
 mod usage_events;
 mod usage_script;
@@ -445,6 +446,8 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_flags())
+                // 面板每次打开都会重新定位，不参与状态恢复/保存
+                .with_denylist(&["panel"])
                 .build(),
         )
         .setup(|app| {
@@ -453,6 +456,17 @@ pub fn run() {
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
             app_store::refresh_app_config_dir_override(app.handle());
             panic_hook::init_app_config_dir(crate::config::get_app_config_dir());
+
+            // 强制悬浮球窗口为正方形（物理像素 = 56 逻辑 × DPI 缩放）：
+            // 修复历史遗留的窗口宽度异常（透明分层窗口在混合 DPI 下创建时
+            // 宽度被错误拉长，表现为悬浮球白底呈长方形且不受 tauri.conf.json 控制）
+            if let Some(ball) = app.get_webview_window("ball") {
+                let scale = ball.scale_factor().unwrap_or(1.0);
+                let side = (56.0_f64 * scale).round() as u32;
+                if let Err(e) = ball.set_size(tauri::PhysicalSize::new(side, side)) {
+                    log::error!("设置悬浮球窗口尺寸失败: {e}");
+                }
+            }
 
             // 初始化日志（输出到 <app_config_dir>/logs/cc-switch.log）
             {
@@ -1121,6 +1135,8 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
+            // 悬浮球：按设置显示/隐藏（ball/panel 窗口启动时已由 tauri.conf 自动创建）
+            crate::floating_ball::ensure_ball_window(app.handle());
             crate::services::webdav_auto_sync::start_worker(
                 app_state.db.clone(),
                 app.handle().clone(),
@@ -1512,6 +1528,15 @@ pub fn run() {
             commands::import_from_deeplink,
             commands::import_from_deeplink_unified,
             update_tray_menu,
+            // Floating ball panel
+            commands::toggle_ball_panel,
+            commands::hide_ball_panel,
+            commands::on_ball_panel_blur,
+            commands::save_ball_position,
+            commands::start_ball_drag,
+            commands::set_floating_ball_enabled,
+            commands::get_floating_ball_sections,
+            commands::show_main_window,
             // Environment variable management
             commands::check_env_conflicts,
             commands::delete_env_vars,
