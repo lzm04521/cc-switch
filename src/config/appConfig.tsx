@@ -41,6 +41,23 @@ export const SKILLS_APP_IDS: AppId[] = [
 /** App IDs shown in MCP panels (excludes OpenClaw) */
 export const MCP_APP_IDS: AppId[] = [...SKILLS_APP_IDS];
 
+export type ProxyAppId = Extract<
+  AppId,
+  "claude" | "codex" | "gemini" | "grokbuild"
+>;
+
+/** Apps with a complete local gateway + failover data plane. */
+export const PROXY_APP_IDS: ProxyAppId[] = [
+  "claude",
+  "codex",
+  "gemini",
+  "grokbuild",
+];
+
+export function isProxyAppId(appId: string): appId is ProxyAppId {
+  return (PROXY_APP_IDS as string[]).includes(appId);
+}
+
 export const APP_ICON_MAP: Record<AppId, AppConfig> = {
   claude: {
     label: "Claude",

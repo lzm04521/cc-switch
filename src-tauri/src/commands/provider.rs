@@ -107,14 +107,40 @@ pub async fn switch_provider(
     id: String,
 ) -> Result<SwitchResult, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
+    // 闭包 move 走 handle/app_type，emit 阶段在闭包外，需提前 clone
+    let emit_handle = app_handle.clone();
+    let emit_app_type = app_type.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle
             .try_state::<AppState>()
             .ok_or_else(|| "应用状态不可用".to_string())?;
         switch_provider_internal(state.inner(), app_type, &id).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("供应商切换任务执行失败: {e}"))?
+    .map_err(|e| format!("供应商切换任务执行失败: {e}"))??;
+
+    // 切换成功后发射 provider-switched：panel 窗口是独立 WebView，只靠该
+    // 事件刷新悬浮球面板分组数据（托盘/快照/故障转移入口均已发射，主命令
+    // 此前遗漏导致面板不刷新）。payload 形状与 tray.rs / profile.rs 一致。
+    if let Some(state) = emit_handle.try_state::<AppState>() {
+        let app_str = emit_app_type.as_str();
+        let (proxy_enabled, auto_failover_enabled) = state.db.get_proxy_flags_sync(app_str);
+        let provider_id =
+            crate::settings::get_effective_current_provider(&state.db, &emit_app_type)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        let event_data = serde_json::json!({
+            "appType": app_str,
+            "proxyEnabled": proxy_enabled,
+            "autoFailoverEnabled": auto_failover_enabled,
+            "providerId": provider_id,
+        });
+        if let Err(e) = emit_handle.emit("provider-switched", event_data) {
+            log::error!("发射 provider-switched 事件失败: {e}");
+        }
+    }
+    Ok(result)
 }
 
 fn import_default_config_internal(state: &AppState, app_type: AppType) -> Result<bool, AppError> {

@@ -53,6 +53,7 @@ static TRAY_SECTION_SUBMENUS: Lazy<
 pub struct TrayTexts {
     pub show_main: &'static str,
     pub open_website: &'static str,
+    pub show_floating_ball: &'static str,
     pub no_providers_label: &'static str,
     pub lightweight_mode: &'static str,
     pub quit: &'static str,
@@ -102,6 +103,7 @@ impl TrayTexts {
             "en" => Self {
                 show_main: "Open main window",
                 open_website: "Open Official Website",
+                show_floating_ball: "Show Floating Ball",
                 no_providers_label: "(no providers)",
                 lightweight_mode: "Lightweight Mode",
                 quit: "Quit",
@@ -112,6 +114,7 @@ impl TrayTexts {
             "ja" => Self {
                 show_main: "メインウィンドウを開く",
                 open_website: "公式サイトを開く",
+                show_floating_ball: "フローティングボールを表示",
                 no_providers_label: "(プロバイダーなし)",
                 lightweight_mode: "軽量モード",
                 quit: "終了",
@@ -122,6 +125,7 @@ impl TrayTexts {
             "zh-TW" => Self {
                 show_main: "開啟主介面",
                 open_website: "開啟官方網站",
+                show_floating_ball: "顯示懸浮球",
                 no_providers_label: "(無供應商)",
                 lightweight_mode: "輕量模式",
                 quit: "退出",
@@ -132,6 +136,7 @@ impl TrayTexts {
             _ => Self {
                 show_main: "打开主界面",
                 open_website: "打开官方网站",
+                show_floating_ball: "显示悬浮球",
                 no_providers_label: "(无供应商)",
                 lightweight_mode: "轻量模式",
                 quit: "退出",
@@ -357,7 +362,7 @@ fn format_usage_suffix(
 }
 
 /// 对供应商列表排序：sort_index → created_at → name
-fn sort_providers(
+pub(crate) fn sort_providers(
     providers: &indexmap::IndexMap<String, crate::provider::Provider>,
 ) -> Vec<(&String, &crate::provider::Provider)> {
     let mut sorted: Vec<_> = providers.iter().collect();
@@ -671,8 +676,19 @@ pub fn create_tray_menu(
     .map_err(|e| AppError::Message(format!("创建打开官方网站菜单失败: {e}")))?;
     menu_builder = menu_builder
         .item(&show_main_item)
-        .item(&open_website_item)
-        .separator();
+        .item(&open_website_item);
+
+    // 悬浮球开关（与设置页同一状态源）
+    let toggle_ball_item = CheckMenuItem::with_id(
+        app,
+        "toggle_floating_ball",
+        tray_texts.show_floating_ball,
+        true,
+        app_settings.floating_ball.enabled,
+        None::<&str>,
+    )
+    .map_err(|e| AppError::Message(format!("创建悬浮球开关菜单失败: {e}")))?;
+    menu_builder = menu_builder.item(&toggle_ball_item).separator();
 
     // Pre-compute proxy running state (used to disable official providers in tray menu)
     let is_proxy_running = futures::executor::block_on(app_state.proxy_service.is_running());
@@ -941,33 +957,38 @@ pub fn apply_tray_policy(app: &tauri::AppHandle, dock_visible: bool) {
     }
 }
 
+/// 打开主窗口（含退出轻量模式重建）。托盘「打开主界面」与悬浮球面板 footer 共用。
+pub fn open_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = window.set_skip_taskbar(false);
+        }
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(target_os = "linux")]
+        {
+            crate::linux_fix::nudge_main_window(window.clone());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            apply_tray_policy(app, true);
+        }
+    } else if crate::lightweight::is_lightweight_mode() {
+        if let Err(e) = crate::lightweight::exit_lightweight_mode(app) {
+            log::error!("退出轻量模式重建窗口失败: {e}");
+        }
+    }
+}
+
 /// 处理托盘菜单事件
 pub fn handle_tray_menu_event(app: &tauri::AppHandle, event_id: &str) {
     log::info!("处理托盘菜单事件: {event_id}");
 
     match event_id {
         "show_main" => {
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = window.set_skip_taskbar(false);
-                }
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-                #[cfg(target_os = "linux")]
-                {
-                    crate::linux_fix::nudge_main_window(window.clone());
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    apply_tray_policy(app, true);
-                }
-            } else if crate::lightweight::is_lightweight_mode() {
-                if let Err(e) = crate::lightweight::exit_lightweight_mode(app) {
-                    log::error!("退出轻量模式重建窗口失败: {e}");
-                }
-            }
+            open_main_window(app);
         }
         "open_website" => {
             if let Err(e) = app.opener().open_url("https://ccswitch.io", None::<String>) {
@@ -982,6 +1003,24 @@ pub fn handle_tray_menu_event(app: &tauri::AppHandle, event_id: &str) {
             } else if let Err(e) = crate::lightweight::enter_lightweight_mode(app) {
                 log::error!("进入轻量模式失败: {e}");
             }
+        }
+        "toggle_floating_ball" => {
+            let mut settings = crate::settings::get_settings();
+            settings.floating_ball.enabled = !settings.floating_ball.enabled;
+            if let Err(e) = crate::settings::update_settings(settings) {
+                log::error!("保存悬浮球开关设置失败: {e}");
+                return;
+            }
+            crate::floating_ball::ensure_ball_window(app);
+            // 刷新托盘菜单勾选态
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) =
+                    crate::update_tray_menu(app_handle.clone(), app_handle.state()).await
+                {
+                    log::error!("刷新托盘菜单失败: {e}");
+                }
+            });
         }
         "quit" => {
             log::info!("退出应用");

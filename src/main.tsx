@@ -24,6 +24,8 @@ import {
   syncModelsDevPricingOnStartup,
 } from "./lib/modelsDevAutoSync";
 import { initializeWindowActivity } from "@/lib/windowActivity";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { FloatingBallRoot } from "./components/floatingBall/FloatingBallRoot";
 
 installGlobalErrorHandlers();
 
@@ -86,6 +88,22 @@ try {
 }
 
 async function bootstrap() {
+  // 悬浮球窗口（ball/panel）走轻量入口：不加载主窗口专属逻辑
+  const currentLabel = getCurrentWindow().label;
+  if (currentLabel === "ball" || currentLabel === "panel") {
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+      <React.StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider defaultTheme="system" storageKey="cc-switch-theme">
+            <FloatingBallRoot />
+            <Toaster />
+          </ThemeProvider>
+        </QueryClientProvider>
+      </React.StrictMode>,
+    );
+    return;
+  }
+
   // 启动早期主动查询后端初始化错误，避免事件竞态
   try {
     const initError = (await invoke(

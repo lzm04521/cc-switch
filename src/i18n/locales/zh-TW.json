@@ -681,6 +681,8 @@
     "autoLaunchFailed": "設定開機自動啟動失敗",
     "minimizeToTray": "關閉時最小化至系統匣",
     "minimizeToTrayDescription": "勾選後點擊關閉按鈕會隱藏至系統匣，取消則直接退出應用程式。",
+    "floatingBall": "懸浮球",
+    "floatingBallDescription": "在螢幕邊緣顯示懸浮球，單擊快速切換供應商",
     "useAppWindowControls": "啟用應用程式等級視窗按鈕",
     "useAppWindowControlsDescription": "開啟後使用應用程式自建的最小化、最大化/還原、關閉按鈕；關閉後沿用系統視窗模式。",
     "enableClaudePluginIntegration": "套用至 Claude Code 外掛程式",
@@ -3055,5 +3057,10 @@
   },
   "zcode": {
     "providerManagedExternally": "ZCode 的 provider 由 ZCode 應用程式內自管，請前往 ZCode 應用程式內新增、切換或設定 provider。"
+  },
+  "floatingBall": {
+    "openMainWindow": "開啟主介面",
+    "empty": "（無供應商）",
+    "switchFailed": "切換失敗，請重試"
   }
 }

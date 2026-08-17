@@ -338,6 +338,8 @@ export interface Settings {
   showInTray: boolean;
   // 点击关闭按钮时是否最小化到托盘而不是关闭应用
   minimizeToTrayOnClose: boolean;
+  // 悬浮球（快速切换悬浮窗）；undefined 视为默认开启
+  floatingBall?: { enabled?: boolean };
   // 是否启用应用级窗口控制按钮（最小化/最大化/关闭）
   useAppWindowControls?: boolean;
   // 启用 Claude 插件联动（写入 ~/.claude/config.json 的 primaryApiKey）

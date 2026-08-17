@@ -681,6 +681,8 @@
     "autoLaunchFailed": "Failed to set auto-launch",
     "minimizeToTray": "Minimize to tray on close",
     "minimizeToTrayDescription": "When checked, clicking the close button will hide to system tray, otherwise the app will exit directly.",
+    "floatingBall": "Floating Ball",
+    "floatingBallDescription": "Show a floating ball to quickly switch providers",
     "useAppWindowControls": "Enable app-level window controls",
     "useAppWindowControlsDescription": "Use built-in minimize, maximize/restore, and close buttons in the app header.",
     "enableClaudePluginIntegration": "Apply to Claude Code extension",
@@ -3054,5 +3056,10 @@
   },
   "zcode": {
     "providerManagedExternally": "ZCode providers are managed inside the ZCode app. Please add, switch or configure providers directly in ZCode."
+  },
+  "floatingBall": {
+    "openMainWindow": "Open Main Window",
+    "empty": "(no providers)",
+    "switchFailed": "Switch failed, please retry"
   }
 }
