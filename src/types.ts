@@ -306,6 +306,7 @@ export interface WebDavSyncStatus {
 export interface WebDavSyncSettings {
   enabled?: boolean;
   autoSync?: boolean;
+  startupDelayMinutes?: number;
   baseUrl?: string;
   username?: string;
   password?: string;
@@ -318,6 +319,7 @@ export interface WebDavSyncSettings {
 export interface S3SyncSettings {
   enabled?: boolean;
   autoSync?: boolean;
+  startupDelayMinutes?: number;
   region?: string;
   bucket?: string;
   accessKeyId?: string;
