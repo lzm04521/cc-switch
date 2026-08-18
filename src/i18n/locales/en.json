@@ -3059,6 +3059,7 @@
   },
   "floatingBall": {
     "openMainWindow": "Open Main Window",
+    "todayUsage": "Tokens Today",
     "empty": "(no providers)",
     "switchFailed": "Switch failed, please retry"
   }

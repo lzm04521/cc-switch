@@ -370,8 +370,13 @@ input[type="password"]::-ms-clear {
   color: hsl(var(--muted-foreground));
 }
 .floating-ball-footer {
-  border-top: 1px solid hsl(var(--border));
   padding: 8px;
+}
+/* 今日Token卡片与「打开主界面」按钮之间的横线（负 margin 拉通到面板全宽） */
+.floating-ball-footer-divider {
+  height: 1px;
+  background: hsl(var(--border));
+  margin: 0 -8px 8px;
 }
 .floating-ball-footer-btn {
   display: flex;
@@ -385,4 +390,35 @@ input[type="password"]::-ms-clear {
 }
 .floating-ball-footer-btn:hover {
   background: hsl(var(--accent));
+}
+/* 今日总Token小块：位于 footer 内、按钮上方，主色浅底卡片突出显示；
+   与「打开主界面」按钮之间由 floating-ball-footer-divider 横线分隔 */
+.floating-ball-usage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 8px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: hsl(var(--primary) / 0.08);
+  border: 1px solid hsl(var(--primary) / 0.2);
+}
+.floating-ball-usage-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.floating-ball-usage-icon {
+  color: hsl(var(--primary));
+  flex-shrink: 0;
+}
+.floating-ball-usage-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: hsl(var(--primary));
+  font-variant-numeric: tabular-nums;
 }
