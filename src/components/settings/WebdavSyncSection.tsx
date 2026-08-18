@@ -171,6 +171,13 @@ function buildPasswordPreservationKey(values: {
   });
 }
 
+/** Parse a startup-delay input string into a clamped minute count (0–120). */
+function parseStartupDelay(value: string): number {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) return 0;
+  return Math.min(120, parsed);
+}
+
 // ─── Types ──────────────────────────────────────────────────
 
 type ActionState =
@@ -270,6 +277,7 @@ export function WebdavSyncSection({
     remoteRoot: config?.remoteRoot ?? "cc-switch-sync",
     profile: config?.profile ?? "default",
     autoSync: config?.autoSync ?? false,
+    startupDelayMinutes: String(config?.startupDelayMinutes ?? 0),
   }));
 
   // ─── S3 form state ─────────────────────────────────────────
@@ -288,6 +296,9 @@ export function WebdavSyncSection({
   );
   const [s3Profile, setS3Profile] = useState(s3Config?.profile ?? "default");
   const [s3AutoSync, setS3AutoSync] = useState(s3Config?.autoSync ?? false);
+  const [s3StartupDelay, setS3StartupDelay] = useState(
+    String(s3Config?.startupDelayMinutes ?? 0),
+  );
   const [s3Enabled, setS3Enabled] = useState(s3Config?.enabled ?? false);
   const [s3SecretTouched, setS3SecretTouched] = useState(false);
   const [s3Dirty, setS3Dirty] = useState(false);
@@ -366,6 +377,7 @@ export function WebdavSyncSection({
         remoteRoot: nextRemoteRoot,
         profile: nextProfile,
         autoSync: config.autoSync ?? false,
+        startupDelayMinutes: String(config.startupDelayMinutes ?? 0),
       };
     });
     setPasswordTouched(false);
@@ -383,6 +395,7 @@ export function WebdavSyncSection({
     setS3RemoteRoot(s3Config.remoteRoot ?? "cc-switch-sync");
     setS3Profile(s3Config.profile ?? "default");
     setS3AutoSync(s3Config.autoSync ?? false);
+    setS3StartupDelay(String(s3Config.startupDelayMinutes ?? 0));
     setS3Enabled(s3Config.enabled ?? false);
     setS3SecretTouched(false);
   }, [s3Config, s3Dirty]);
@@ -464,6 +477,7 @@ export function WebdavSyncSection({
       remoteRoot: form.remoteRoot.trim() || "cc-switch-sync",
       profile: form.profile.trim() || "default",
       autoSync: form.autoSync,
+      startupDelayMinutes: parseStartupDelay(form.startupDelayMinutes),
     };
   }, [form, passwordTouched]);
 
@@ -672,6 +686,7 @@ export function WebdavSyncSection({
     return {
       enabled: s3Enabled,
       autoSync: s3AutoSync,
+      startupDelayMinutes: parseStartupDelay(s3StartupDelay),
       region: s3Region.trim(),
       bucket: s3Bucket.trim(),
       accessKeyId: s3AccessKeyId.trim(),
@@ -683,6 +698,7 @@ export function WebdavSyncSection({
   }, [
     s3Enabled,
     s3AutoSync,
+    s3StartupDelay,
     s3Region,
     s3Bucket,
     s3AccessKeyId,
@@ -1122,6 +1138,28 @@ export function WebdavSyncSection({
                 />
               </div>
             </div>
+
+            {/* Startup delay (minutes) */}
+            <div className="flex items-start gap-4">
+              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+                {t("settings.webdavSync.startupDelay")}
+                <span className="block text-[10px] font-normal text-muted-foreground">
+                  {t("settings.webdavSync.startupDelayHint")}
+                </span>
+              </label>
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                value={form.startupDelayMinutes}
+                onChange={(e) =>
+                  updateField("startupDelayMinutes", e.target.value)
+                }
+                aria-label={t("settings.webdavSync.startupDelay")}
+                className="text-xs flex-1"
+                disabled={isLoading}
+              />
+            </div>
           </div>
 
           {/* Last sync time */}
@@ -1411,6 +1449,29 @@ export function WebdavSyncSection({
                   disabled={isS3Loading}
                 />
               </div>
+            </div>
+
+            {/* Startup delay (minutes) */}
+            <div className="flex items-start gap-4">
+              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+                {t("settings.s3Sync.startupDelay")}
+                <span className="block text-[10px] font-normal text-muted-foreground">
+                  {t("settings.s3Sync.startupDelayHint")}
+                </span>
+              </label>
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                value={s3StartupDelay}
+                onChange={(e) => {
+                  setS3StartupDelay(e.target.value);
+                  markS3Dirty();
+                }}
+                aria-label={t("settings.s3Sync.startupDelay")}
+                className="text-xs flex-1"
+                disabled={isS3Loading}
+              />
             </div>
 
             {/* Enabled toggle */}
