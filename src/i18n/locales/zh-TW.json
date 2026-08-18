@@ -3267,6 +3267,7 @@
   },
   "floatingBall": {
     "openMainWindow": "開啟主介面",
+    "todayUsage": "今日總Token",
     "empty": "（無供應商）",
     "switchFailed": "切換失敗，請重試"
   }

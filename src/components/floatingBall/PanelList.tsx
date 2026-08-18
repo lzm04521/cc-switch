@@ -18,10 +18,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, ExternalLink } from "lucide-react";
+import { Check, ExternalLink, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { formatTokensShort, getResolvedLang } from "@/components/usage/format";
 import { providersApi } from "@/lib/api";
 import type { AppId } from "@/lib/api";
 import {
@@ -31,6 +32,7 @@ import {
   type BallProviderInfo,
   type BallSection,
 } from "@/lib/api/floatingBall";
+import { useUsageSummary, usageKeys } from "@/lib/query/usage";
 import { cn } from "@/lib/utils";
 import { applyProviderSwitchSideEffects } from "@/hooks/providerSwitchSideEffects";
 
@@ -101,6 +103,29 @@ function SortableProviderRow({
 }
 
 /**
+ * 今日总Token小块（footer 内、「打开主界面」上方）：当天全部 app 的真实总消耗
+ * token，口径与主窗口用量页 Hero 一致（input + output + cache_creation +
+ * cache_read）；主色浅底卡片 + 大号数值突出显示，与按钮之间由
+ * floating-ball-footer-divider 横线分隔
+ */
+function TodayUsageBlock() {
+  const { t, i18n } = useTranslation();
+  const { data: summary } = useUsageSummary({ preset: "today" });
+  const realTotal = summary?.realTotalTokens ?? 0;
+  return (
+    <div className="floating-ball-usage">
+      <span className="floating-ball-usage-label">
+        <Zap size={13} className="floating-ball-usage-icon" />
+        {t("floatingBall.todayUsage", { defaultValue: "今日总Token" })}
+      </span>
+      <span className="floating-ball-usage-value">
+        {formatTokensShort(realTotal, getResolvedLang(i18n))}
+      </span>
+    </div>
+  );
+}
+
+/**
  * 悬浮球弹出面板（panel 窗口内渲染）：
  * - 按 app 分组的 provider 列表，当前项勾选高亮
  * - 点击行 → switch_provider，成功后收起面板，失败内联提示可重试
@@ -160,6 +185,8 @@ export function PanelList() {
           void queryClient.invalidateQueries({
             queryKey: FLOATING_BALL_SECTIONS_KEY,
           });
+          // 今日用量随面板每次打开刷新（另有默认 30s 轮询兜底）
+          void queryClient.invalidateQueries({ queryKey: usageKeys.all });
         } else {
           void floatingBallApi.onPanelBlur();
         }
@@ -340,6 +367,8 @@ export function PanelList() {
         {sections?.map(renderSection)}
       </div>
       <div className="floating-ball-footer">
+        <TodayUsageBlock />
+        <div className="floating-ball-footer-divider" />
         <button
           type="button"
           className="floating-ball-footer-btn"
