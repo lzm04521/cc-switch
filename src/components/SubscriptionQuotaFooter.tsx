@@ -81,7 +81,7 @@ function formatResetTime(
 const HIDDEN_INLINE_TIERS = new Set(["seven_day_sonnet"]);
 
 /** 格式化相对时间（与 UsageFooter 一致） */
-function formatRelativeTime(
+export function formatRelativeTime(
   timestamp: number,
   now: number,
   t: (key: string, options?: { count?: number }) => string,

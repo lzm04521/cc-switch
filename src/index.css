@@ -364,6 +364,44 @@ input[type="password"]::-ms-clear {
   color: hsl(var(--primary));
   flex-shrink: 0;
 }
+/* ── 行下用量子行（后端缓存命中时渲染）──
+   has-usage 开启 wrap：主行（图标+名称+勾）在第一行，用量子行 flex-basis 100%
+   换到第二行；子行片段横向排布，多窗口/多套餐全部显示，溢出时 wrap 兜底 */
+.floating-ball-row.has-usage {
+  flex-wrap: wrap;
+  row-gap: 1px;
+  align-content: center;
+}
+.floating-ball-row-usage {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: hsl(var(--muted-foreground));
+  text-align: left;
+}
+.floating-ball-usage-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.floating-ball-usage-time {
+  margin-left: auto;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground) / 0.7);
+  white-space: nowrap;
+}
+.floating-ball-usage-fail {
+  font-size: 11px;
+  color: hsl(var(--destructive));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .floating-ball-empty {
   padding: 6px 8px;
   font-size: 12px;
