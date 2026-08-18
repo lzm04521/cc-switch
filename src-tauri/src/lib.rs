@@ -1534,6 +1534,7 @@ pub fn run() {
             commands::on_ball_panel_blur,
             commands::save_ball_position,
             commands::start_ball_drag,
+            commands::on_ball_hover,
             commands::set_floating_ball_enabled,
             commands::get_floating_ball_sections,
             commands::show_main_window,

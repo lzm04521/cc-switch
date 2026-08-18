@@ -1,10 +1,12 @@
 //! 悬浮球（快速切换 Provider 的置顶悬浮窗）窗口管理
 //!
-//! ball 窗口：56px 圆形置顶小窗，显示固定 CC Switch 图标，可拖动、位置持久化。
+//! ball 窗口：56px 圆形置顶小窗，显示固定 CC Switch 图标，可拖动、位置持久化，
+//! 拖近屏幕左右边缘松手自动贴边收起（只露一小条），hover 露条滑出展开。
 //! panel 窗口：点击球后在其旁边弹出的 provider 分组列表。
 //! 两个窗口均在 tauri.conf.json 预配置（visible: false），启动时由 Tauri 自动创建。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Manager, PhysicalPosition};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -19,6 +21,433 @@ pub const PANEL_GAP: f64 = 8.0;
 
 /// 面板当前是否可见（状态机单一事实源，所有显隐操作经 toggle/hide 修改）
 static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
+
+// ===== 贴边隐藏（dock）=====
+//
+// 交互：拖近左右边缘松手 → 吸附贴边并滑出收起（只露一小条）；
+// hover 露条 → 滑出展开；鼠标移开 → 延迟收回；拖离边缘 → 恢复自由摆放。
+// 重启时由已保存的真实窗口位置反推 dock 状态（不新增设置字段）。
+
+/// 吸附判定阈值（物理像素）：松手时球与所在屏 work area 左/右边缘距离小于该值即贴边
+const SNAP_THRESHOLD_PX: f64 = 32.0;
+/// 收起时露出量（逻辑像素，按显示器 DPI 换算为物理像素）
+const COLLAPSED_VISIBLE_LOGICAL_PX: f64 = 10.0;
+/// 贴边滑动动画总时长与帧间隔
+const DOCK_ANIMATE_MS: u64 = 150;
+const DOCK_ANIMATE_FRAME_MS: u64 = 8;
+/// mouseleave / 面板关闭后延迟收回的等待时长
+const RECOLLAPSE_DELAY_MS: u64 = 400;
+/// 启动恢复判定容差（物理像素）：位置与收起/展开位偏差在该值内视为对应状态
+const RESTORE_TOLERANCE_PX: f64 = 4.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DockSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// 球当前 dock 状态：None = 自由摆放
+static DOCK: OnceLock<Mutex<Option<DockSide>>> = OnceLock::new();
+/// dock 态下球是否处于收起位
+static DOCK_COLLAPSED: AtomicBool = AtomicBool::new(false);
+/// 后端拖动循环进行中（hover 展开在拖动期间被忽略）
+static BALL_DRAGGING: AtomicBool = AtomicBool::new(false);
+/// 贴边滑动动画进行中（互斥：拖动开始 / 新动画 / 收回判定）
+static BALL_ANIMATING: AtomicBool = AtomicBool::new(false);
+/// 动画代数：新动画 / 拖动开始时递增，旧动画线程发现代数变化即自杀，
+/// 避免拖动与动画两个 SetWindowPos 循环同时驱动窗口产生抖动
+static DOCK_ANIM_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn dock_state() -> &'static Mutex<Option<DockSide>> {
+    DOCK.get_or_init(|| Mutex::new(None))
+}
+
+fn set_dock(side: Option<DockSide>, collapsed: bool) {
+    *dock_state().lock().unwrap_or_else(|e| e.into_inner()) = side;
+    DOCK_COLLAPSED.store(collapsed, Ordering::Release);
+}
+
+/// 判定任务栏所在侧：比较显示器全屏矩形与 work area 的差值。
+/// 任务栏隐藏 / 副屏无任务栏时返回 None（四边均可收缩）。
+fn taskbar_side(monitor: &Rect, work: &Rect) -> Option<DockSide> {
+    if work.y > monitor.y {
+        Some(DockSide::Top)
+    } else if work.x > monitor.x {
+        Some(DockSide::Left)
+    } else if work.x + work.width < monitor.x + monitor.width {
+        Some(DockSide::Right)
+    } else if work.y + work.height < monitor.y + monitor.height {
+        Some(DockSide::Bottom)
+    } else {
+        None
+    }
+}
+
+/// 判定松手位置是否应贴边：取与 work area 四边更近的一侧，距离须小于阈值，
+/// 且跳过任务栏所在侧（收缩窗口会盖在任务栏上，视觉混乱）。
+fn should_snap(ball: &Rect, work: &Rect, monitor: &Rect, threshold: f64) -> Option<DockSide> {
+    let blocked = taskbar_side(monitor, work);
+    let dists = [
+        ((ball.x - work.x).abs(), DockSide::Left),
+        (
+            (work.x + work.width - ball.x - ball.width).abs(),
+            DockSide::Right,
+        ),
+        ((ball.y - work.y).abs(), DockSide::Top),
+        (
+            (work.y + work.height - ball.y - ball.height).abs(),
+            DockSide::Bottom,
+        ),
+    ];
+    let mut best: Option<(f64, DockSide)> = None;
+    for (d, side) in dists {
+        if Some(side) == blocked || d >= threshold {
+            continue;
+        }
+        if best.map_or(true, |(bd, _)| d < bd) {
+            best = Some((d, side));
+        }
+    }
+    best.map(|(_, side)| side)
+}
+
+/// 贴边展开位（完全可见，贴 work area 边缘；非收缩轴向保持球的当前坐标）
+fn dock_expanded_pos(side: DockSide, work: &Rect, ball: &Rect) -> (f64, f64) {
+    match side {
+        DockSide::Left => (work.x, ball.y),
+        DockSide::Right => (work.x + work.width - ball.width, ball.y),
+        DockSide::Top => (ball.x, work.y),
+        DockSide::Bottom => (ball.x, work.y + work.height - ball.height),
+    }
+}
+
+/// 贴边收起位（滑出屏外，只露 visible_px）
+fn dock_collapsed_pos(side: DockSide, work: &Rect, ball: &Rect, visible_px: f64) -> (f64, f64) {
+    match side {
+        DockSide::Left => (work.x - ball.width + visible_px, ball.y),
+        DockSide::Right => (work.x + work.width - visible_px, ball.y),
+        DockSide::Top => (ball.x, work.y - ball.height + visible_px),
+        DockSide::Bottom => (ball.x, work.y + work.height - visible_px),
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod win32_dock {
+    use std::sync::atomic::Ordering;
+
+    use tauri::{AppHandle, Manager};
+    use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+    use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetCursorPos, GetWindowRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE,
+        SWP_NOZORDER,
+    };
+
+    use super::{Rect, BALL_ANIMATING, DOCK_ANIM_GEN};
+
+    pub(super) fn ball_hwnd(app: &AppHandle) -> Result<HWND, String> {
+        let window = app
+            .get_webview_window(super::BALL_LABEL)
+            .ok_or("悬浮球窗口未初始化")?;
+        window
+            .hwnd()
+            .map(|h| h.0)
+            .map_err(|e| format!("获取悬浮球窗口句柄失败: {e}"))
+    }
+
+    /// 取球所在显示器的全屏矩形与 work area（物理像素，全局虚拟桌面坐标）。
+    /// monitor 矩形用于判定任务栏所在侧（与 work area 的差值）。
+    pub(super) fn ball_monitor_rects(hwnd: HWND) -> Option<(Rect, Rect)> {
+        let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+        if monitor.is_null() {
+            return None;
+        }
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return None;
+        }
+        let full = Rect {
+            x: info.rcMonitor.left as f64,
+            y: info.rcMonitor.top as f64,
+            width: (info.rcMonitor.right - info.rcMonitor.left) as f64,
+            height: (info.rcMonitor.bottom - info.rcMonitor.top) as f64,
+        };
+        let work = Rect {
+            x: info.rcWork.left as f64,
+            y: info.rcWork.top as f64,
+            width: (info.rcWork.right - info.rcWork.left) as f64,
+            height: (info.rcWork.bottom - info.rcWork.top) as f64,
+        };
+        Some((full, work))
+    }
+
+    /// 球窗口的显示缩放系数（按窗口 DPI 换算，供逻辑→物理像素转换）
+    pub(super) fn ball_scale(hwnd: HWND) -> f64 {
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f64 / 96.0
+        }
+    }
+
+    pub(super) fn window_rect(hwnd: HWND) -> Rect {
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        unsafe { GetWindowRect(hwnd, &mut rect) };
+        Rect {
+            x: rect.left as f64,
+            y: rect.top as f64,
+            width: (rect.right - rect.left) as f64,
+            height: (rect.bottom - rect.top) as f64,
+        }
+    }
+
+    /// 光标当前是否落在球窗口矩形内（用于收回前的"鼠标还在球上"校验）
+    pub(super) fn cursor_over_ball(hwnd: HWND) -> bool {
+        let mut cur = POINT { x: 0, y: 0 };
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        unsafe {
+            GetCursorPos(&mut cur);
+            GetWindowRect(hwnd, &mut rect);
+        }
+        cur.x >= rect.left && cur.x < rect.right && cur.y >= rect.top && cur.y < rect.bottom
+    }
+
+    fn move_ball_to(hwnd: HWND, x: i32, y: i32) {
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                x,
+                y,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+
+    fn persist_position(app: &AppHandle) {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = handle.save_window_state(StateFlags::POSITION);
+        });
+    }
+
+    /// 将球移动到 (target_x, target_y)（物理像素），线性动画（双轴插值）。
+    /// 结束后落盘。启动时递增动画代数：在途旧动画被新动画/拖动取代后自动退出。
+    pub(super) fn animate_ball_to(app: &AppHandle, hwnd: HWND, target_x: i32, target_y: i32) {
+        let rect = window_rect(hwnd);
+        let (start_x, start_y) = (rect.x as i32, rect.y as i32);
+        if (target_x - start_x).abs() <= 1 && (target_y - start_y).abs() <= 1 {
+            persist_position(app);
+            return;
+        }
+        let gen = DOCK_ANIM_GEN.fetch_add(1, Ordering::AcqRel) + 1;
+        BALL_ANIMATING.store(true, Ordering::Release);
+        // HWND（*mut c_void）不是 Send，转成 isize 传入线程后再还原
+        let hwnd_value = hwnd as isize;
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let hwnd = hwnd_value as HWND;
+            let total_x = (target_x - start_x) as f64;
+            let total_y = (target_y - start_y) as f64;
+            let frames = (super::DOCK_ANIMATE_MS / super::DOCK_ANIMATE_FRAME_MS).max(1);
+            for i in 1..=frames {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    super::DOCK_ANIMATE_FRAME_MS,
+                ));
+                if DOCK_ANIM_GEN.load(Ordering::Acquire) != gen {
+                    break;
+                }
+                let t = i as f64 / frames as f64;
+                let x = start_x + (total_x * t).round() as i32;
+                let y = start_y + (total_y * t).round() as i32;
+                move_ball_to(hwnd, x, y);
+            }
+            if DOCK_ANIM_GEN.load(Ordering::Acquire) == gen {
+                // 收尾精确落位（帧取整可能差 1px）
+                move_ball_to(hwnd, target_x, target_y);
+                BALL_ANIMATING.store(false, Ordering::Release);
+                persist_position(&app);
+                // 动画期间 hover 事件被 BALL_ANIMATING 拦截，鼠标可能已经停在
+                // 球/露条上但 mouseenter 不会再触发；按当前光标位置补一次判定
+                reconcile_after_dock_animation(&app, hwnd);
+            }
+        });
+    }
+
+    /// dock 动画结束后的状态对账：收起完成且鼠标在球上 → 立即展开；
+    /// 展开完成且鼠标已移开 → 安排延迟收回（内部有完整校验，误触发无害）。
+    fn reconcile_after_dock_animation(app: &AppHandle, hwnd: HWND) {
+        let collapsed = super::DOCK_COLLAPSED.load(Ordering::Acquire);
+        let over = cursor_over_ball(hwnd);
+        if collapsed && over {
+            let _ = super::ball_hover(app, true);
+        } else if !collapsed && !over {
+            schedule_recollapse(app);
+        }
+    }
+
+    /// 延迟收回：等待 RECOLLAPSE_DELAY_MS 后复核状态（仍贴边展开、非拖动/动画、
+    /// 面板已关、光标不在球上）才执行收起动画。点球关面板时鼠标仍在球上，
+    /// 复核失败自然放弃；面板仍开着时不收（避免面板悬空）。
+    pub(super) fn schedule_recollapse(app: &AppHandle) {
+        use super::{
+            BALL_ANIMATING, BALL_DRAGGING, COLLAPSED_VISIBLE_LOGICAL_PX, DOCK_COLLAPSED,
+            PANEL_VISIBLE,
+        };
+
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(super::RECOLLAPSE_DELAY_MS));
+            let docked = *super::dock_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let Some(side) = docked else { return };
+            if DOCK_COLLAPSED.load(Ordering::Acquire)
+                || BALL_DRAGGING.load(Ordering::Acquire)
+                || BALL_ANIMATING.load(Ordering::Acquire)
+                || PANEL_VISIBLE.load(Ordering::Acquire)
+            {
+                return;
+            }
+            let Ok(hwnd) = ball_hwnd(&app) else { return };
+            if cursor_over_ball(hwnd) {
+                return;
+            }
+            let Some((_full, work)) = ball_monitor_rects(hwnd) else { return };
+            let rect = window_rect(hwnd);
+            let visible = COLLAPSED_VISIBLE_LOGICAL_PX * ball_scale(hwnd);
+            let (tx, ty) = super::dock_collapsed_pos(side, &work, &rect, visible);
+            DOCK_COLLAPSED.store(true, Ordering::Release);
+            animate_ball_to(&app, hwnd, tx.round() as i32, ty.round() as i32);
+        });
+    }
+
+    /// 拖动结束后处理贴边：吸附判定 → 收起动画 / 清除 dock；最终统一落盘。
+    pub(super) fn finish_ball_drag(app: &AppHandle, hwnd: HWND) {
+        let ball = window_rect(hwnd);
+        let rects = ball_monitor_rects(hwnd);
+        let side = rects.as_ref().and_then(|(full, work)| {
+            super::should_snap(&ball, work, full, super::SNAP_THRESHOLD_PX)
+        });
+        match (side, rects) {
+            (Some(side), Some((_full, work))) => {
+                super::set_dock(Some(side), true);
+                // 收起时同步收起面板（球即将滑出，面板不应悬空）
+                let app_hide = app.clone();
+                let _ = app.run_on_main_thread(move || super::hide_panel(&app_hide));
+                let visible = super::COLLAPSED_VISIBLE_LOGICAL_PX * ball_scale(hwnd);
+                let (tx, ty) = super::dock_collapsed_pos(side, &work, &ball, visible);
+                animate_ball_to(app, hwnd, tx.round() as i32, ty.round() as i32);
+            }
+            _ => {
+                super::set_dock(None, false);
+                persist_position(app);
+            }
+        }
+    }
+}
+
+/// 前端 hover 上报入口：进入露出条 → 展开；离开 → 延迟收回。
+/// 返回值表示球当前是否处于 dock 态（自由态恒 false，前端不依赖返回值）。
+#[cfg(target_os = "windows")]
+pub fn ball_hover(app: &AppHandle, entered: bool) -> Result<bool, String> {
+    let docked = *dock_state().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(side) = docked else { return Ok(false) };
+    if entered {
+        if DOCK_COLLAPSED.load(Ordering::Acquire)
+            && !BALL_ANIMATING.load(Ordering::Acquire)
+            && !BALL_DRAGGING.load(Ordering::Acquire)
+        {
+            let hwnd = win32_dock::ball_hwnd(app)?;
+            let Some((_full, work)) = win32_dock::ball_monitor_rects(hwnd) else {
+                return Ok(true);
+            };
+            let rect = win32_dock::window_rect(hwnd);
+            let (tx, ty) = dock_expanded_pos(side, &work, &rect);
+            DOCK_COLLAPSED.store(false, Ordering::Release);
+            win32_dock::animate_ball_to(app, hwnd, tx.round() as i32, ty.round() as i32);
+        }
+    } else if !DOCK_COLLAPSED.load(Ordering::Acquire) {
+        win32_dock::schedule_recollapse(app);
+    }
+    Ok(true)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn ball_hover(_app: &AppHandle, _entered: bool) -> Result<bool, String> {
+    Ok(false)
+}
+
+/// 启动 / 启用悬浮球时按已保存的窗口位置恢复 dock 状态（不动画，直接对号入座）。
+/// window-state 插件保存的是收起/展开时的真实物理位置，据此反推。
+pub fn restore_dock_state(app: &AppHandle) {
+    let Some(ball) = app.get_webview_window(BALL_LABEL) else {
+        return;
+    };
+    let Ok(Some(monitor)) = ball.current_monitor() else {
+        return;
+    };
+    let Ok(pos) = ball.outer_position() else {
+        return;
+    };
+    let Ok(size) = ball.inner_size() else {
+        return;
+    };
+    let work_rect = monitor.work_area();
+    let ball = Rect {
+        x: pos.x as f64,
+        y: pos.y as f64,
+        width: size.width as f64,
+        height: size.height as f64,
+    };
+    let work = Rect {
+        x: work_rect.position.x as f64,
+        y: work_rect.position.y as f64,
+        width: work_rect.size.width as f64,
+        height: work_rect.size.height as f64,
+    };
+    let visible = COLLAPSED_VISIBLE_LOGICAL_PX * monitor.scale_factor();
+    let tol = RESTORE_TOLERANCE_PX;
+    let restored = [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom]
+        .into_iter()
+        .find_map(|side| {
+            let (cx, cy) = dock_collapsed_pos(side, &work, &ball, visible);
+            if (cx - ball.x).abs() <= tol && (cy - ball.y).abs() <= tol {
+                return Some((side, true));
+            }
+            let (ex, ey) = dock_expanded_pos(side, &work, &ball);
+            if (ex - ball.x).abs() <= tol && (ey - ball.y).abs() <= tol {
+                return Some((side, false));
+            }
+            None
+        });
+    if let Some((side, collapsed)) = restored {
+        set_dock(Some(side), collapsed);
+        log::info!("悬浮球贴边状态已恢复：{:?} collapsed={collapsed}", side);
+    }
+}
 
 /// 逻辑坐标矩形
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +496,8 @@ pub fn ensure_ball_window(app: &AppHandle) {
         if let Err(e) = ball.show() {
             log::error!("显示悬浮球窗口失败: {e}");
         }
+        // 按已恢复的窗口位置还原贴边状态（收起/展开/自由）
+        restore_dock_state(app);
     } else {
         hide_panel(app);
         if let Err(e) = ball.hide() {
@@ -82,6 +513,17 @@ pub fn hide_panel(app: &AppHandle) {
             if let Err(e) = panel.hide() {
                 log::error!("隐藏悬浮球面板失败: {e}");
             }
+        }
+        // 面板关闭后，贴边展开的球安排延迟收回（点球关面板时鼠标仍在球上，
+        // 收回线程会因光标在球内而放弃；真正移开时由 mouseleave 再安排）
+        #[cfg(target_os = "windows")]
+        if dock_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+            && !DOCK_COLLAPSED.load(Ordering::Acquire)
+        {
+            win32_dock::schedule_recollapse(app);
         }
     }
 }
@@ -227,6 +669,10 @@ pub fn start_ball_drag(app: &AppHandle) -> Result<(), String> {
     let app = app.clone();
     // HWND（*mut c_void）不是 Send，转成 isize 传入线程后再还原
     let hwnd_value = hwnd as isize;
+    // 拖动开始：置位拖动标志并使在途贴边动画失效，避免两个 SetWindowPos
+    // 循环同时驱动窗口产生抖动
+    BALL_DRAGGING.store(true, Ordering::Release);
+    DOCK_ANIM_GEN.fetch_add(1, Ordering::AcqRel);
     std::thread::spawn(move || {
         let hwnd = hwnd_value as HWND;
         loop {
@@ -250,9 +696,11 @@ pub fn start_ball_drag(app: &AppHandle) -> Result<(), String> {
                 );
             }
         }
+        // 拖动结束：清拖动标志后做贴边吸附判定（收起动画 / 清除 dock），
+        // 并统一落盘最终位置
+        BALL_DRAGGING.store(false, Ordering::Release);
+        win32_dock::finish_ball_drag(&app, hwnd);
     });
-    // 拖动结束，落盘位置（window-state 插件对 Moved 事件的防抖保存作兜底）
-    let _ = app.save_window_state(StateFlags::POSITION);
     Ok(())
 }
 
@@ -392,5 +840,125 @@ mod tests {
         let (x, y) = compute_panel_position(&ball, &work, 450.0, 720.0, 12.0);
         assert!(x >= 2880.0 && x + 450.0 <= 2880.0 + 1920.0);
         assert!(y >= 0.0 && y + 720.0 <= 1040.0);
+    }
+
+    #[test]
+    fn snap_none_when_ball_far_from_edges() {
+        let ball = rect(500.0, 400.0, 56.0, 56.0);
+        let work = rect(0.0, 0.0, 1920.0, 1080.0);
+        let monitor = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX), None);
+    }
+
+    #[test]
+    fn snap_left_when_near_left_edge() {
+        // 距左缘 10px < 32px，距右缘远；无任务栏差异
+        let ball = rect(10.0, 400.0, 56.0, 56.0);
+        let work = rect(0.0, 0.0, 1920.0, 1080.0);
+        let monitor = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(
+            should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX),
+            Some(DockSide::Left)
+        );
+    }
+
+    #[test]
+    fn snap_right_when_ball_crosses_right_edge() {
+        // 球越出右缘 1px（右距 = -1，取 abs）；左侧远
+        let ball = rect(1865.0, 400.0, 56.0, 56.0);
+        let work = rect(0.0, 0.0, 1920.0, 1080.0);
+        let monitor = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(
+            should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX),
+            Some(DockSide::Right)
+        );
+    }
+
+    #[test]
+    fn snap_top_when_near_top_edge() {
+        let ball = rect(500.0, 8.0, 56.0, 56.0);
+        let work = rect(0.0, 0.0, 1920.0, 1080.0);
+        let monitor = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(
+            should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX),
+            Some(DockSide::Top)
+        );
+    }
+
+    #[test]
+    fn snap_skips_taskbar_side() {
+        // 任务栏在底部：work 底边高于显示器底边，贴底也应被跳过
+        let ball = rect(500.0, 1020.0, 56.0, 56.0); // 距 work 底缘 4px
+        let work = rect(0.0, 0.0, 1920.0, 1040.0);
+        let monitor = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX), None);
+    }
+
+    #[test]
+    fn snap_uses_closer_side_on_secondary_monitor_with_negative_origin() {
+        // 副屏在主屏左侧：work 原点为负；球距左缘 5px
+        let ball = rect(-1915.0, 400.0, 56.0, 56.0);
+        let work = rect(-1920.0, 0.0, 1920.0, 1040.0);
+        let monitor = rect(-1920.0, 0.0, 1920.0, 1040.0);
+        assert_eq!(
+            should_snap(&ball, &work, &monitor, SNAP_THRESHOLD_PX),
+            Some(DockSide::Left)
+        );
+    }
+
+    #[test]
+    fn taskbar_side_detected_from_monitor_work_gap() {
+        let full = rect(0.0, 0.0, 1920.0, 1080.0);
+        // 底部任务栏
+        assert_eq!(taskbar_side(&full, &rect(0.0, 0.0, 1920.0, 1040.0)), Some(DockSide::Bottom));
+        // 顶部任务栏
+        assert_eq!(taskbar_side(&full, &rect(0.0, 40.0, 1920.0, 1040.0)), Some(DockSide::Top));
+        // 左侧任务栏
+        assert_eq!(taskbar_side(&full, &rect(60.0, 0.0, 1860.0, 1080.0)), Some(DockSide::Left));
+        // 无任务栏（副屏 / 自动隐藏）
+        assert_eq!(taskbar_side(&full, &full), None);
+    }
+
+    #[test]
+    fn dock_positions_horizontal() {
+        let work = rect(0.0, 0.0, 1920.0, 1080.0);
+        let ball = rect(10.0, 400.0, 56.0, 56.0);
+        // 左侧：展开 x=work.x，y 保持；收起露出 15px → x = -41
+        assert_eq!(dock_expanded_pos(DockSide::Left, &work, &ball), (0.0, 400.0));
+        assert_eq!(
+            dock_collapsed_pos(DockSide::Left, &work, &ball, 15.0),
+            (-41.0, 400.0)
+        );
+        // 右侧
+        assert_eq!(
+            dock_expanded_pos(DockSide::Right, &work, &ball),
+            (1920.0 - 56.0, 400.0)
+        );
+        assert_eq!(
+            dock_collapsed_pos(DockSide::Right, &work, &ball, 15.0),
+            (1920.0 - 15.0, 400.0)
+        );
+    }
+
+    #[test]
+    fn dock_positions_vertical_secondary_monitor() {
+        // 副屏无任务栏，四边可收缩；1.5x 缩放下球 84x84
+        let work = rect(2880.0, 0.0, 1920.0, 1040.0);
+        let ball = rect(4000.0, 10.0, 84.0, 84.0);
+        // 顶部：展开 y=work.y，x 保持；收起露出 15px → y = -69
+        assert_eq!(dock_expanded_pos(DockSide::Top, &work, &ball), (4000.0, 0.0));
+        assert_eq!(
+            dock_collapsed_pos(DockSide::Top, &work, &ball, 15.0),
+            (4000.0, -69.0)
+        );
+        // 底部
+        assert_eq!(
+            dock_expanded_pos(DockSide::Bottom, &work, &ball),
+            (4000.0, 1040.0 - 84.0)
+        );
+        assert_eq!(
+            dock_collapsed_pos(DockSide::Bottom, &work, &ball, 15.0),
+            (4000.0, 1040.0 - 15.0)
+        );
     }
 }

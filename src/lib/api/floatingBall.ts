@@ -23,6 +23,7 @@ export const floatingBallApi = {
   onPanelBlur: () => invoke<boolean>("on_ball_panel_blur"),
   savePosition: () => invoke<boolean>("save_ball_position"),
   startDrag: () => invoke<boolean>("start_ball_drag"),
+  onHover: (entered: boolean) => invoke<boolean>("on_ball_hover", { entered }),
   setEnabled: (enabled: boolean) =>
     invoke<boolean>("set_floating_ball_enabled", { enabled }),
   getSections: () => invoke<BallSection[]>("get_floating_ball_sections"),

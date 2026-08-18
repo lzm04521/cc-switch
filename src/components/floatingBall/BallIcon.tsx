@@ -73,6 +73,14 @@ export function BallIcon() {
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // 左键已松开却仍在 move：说明本次手势的 pointerup 丢失（拖动被后端接管后
+    // 球被移走，松手时鼠标已不在球窗口上），自愈清理，避免 down/dragging
+    // 残留把后续手势判定和 hover 上报全部卡死
+    if ((e.buttons & 1) === 0) {
+      downRef.current = null;
+      draggingRef.current = false;
+      return;
+    }
     const down = downRef.current;
     if (!down || draggingRef.current) return;
     if (
@@ -108,6 +116,16 @@ export function BallIcon() {
     draggingRef.current = false;
   };
 
+  // 贴边隐藏联动：hover 露条 → 后端滑出展开；移开 → 延迟收回。
+  // 不在前端做拖动抑制——后端 ball_hover 自带 BALL_DRAGGING / 动画互斥校验
+  //（真正的状态源在后端），前端抑制会在 pointerup 丢失时把 hover 永久卡死
+  const handleMouseEnter = () => {
+    void floatingBallApi.onHover(true).catch(() => {});
+  };
+  const handleMouseLeave = () => {
+    void floatingBallApi.onHover(false).catch(() => {});
+  };
+
   return (
     <div
       className="floating-ball"
@@ -116,6 +134,8 @@ export function BallIcon() {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <img
         src={appIcon}
