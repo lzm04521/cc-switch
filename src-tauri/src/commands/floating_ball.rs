@@ -40,6 +40,12 @@ pub fn start_ball_drag(app: AppHandle) -> Result<(), String> {
     crate::floating_ball::start_ball_drag(&app)
 }
 
+/// 前端 hover 上报：进入贴边露条 → 展开；离开 → 延迟收回（自由态忽略）
+#[tauri::command]
+pub fn on_ball_hover(app: AppHandle, entered: bool) -> Result<bool, String> {
+    crate::floating_ball::ball_hover(&app, entered)
+}
+
 /// 设置页 / 托盘开关调用：更新设置并立即同步窗口可见性
 #[tauri::command]
 pub fn set_floating_ball_enabled(app: AppHandle, enabled: bool) -> Result<bool, String> {

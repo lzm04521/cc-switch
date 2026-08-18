@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "3.19.2-2"
+version = "3.19.2-3"
 description = "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
@@ -97,7 +97,9 @@ winreg = "0.52"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
+    "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
