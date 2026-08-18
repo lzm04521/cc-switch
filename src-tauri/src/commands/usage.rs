@@ -299,6 +299,15 @@ pub fn get_usage_data_sources(
     crate::services::session_usage::get_data_source_breakdown(&state.db)
 }
 
+/// 全量返回脚本型用量缓存快照（悬浮球面板取用）。数据由主窗口 / 托盘
+/// 触发的查询写穿进缓存，本命令只读、不发网络请求；读锁中毒时返回空。
+#[tauri::command]
+pub fn get_provider_usage_cache(
+    state: State<'_, AppState>,
+) -> Vec<crate::services::usage_cache::UsageScriptSnapshot> {
+    state.usage_cache.snapshot_scripts()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

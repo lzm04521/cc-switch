@@ -19,7 +19,7 @@ interface UsageFooterProps {
 }
 
 /** UsageData → QuotaTier 转换（Token Plan 使用） */
-function toQuotaTier(data: UsageData): QuotaTier {
+export function toQuotaTier(data: UsageData): QuotaTier {
   const extra = data.extra;
   if (extra && extra.startsWith("{")) {
     try {

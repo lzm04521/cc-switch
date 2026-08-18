@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,15 +22,25 @@ import { Check, ExternalLink, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import {
+  TierBadge,
+  formatRelativeTime,
+} from "@/components/SubscriptionQuotaFooter";
+import { toQuotaTier } from "@/components/UsageFooter";
 import { formatTokensShort, getResolvedLang } from "@/components/usage/format";
+import type { UsageData } from "@/types";
 import { providersApi } from "@/lib/api";
 import type { AppId } from "@/lib/api";
+import { useTauriEvent } from "@/hooks/useTauriEvent";
 import {
   FLOATING_BALL_SECTIONS_KEY,
+  PROVIDER_USAGE_CACHE_KEY,
   floatingBallApi,
   useFloatingBallSections,
+  useProviderUsageCache,
   type BallProviderInfo,
   type BallSection,
+  type UsageCacheSnapshot,
 } from "@/lib/api/floatingBall";
 import { useUsageSummary, usageKeys } from "@/lib/query/usage";
 import { cn } from "@/lib/utils";
@@ -49,6 +59,76 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   zcode: "ZCode",
 };
 
+/** 余额/次数类单条展示：剩余值 + 单位（不足 10% 变橙、失效变红，梯度同主界面） */
+function BalanceItem({ data }: { data: UsageData }) {
+  const { t } = useTranslation();
+  const isExpired = data.isValid === false;
+  const low =
+    data.remaining !== undefined &&
+    data.remaining < (data.total ?? data.remaining) * 0.1;
+  return (
+    <span className="floating-ball-usage-item">
+      💰 {t("usage.remaining")}
+      <span
+        className={cn(
+          "font-semibold tabular-nums",
+          isExpired
+            ? "text-red-500 dark:text-red-400"
+            : low
+              ? "text-orange-500 dark:text-orange-400"
+              : "text-green-600 dark:text-green-400",
+        )}
+      >
+        {data.remaining !== undefined ? data.remaining.toFixed(2) : "—"}
+      </span>
+      {data.unit && <span>{data.unit}</span>}
+      {isExpired && (
+        <span className="text-red-500 dark:text-red-400">
+          {data.invalidMessage || t("usage.invalid")}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * 行下用量子行（横向单行，flex-wrap 兜底）：仅在缓存命中时渲染。
+ * 数据取自后端 UsageCache（主窗口 / 托盘触发的查询写穿），面板不发网络请求：
+ * - Token Plan / 订阅类（unit === "%"）：TierBadge（与主界面 inline 展示一致）
+ * - 余额类：BalanceItem
+ * - 失败：红字查询失败（不吞错）
+ * 最右为查询相对时间（数据新鲜度）。
+ */
+function UsageSubRow({ snapshot }: { snapshot: UsageCacheSnapshot }) {
+  const { t } = useTranslation();
+  const { result, queriedAt } = snapshot;
+
+  const list = result.data ?? [];
+  // 成功但无数据：与主界面 UsageFooter 一致，整体不渲染
+  if (result.success && list.length === 0) return null;
+
+  return (
+    <span className="floating-ball-row-usage">
+      {!result.success ? (
+        <span className="floating-ball-usage-fail">
+          ⚠ {result.error || t("usage.queryFailed")}
+        </span>
+      ) : (
+        list.map((d, i) =>
+          d.unit === "%" ? (
+            <TierBadge key={i} tier={toQuotaTier(d)} t={t} />
+          ) : (
+            <BalanceItem key={i} data={d} />
+          ),
+        )
+      )}
+      <span className="floating-ball-usage-time">
+        {formatRelativeTime(queriedAt, Date.now(), t)}
+      </span>
+    </span>
+  );
+}
+
 /**
  * 可拖拽排序的 provider 行（作为拖拽触发源）：
  * - 按下移动超过 8px → 进入拖拽，原行隐藏（opacity 0 占位），
@@ -58,10 +138,13 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
 function SortableProviderRow({
   provider,
   isCurrent,
+  usage,
   onClick,
 }: {
   provider: BallProviderInfo;
   isCurrent: boolean;
+  /** 后端用量缓存命中项；未开启用量查询 / 从未查过的 provider 为 undefined */
+  usage?: UsageCacheSnapshot;
   onClick: () => void;
 }) {
   const {
@@ -86,6 +169,7 @@ function SortableProviderRow({
       className={cn(
         "floating-ball-row",
         isCurrent && "is-current",
+        usage && "has-usage",
         // 拖拽中的原行：占位隐藏（内容在 DragOverlay 中显示）
         isDragging && "floating-ball-row-dragging",
       )}
@@ -98,6 +182,7 @@ function SortableProviderRow({
       />
       <span className="floating-ball-row-name">{provider.name}</span>
       {isCurrent && <Check className="floating-ball-check" size={14} />}
+      {usage && <UsageSubRow snapshot={usage} />}
     </button>
   );
 }
@@ -137,9 +222,24 @@ export function PanelList() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: sections } = useFloatingBallSections();
+  const { data: usageSnapshots } = useProviderUsageCache();
   const [activeId, setActiveId] = useState<string | null>(null);
   // 拖放后的短暂落位窗口：禁用行过渡，避免"让位归位 + 数据重排滑动"叠加成摆动
   const [isSettling, setIsSettling] = useState(false);
+
+  // 用量缓存快照按 app:provider 建索引，行渲染 O(1) 匹配
+  const usageByProvider = useMemo(() => {
+    const map = new Map<string, UsageCacheSnapshot>();
+    usageSnapshots?.forEach((s) =>
+      map.set(`${s.appType}:${s.providerId}`, s),
+    );
+    return map;
+  }, [usageSnapshots]);
+
+  // 主窗口 / 托盘触发的用量查询写穿缓存后会广播该事件；面板打开期间实时同步
+  useTauriEvent("usage-cache-updated", () => {
+    void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_CACHE_KEY });
+  });
 
   // provider 切换事件 → 刷新分组（与主窗口同事件源）
   useEffect(() => {
@@ -187,6 +287,10 @@ export function PanelList() {
           });
           // 今日用量随面板每次打开刷新（另有默认 30s 轮询兜底）
           void queryClient.invalidateQueries({ queryKey: usageKeys.all });
+          // 用量缓存快照随面板打开重取（主窗口在此期间的查询也会经事件同步）
+          void queryClient.invalidateQueries({
+            queryKey: PROVIDER_USAGE_CACHE_KEY,
+          });
         } else {
           void floatingBallApi.onPanelBlur();
         }
@@ -292,6 +396,9 @@ export function PanelList() {
     const sectionActiveProvider = section.providers.find(
       (p) => p.id === activeId,
     );
+    const activeUsage = sectionActiveProvider
+      ? usageByProvider.get(`${section.appType}:${sectionActiveProvider.id}`)
+      : undefined;
     return (
       <div key={section.appType} className="floating-ball-section">
         <div className="floating-ball-section-header">
@@ -318,6 +425,9 @@ export function PanelList() {
                   key={provider.id}
                   provider={provider}
                   isCurrent={provider.id === section.currentProviderId}
+                  usage={usageByProvider.get(
+                    `${section.appType}:${provider.id}`,
+                  )}
                   onClick={() =>
                     void handleSwitch(section.appType, provider.id)
                   }
@@ -332,6 +442,7 @@ export function PanelList() {
                     "floating-ball-row-overlay",
                     sectionActiveProvider.id === section.currentProviderId &&
                       "is-current",
+                    activeUsage && "has-usage",
                   )}
                 >
                   <ProviderIcon
@@ -345,6 +456,7 @@ export function PanelList() {
                   {sectionActiveProvider.id === section.currentProviderId && (
                     <Check className="floating-ball-check" size={14} />
                   )}
+                  {activeUsage && <UsageSubRow snapshot={activeUsage} />}
                 </div>
               ) : null}
             </DragOverlay>
