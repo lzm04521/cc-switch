@@ -1621,6 +1621,7 @@ pub fn run() {
             commands::save_models_dev_sync_config,
             commands::record_models_dev_sync_result,
             commands::check_provider_limits,
+            commands::get_provider_usage_cache,
             // Session usage sync
             commands::sync_session_usage,
             commands::rebuild_codex_usage,
