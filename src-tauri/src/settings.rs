@@ -108,6 +108,9 @@ fn default_profile() -> String {
     "default".to_string()
 }
 
+/// 启动延迟备份上限（分钟）。
+pub(crate) const MAX_STARTUP_DELAY_MINUTES: u32 = 120;
+
 /// WebDAV 同步设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +119,8 @@ pub struct WebDavSyncSettings {
     pub enabled: bool,
     #[serde(default)]
     pub auto_sync: bool,
+    #[serde(default)]
+    pub startup_delay_minutes: u32,
     #[serde(default)]
     pub base_url: String,
     #[serde(default)]
@@ -135,6 +140,7 @@ impl Default for WebDavSyncSettings {
         Self {
             enabled: false,
             auto_sync: false,
+            startup_delay_minutes: 0,
             base_url: String::new(),
             username: String::new(),
             password: String::new(),
@@ -147,6 +153,13 @@ impl Default for WebDavSyncSettings {
 
 impl WebDavSyncSettings {
     pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.startup_delay_minutes > MAX_STARTUP_DELAY_MINUTES {
+            return Err(crate::error::AppError::localized(
+                "webdav.startup_delay.too_large",
+                "启动延迟不能超过 120 分钟",
+                "Startup delay must not exceed 120 minutes.",
+            ));
+        }
         if self.base_url.trim().is_empty() {
             return Err(crate::error::AppError::localized(
                 "webdav.base_url.required",
@@ -192,6 +205,8 @@ pub struct S3SyncSettings {
     #[serde(default)]
     pub auto_sync: bool,
     #[serde(default)]
+    pub startup_delay_minutes: u32,
+    #[serde(default)]
     pub region: String,
     #[serde(default)]
     pub bucket: String,
@@ -214,6 +229,7 @@ impl Default for S3SyncSettings {
         Self {
             enabled: false,
             auto_sync: false,
+            startup_delay_minutes: 0,
             region: String::new(),
             bucket: String::new(),
             access_key_id: String::new(),
@@ -228,6 +244,13 @@ impl Default for S3SyncSettings {
 
 impl S3SyncSettings {
     pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.startup_delay_minutes > MAX_STARTUP_DELAY_MINUTES {
+            return Err(crate::error::AppError::localized(
+                "s3.startup_delay.too_large",
+                "启动延迟不能超过 120 分钟",
+                "Startup delay must not exceed 120 minutes.",
+            ));
+        }
         if self.bucket.trim().is_empty() {
             return Err(crate::error::AppError::localized(
                 "s3.bucket.required",
@@ -1246,5 +1269,58 @@ mod floating_ball_settings_tests {
     #[test]
     fn floating_ball_settings_default_impl_enabled() {
         assert!(FloatingBallSettings::default().enabled);
+    }
+}
+
+#[cfg(test)]
+mod sync_startup_delay_tests {
+    use super::*;
+
+    #[test]
+    fn webdav_validate_accepts_default_startup_delay() {
+        let s = WebDavSyncSettings {
+            base_url: "https://dav.example.com".to_string(),
+            username: "alice".to_string(),
+            ..WebDavSyncSettings::default()
+        };
+        assert_eq!(s.startup_delay_minutes, 0);
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn webdav_validate_rejects_excessive_startup_delay() {
+        let mut s = WebDavSyncSettings {
+            base_url: "https://dav.example.com".to_string(),
+            username: "alice".to_string(),
+            startup_delay_minutes: MAX_STARTUP_DELAY_MINUTES + 1,
+            ..WebDavSyncSettings::default()
+        };
+        assert!(s.validate().is_err());
+        s.startup_delay_minutes = MAX_STARTUP_DELAY_MINUTES;
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn s3_validate_rejects_excessive_startup_delay() {
+        let mut s = S3SyncSettings {
+            region: "us-east-1".to_string(),
+            bucket: "bucket".to_string(),
+            access_key_id: "key".to_string(),
+            secret_access_key: "secret".to_string(),
+            startup_delay_minutes: MAX_STARTUP_DELAY_MINUTES + 1,
+            ..S3SyncSettings::default()
+        };
+        assert!(s.validate().is_err());
+        s.startup_delay_minutes = 0;
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn startup_delay_deserializes_default_when_missing() {
+        // 旧配置无 startupDelayMinutes 字段 → 默认 0（向后兼容）
+        let s: WebDavSyncSettings =
+            serde_json::from_str(r#"{"baseUrl":"https://dav.example.com","username":"alice"}"#)
+                .expect("解析失败");
+        assert_eq!(s.startup_delay_minutes, 0);
     }
 }

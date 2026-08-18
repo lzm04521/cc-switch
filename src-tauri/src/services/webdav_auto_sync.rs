@@ -159,16 +159,50 @@ pub fn start_worker(db: Arc<crate::database::Database>, app: tauri::AppHandle) {
         return;
     }
 
+    // 启动延迟（分钟）：启动后窗口内暂停自动备份，等待网络（如 ZeroTier）就绪。
+    // 0 表示不启用；启动时读一次，运行中修改需重启生效。
+    let startup_delay_minutes = settings::get_webdav_sync_settings()
+        .map(|s| s.startup_delay_minutes)
+        .unwrap_or(0);
+
     tauri::async_runtime::spawn(async move {
-        run_worker_loop(db, rx, app).await;
+        run_worker_loop(db, rx, app, startup_delay_minutes).await;
     });
+}
+
+/// 启动延迟窗口：在 `delay` 时长内持续接收变更信号但不上传，
+/// 返回窗口内是否收到过变更（用于窗口结束时决定是否补传一次）。
+async fn drain_startup_window(rx: &mut Receiver<String>, delay: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + delay;
+    let mut had_change = false;
+    loop {
+        match tokio::time::timeout_at(deadline, rx.recv()).await {
+            Ok(Some(_)) => had_change = true,
+            Ok(None) | Err(_) => return had_change,
+        }
+    }
 }
 
 async fn run_worker_loop(
     db: Arc<crate::database::Database>,
     mut rx: Receiver<String>,
     app: tauri::AppHandle,
+    startup_delay_minutes: u32,
 ) {
+    // 启动延迟窗口：等待网络就绪（如 ZeroTier），窗口内变更合并为窗口结束时的一次补传。
+    if startup_delay_minutes > 0 {
+        let delay = Duration::from_secs(u64::from(startup_delay_minutes) * 60);
+        let had_change = drain_startup_window(&mut rx, delay).await;
+        if had_change {
+            log::info!(
+                "[WebDAV][AutoSync] Startup delay {startup_delay_minutes}min elapsed, flushing pending backup"
+            );
+            if let Err(err) = run_auto_sync_upload(&db, &app).await {
+                log::warn!("[WebDAV][AutoSync] Startup-delay flush failed: {err}");
+            }
+        }
+    }
+
     while let Some(first_table) = rx.recv().await {
         let started_at = Instant::now();
         let mut merged_count = 1usize;
@@ -196,9 +230,9 @@ async fn run_worker_loop(
 #[cfg(test)]
 mod tests {
     use super::{
-        auto_sync_wait_duration, enqueue_change_signal, is_auto_sync_suppressed,
-        should_run_auto_sync, should_trigger_for_table, AutoSyncSuppressionGuard,
-        MAX_AUTO_SYNC_WAIT_MS,
+        auto_sync_wait_duration, drain_startup_window, enqueue_change_signal,
+        is_auto_sync_suppressed, should_run_auto_sync, should_trigger_for_table,
+        AutoSyncSuppressionGuard, MAX_AUTO_SYNC_WAIT_MS,
     };
     use crate::settings::WebDavSyncSettings;
     use std::time::{Duration, Instant};
@@ -234,6 +268,21 @@ mod tests {
         let (tx, _rx) = channel::<String>(1);
         assert!(enqueue_change_signal(&tx, "providers"));
         assert!(!enqueue_change_signal(&tx, "providers"));
+    }
+
+    #[tokio::test]
+    async fn drain_startup_window_returns_false_when_no_change() {
+        let (_tx, mut rx) = channel::<String>(1);
+        let had = drain_startup_window(&mut rx, Duration::from_millis(30)).await;
+        assert!(!had);
+    }
+
+    #[tokio::test]
+    async fn drain_startup_window_returns_true_on_change() {
+        let (tx, mut rx) = channel::<String>(1);
+        tx.try_send("providers".to_string()).unwrap();
+        let had = drain_startup_window(&mut rx, Duration::from_millis(30)).await;
+        assert!(had);
     }
 
     #[test]
