@@ -5542,6 +5542,7 @@ impl ProviderService {
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
             AppType::Pi => Ok(String::new()),
             AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
+            AppType::Dsh => Ok(String::new()),  // dsh 的 provider 由 dsh 应用内自管
         }
     }
 
@@ -5561,6 +5562,7 @@ impl ProviderService {
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
             AppType::Pi => Ok(String::new()),
             AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
+            AppType::Dsh => Ok(String::new()),  // dsh 的 provider 由 dsh 应用内自管
         }
     }
 
@@ -6332,6 +6334,9 @@ impl ProviderService {
             AppType::Zcode => {
                 // zcode 的 provider 由 zcode 应用内自管，cc-switch 不做校验
             }
+            AppType::Dsh => {
+                // dsh 的 provider 由 dsh 应用内自管，cc-switch 不做校验
+            }
         }
 
         // Validate and clean UsageScript configuration (common for all app types)
@@ -6564,6 +6569,11 @@ impl ProviderService {
                 "zcode.provider.managed_externally",
                 "zcode 的 provider 由 zcode 应用内自管，无凭据可提取",
                 "ZCode providers are managed inside the ZCode app; no credentials to extract",
+            )),
+            AppType::Dsh => Err(AppError::localized(
+                "dsh.provider.managed_externally",
+                "dsh 的 provider 由 dsh 应用内自管，无凭据可提取",
+                "DSH providers are managed inside the dsh app; no credentials to extract",
             )),
         }
     }

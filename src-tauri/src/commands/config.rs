@@ -155,6 +155,13 @@ pub async fn get_config_status(
 
             Ok(ConfigStatus { exists, path })
         }
+        AppType::Dsh => {
+            let config_path = crate::dsh_mcp_config::get_dsh_mcp_config_path();
+            let exists = config_path.exists();
+            let path = crate::dsh_config::get_home().to_string_lossy().to_string();
+
+            Ok(ConfigStatus { exists, path })
+        }
     }
 }
 
@@ -178,6 +185,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir().map_err(|e| e.to_string())?,
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
+        AppType::Dsh => crate::dsh_config::get_home(),
     };
 
     Ok(dir.to_string_lossy().to_string())
@@ -198,6 +206,7 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir().map_err(|e| e.to_string())?,
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
+        AppType::Dsh => crate::dsh_config::get_home(),
     };
 
     if !config_dir.exists() {
