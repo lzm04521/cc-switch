@@ -797,8 +797,8 @@
     "openclawConfigDirDescription": "OpenClaw の設定ディレクトリ（openclaw.json）を上書きします。",
     "hermesConfigDir": "Hermes 設定ディレクトリ",
     "hermesConfigDirDescription": "Hermes の設定ディレクトリ（config.yaml）を上書きします。",
-    "dshConfigDir": "DeepSeek Harness 設定ディレクトリ",
-    "dshConfigDirDescription": "DeepSeek Harness のホームディレクトリ（mcp.json の配置場所）を上書きします。",
+    "dshConfigDir": "Deepseek 設定ディレクトリ",
+    "dshConfigDirDescription": "Deepseek のホームディレクトリ（MCP 設定と skills の配置場所）を上書きします。",
     "piConfigDir": "Pi 設定ディレクトリ",
     "piConfigDirDescription": "Pi の設定ディレクトリ（models.json、指示ファイル、プロンプト、Skills、セッション）を上書きします。",
     "browsePlaceholderClaude": "例: /home/<your-username>/.claude",
@@ -809,9 +809,6 @@
     "browsePlaceholderOpenclaw": "例: /home/<your-username>/.openclaw",
     "browsePlaceholderHermes": "例: /home/<your-username>/.hermes",
     "browsePlaceholderDsh": "例: /home/<your-username>/.dsh",
-    "dshSkillsDir": "DeepSeek Harness Skills ディレクトリ",
-    "dshSkillsDirDescription": "Skill のデプロイ先ディレクトリ（デフォルト ~/.agents/skills。~/.dsh/skills を指定すると dsh 公式 skill を管理できます）。",
-    "browsePlaceholderDshSkills": "例: /home/<ユーザー名>/.agents/skills",
     "browsePlaceholderPi": "例: /home/<your-username>/.pi/agent",
     "browseDirectory": "ディレクトリを選択",
     "resetDefault": "デフォルトに戻す（保存後に反映）",
@@ -926,7 +923,7 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
-    "dsh": "DeepSeek Harness",
+    "dsh": "Deepseek",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -3262,7 +3259,7 @@
     "suggestedDefaultsHint": "このプリセットの推奨デフォルトモデル設定を使用します"
   },
   "dsh": {
-    "providerManagedExternally": "DSH のプロバイダーは DeepSeek Harness アプリ内で自己管理されます。追加・切替・設定はアプリ内で行ってください。"
+    "providerManagedExternally": "DSH のプロバイダーは Deepseek アプリ内で自己管理されます。追加・切替・設定はアプリ内で行ってください。"
   },
   "subscription": {
     "title": "サブスクリプションクォータ",

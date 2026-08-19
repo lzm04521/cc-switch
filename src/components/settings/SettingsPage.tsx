@@ -362,23 +362,6 @@ export function SettingsPage({
                             onDirectoryChange={updateDirectory}
                             onBrowseDirectory={browseDirectory}
                             onResetDirectory={resetDirectory}
-                            dshSkillsDir={settings.dshSkillsDir}
-                            onDshSkillsDirChange={(value) =>
-                              updateSettings({ dshSkillsDir: value })
-                            }
-                            onBrowseDshSkillsDir={async () => {
-                              try {
-                                const picked =
-                                  await settingsApi.selectConfigDirectory(
-                                    settings.dshSkillsDir ?? "~/.agents/skills",
-                                  );
-                                if (picked) {
-                                  updateSettings({ dshSkillsDir: picked });
-                                }
-                              } catch {
-                                // 用户取消选择，忽略
-                              }
-                            }}
                           />
                         </AccordionContent>
                       </AccordionItem>

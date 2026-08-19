@@ -101,7 +101,8 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     universal: false,
   }),
   // DSH providers are managed in-app (settings.yaml/.credentials.yaml);
-  // cc-switch only manages its skills deployment and mcp.json.
+  // cc-switch only manages its skills deployment and its profile patch
+  // MCP config (cordis.patch.yml).
   dsh: generic({
     proxy: false,
     failover: false,

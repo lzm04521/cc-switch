@@ -613,12 +613,9 @@ impl SkillService {
                     return Ok(custom.join("skills"));
                 }
             }
-            AppType::Dsh => {
-                // dsh 的 skills 目录默认 ~/.agents/skills（跨工具标准目录，与
-                // live 配置目录相互独立）；dsh_skills_dir 设置的是完整路径，
-                // 不再拼接 skills 子目录
-                return Ok(crate::settings::get_dsh_skills_dir());
-            }
+            // dsh 的覆盖解析在默认段的 dsh_config::get_home() 里统一处理
+            // （dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh）
+            AppType::Dsh => {}
         }
 
         // 默认路径：回退到用户主目录下的标准位置。
@@ -637,7 +634,9 @@ impl SkillService {
             AppType::Hermes => crate::hermes_config::get_hermes_dir().join("skills"),
             AppType::Pi => crate::pi_config::get_pi_agent_dir()?.join("skills"),
             AppType::Zcode => crate::zcode_config::get_zcode_dir().join("skills"),
-            AppType::Dsh => crate::settings::get_dsh_skills_dir(),
+            // dsh skills 与 live 配置同根：`<dsh home>/skills`（home 三级解析
+            // 见 dsh_config::get_home，即 dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh）
+            AppType::Dsh => crate::dsh_config::get_home().join("skills"),
         })
     }
 
@@ -687,13 +686,6 @@ impl SkillService {
         Ok(())
     }
 
-    /// DSH 的 skills 目录（默认 ~/.agents/skills）与 SSOT 重合时，
-    /// SSOT 里的 skill 对 dsh 天然可见——重合是预期状态而非冲突。
-    /// 仅当用户显式配置了 dsh_skills_dir（独立部署根）时才视为独立目录。
-    fn dsh_skills_dir_aliases_ssot(ssot_dir: &Path) -> bool {
-        Self::paths_alias(ssot_dir, &crate::settings::get_dsh_skills_dir())
-    }
-
     fn get_distinct_app_skills_dir(ssot_dir: &Path, app: &AppType) -> Result<PathBuf> {
         let app_dir = Self::get_app_skills_dir(app)?;
         Self::ensure_distinct_skill_roots(ssot_dir, &app_dir, app)?;
@@ -703,12 +695,6 @@ impl SkillService {
     fn validate_skill_storage_destination(ssot_dir: &Path) -> Result<()> {
         for app in AppType::all() {
             if matches!(app, AppType::ClaudeDesktop) {
-                continue;
-            }
-            // DSH 默认根就是 Unified SSOT 位置：重合意味着"SSOT 即 dsh 可见"，
-            // 不应阻止用户使用 Unified 存储模式（用户显式配置 dsh_skills_dir
-            // 指向别处时 paths_alias 为 false，照常校验）
-            if matches!(app, AppType::Dsh) && Self::dsh_skills_dir_aliases_ssot(ssot_dir) {
                 continue;
             }
             let app_dir = Self::get_app_skills_dir(&app)?;
@@ -2107,9 +2093,6 @@ impl SkillService {
 
     fn preflight_install_destination(source: &Path, directory: &str, app: &AppType) -> Result<()> {
         let ssot_dir = Self::get_ssot_dir()?;
-        if matches!(app, AppType::Dsh) && Self::dsh_skills_dir_aliases_ssot(&ssot_dir) {
-            return Ok(());
-        }
         let app_dir = Self::get_distinct_app_skills_dir(&ssot_dir, app)?;
         if !matches!(app, AppType::Pi) {
             return Ok(());
@@ -2279,14 +2262,6 @@ impl SkillService {
         let source = ssot_dir.join(&directory);
 
         Self::validate_sync_source_dir(&source, &directory)?;
-
-        if matches!(app, AppType::Dsh) && Self::dsh_skills_dir_aliases_ssot(&ssot_dir) {
-            // SSOT（Unified 模式）即 DSH skills 目录：skill 已对 dsh 可见，无需落盘
-            log::debug!(
-                "Skill {directory} 所在 SSOT 与 DSH skills 目录重合，跳过 dsh 同步"
-            );
-            return Ok(());
-        }
 
         let app_dir = Self::get_distinct_app_skills_dir(&ssot_dir, app)?;
         fs::create_dir_all(&app_dir)?;
@@ -2472,17 +2447,6 @@ impl SkillService {
         let directory = Self::require_valid_directory(directory)?;
 
         let ssot_dir = Self::get_ssot_dir()?;
-
-        if matches!(app, AppType::Dsh) && Self::dsh_skills_dir_aliases_ssot(&ssot_dir) {
-            // SSOT 即 DSH skills 目录：移除会删掉 SSOT 本体，明确拒绝。
-            // 想单独控制 dsh 可见性：设置里配置独立的 DSH skills 目录，
-            // 或把 SSOT 切回 ~/.cc-switch/skills。
-            return Err(anyhow::anyhow!(
-                "Skill 存储目录当前与 DSH skills 目录重合（~/.agents/skills），
-                 位于其中的 skill 对 dsh 天然可见，无法单独移除。
-                 如需单独控制，请在设置中为 DSH 配置独立的 skills 目录，或将 SSOT 切回 ~/.cc-switch/skills"
-            ));
-        }
 
         let app_dir = Self::get_distinct_app_skills_dir(&ssot_dir, app)?;
         let skill_path = app_dir.join(&directory);

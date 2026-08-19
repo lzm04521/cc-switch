@@ -1,7 +1,8 @@
 //! DSH MCP 同步和导入模块
 //!
-//! DSH 的 `<dsh home>/mcp.json` 使用数组容器（`servers: [{name, transport, ...}]`），
-//! 与 CC Switch 统一 spec（Claude 风格对象）不同，同步时做格式转换：
+//! DSH 的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 插件条目配置在
+//! `<dsh home>/profiles/web/cordis.patch.yml`（由 dsh_mcp_config 读写）。
+//! 同步时把 CC Switch 统一 spec（Claude 风格对象）转换为插件 config：
 //! - stdio：`{type: "stdio"|省略, command, args, env, cwd}` ↔ `{transport: "stdio", ...}`
 //! - http：`{type: "http", url, headers}` ↔ `{transport: "streamable-http", url, headers}`
 //! - sse：DSH 不支持，同步时跳过并告警（不报错，单条能力缺失不阻塞其余条目）
@@ -23,26 +24,42 @@ fn copy_if_present(dst: &mut Map<String, Value>, src: &Value, key: &str) {
     }
 }
 
-/// 统一 spec → dsh 条目；不支持的 type（sse）返回 `Ok(None)`（调用方跳过）
-fn unified_spec_to_dsh_entry(id: &str, spec: &Value) -> Result<Option<Value>, AppError> {
+/// dsh-mcp-client 的 serverName 契约：`[A-Za-z0-9_-]{1,32}`，
+/// 同时是模型侧工具名 `mcp__<serverName>__*` 的命名空间
+fn is_valid_dsh_server_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// 统一 spec → dsh 插件 config（server 定义字段，serverName 由存储层填入）；
+/// 不支持的 type（sse）返回 `Ok(None)`（调用方跳过）
+fn unified_spec_to_dsh_config(id: &str, spec: &Value) -> Result<Option<Value>, AppError> {
     validate_server_spec(spec)?;
+    if !is_valid_dsh_server_name(id) {
+        return Err(AppError::McpValidation(format!(
+            "DSH serverName 需匹配 [A-Za-z0-9_-]{{1,32}}：'{id}'"
+        )));
+    }
     let t = spec.get("type").and_then(Value::as_str).unwrap_or("stdio");
     match t {
         "stdio" => {
-            let mut entry = json!({"name": id, "transport": "stdio"});
-            let obj = entry.as_object_mut().expect("just built object");
+            let mut config = json!({"transport": "stdio"});
+            let obj = config.as_object_mut().expect("just built object");
             copy_if_present(obj, spec, "command");
             copy_if_present(obj, spec, "args");
             copy_if_present(obj, spec, "env");
             copy_if_present(obj, spec, "cwd");
-            Ok(Some(entry))
+            Ok(Some(config))
         }
         "http" => {
-            let mut entry = json!({"name": id, "transport": "streamable-http"});
-            let obj = entry.as_object_mut().expect("just built object");
+            let mut config = json!({"transport": "streamable-http"});
+            let obj = config.as_object_mut().expect("just built object");
             copy_if_present(obj, spec, "url");
             copy_if_present(obj, spec, "headers");
-            Ok(Some(entry))
+            Ok(Some(config))
         }
         other => {
             // sse：DSH 仅支持 stdio / streamable-http
@@ -55,9 +72,9 @@ fn unified_spec_to_dsh_entry(id: &str, spec: &Value) -> Result<Option<Value>, Ap
     }
 }
 
-/// dsh 条目 → 统一 spec（导入方向）；未知 transport 报错（由调用方 skip + 记录）
-fn dsh_entry_to_unified_spec(entry: &Value) -> Result<Value, AppError> {
-    let transport = entry
+/// dsh 插件 config → 统一 spec（导入方向）；未知 transport 报错（由调用方 skip + 记录）
+fn dsh_config_to_unified_spec(config: &Value) -> Result<Value, AppError> {
+    let transport = config
         .get("transport")
         .and_then(Value::as_str)
         .unwrap_or("stdio");
@@ -72,25 +89,25 @@ fn dsh_entry_to_unified_spec(entry: &Value) -> Result<Value, AppError> {
     };
     let obj = spec.as_object_mut().expect("just built object");
     if transport == "stdio" {
-        copy_if_present(obj, entry, "command");
-        copy_if_present(obj, entry, "args");
-        copy_if_present(obj, entry, "env");
-        copy_if_present(obj, entry, "cwd");
+        copy_if_present(obj, config, "command");
+        copy_if_present(obj, config, "args");
+        copy_if_present(obj, config, "env");
+        copy_if_present(obj, config, "cwd");
     } else {
-        copy_if_present(obj, entry, "url");
-        copy_if_present(obj, entry, "headers");
+        copy_if_present(obj, config, "url");
+        copy_if_present(obj, config, "headers");
     }
     Ok(spec)
 }
 
-/// 将单个 MCP 服务器同步到 dsh live 配置（upsert mcp.json 数组条目）
+/// 将单个 MCP 服务器同步到 dsh live 配置（upsert cordis.patch.yml 插件条目）
 pub fn sync_single_server_to_dsh(
     _config: &MultiAppConfig,
     id: &str,
     server_spec: &Value,
 ) -> Result<(), AppError> {
-    match unified_spec_to_dsh_entry(id, server_spec)? {
-        Some(entry) => dsh_mcp_config::upsert_server(id, entry),
+    match unified_spec_to_dsh_config(id, server_spec)? {
+        Some(config) => dsh_mcp_config::upsert_server(id, &config),
         None => Ok(()), // sse 等不支持类型已告警跳过
     }
 }
@@ -102,8 +119,8 @@ pub fn remove_server_from_dsh(id: &str) -> Result<(), AppError> {
 
 /// 从 dsh live 配置导入 MCP 服务器到统一结构
 ///
-/// 条目 `enabled: false` 视为 dsh 侧已禁用：入库但 `apps.dsh = false`，
-/// 导入不改变 dsh 当前行为（`enabled` 缺省视为 true）。
+/// patch 中的 mcp-client 插件条目即"已启用"（DSH 侧禁用 = 条目不存在），
+/// 导入条目全部置 `apps.dsh = true`。
 pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
     let entries = dsh_mcp_config::get_servers()?;
     if entries.is_empty() {
@@ -118,8 +135,8 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
     let mut changed = 0;
     let mut errors = Vec::new();
 
-    for (name, entry) in entries {
-        let spec = match dsh_entry_to_unified_spec(&entry) {
+    for (name, entry_config) in entries {
+        let spec = match dsh_config_to_unified_spec(&entry_config) {
             Ok(spec) => spec,
             Err(e) => {
                 log::warn!("Skip invalid DSH MCP server '{name}': {e}");
@@ -133,13 +150,8 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
             continue;
         }
 
-        let dsh_enabled = entry
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-
         if let Some(existing) = servers.get_mut(&name) {
-            if !existing.apps.dsh && dsh_enabled {
+            if !existing.apps.dsh {
                 existing.apps.dsh = true;
                 changed += 1;
                 log::info!("MCP server '{name}' enabled for DSH");
@@ -159,7 +171,7 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
                         opencode: false,
                         hermes: false,
                         zcode: false,
-                        dsh: dsh_enabled,
+                        dsh: true,
                     },
                     description: None,
                     homepage: None,
@@ -219,60 +231,69 @@ mod tests {
     }
 
     #[test]
-    fn stdio_spec_converts_to_dsh_entry() {
-        let entry = unified_spec_to_dsh_entry(
+    fn stdio_spec_converts_to_dsh_config() {
+        let config = unified_spec_to_dsh_config(
             "echo",
             &json!({"type": "stdio", "command": "npx", "args": ["-y", "echo"], "env": {"K": "V"}}),
         )
         .expect("convert")
         .expect("stdio supported");
-        assert_eq!(entry["name"], "echo");
-        assert_eq!(entry["transport"], "stdio");
-        assert_eq!(entry["command"], "npx");
-        assert_eq!(entry["args"][0], "-y");
-        assert_eq!(entry["env"]["K"], "V");
+        assert_eq!(config["transport"], "stdio");
+        assert_eq!(config["command"], "npx");
+        assert_eq!(config["args"][0], "-y");
+        assert_eq!(config["env"]["K"], "V");
     }
 
     #[test]
     fn omitted_type_treated_as_stdio() {
-        let entry = unified_spec_to_dsh_entry("e", &json!({"command": "node"}))
+        let config = unified_spec_to_dsh_config("e", &json!({"command": "node"}))
             .expect("convert")
             .expect("stdio");
-        assert_eq!(entry["transport"], "stdio");
+        assert_eq!(config["transport"], "stdio");
     }
 
     #[test]
     fn http_spec_maps_to_streamable_http() {
-        let entry = unified_spec_to_dsh_entry(
+        let config = unified_spec_to_dsh_config(
             "remote",
             &json!({"type": "http", "url": "https://example.com/mcp", "headers": {"A": "B"}}),
         )
         .expect("convert")
         .expect("http supported");
-        assert_eq!(entry["transport"], "streamable-http");
-        assert_eq!(entry["url"], "https://example.com/mcp");
-        assert_eq!(entry["headers"]["A"], "B");
+        assert_eq!(config["transport"], "streamable-http");
+        assert_eq!(config["url"], "https://example.com/mcp");
+        assert_eq!(config["headers"]["A"], "B");
     }
 
     #[test]
     fn sse_spec_is_skipped() {
         let result =
-            unified_spec_to_dsh_entry("old", &json!({"type": "sse", "url": "https://x/sse"}))
+            unified_spec_to_dsh_config("old", &json!({"type": "sse", "url": "https://x/sse"}))
                 .expect("no error");
         assert!(result.is_none(), "sse must be skipped, not error");
     }
 
     #[test]
-    fn dsh_entry_converts_back_to_unified_spec() {
-        let spec = dsh_entry_to_unified_spec(&json!({
-            "name": "echo", "transport": "stdio", "command": "npx"
+    fn invalid_server_name_is_rejected() {
+        let err = unified_spec_to_dsh_config(
+            "bad name!",
+            &json!({"type": "stdio", "command": "x"}),
+        )
+        .expect_err("spaces and '!' are outside the serverName contract");
+        assert!(err.to_string().contains("serverName"));
+    }
+
+    #[test]
+    fn dsh_config_converts_back_to_unified_spec() {
+        let spec = dsh_config_to_unified_spec(&json!({
+            "transport": "stdio", "command": "npx"
         }))
         .expect("convert");
         assert_eq!(spec["type"], "stdio");
         assert_eq!(spec["command"], "npx");
 
-        let spec = dsh_entry_to_unified_spec(&json!({
-            "name": "r", "transport": "streamable-http", "url": "https://x/mcp"
+        let spec = dsh_config_to_unified_spec(&json!({
+            "transport": "streamable-http", "url": "https://x/mcp"
         }))
         .expect("convert");
         assert_eq!(spec["type"], "http");
@@ -280,42 +301,35 @@ mod tests {
     }
 
     #[test]
-    fn dsh_entry_with_unknown_transport_is_error() {
-        assert!(dsh_entry_to_unified_spec(&json!({
-            "name": "x", "transport": "websocket"
-        }))
-        .is_err());
+    fn dsh_config_with_unknown_transport_is_error() {
+        assert!(
+            dsh_config_to_unified_spec(&json!({"transport": "websocket"})).is_err()
+        );
     }
 
     #[test]
     #[serial]
-    fn import_respects_dsh_enabled_flag() {
+    fn import_marks_servers_enabled_for_dsh() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
-        crate::dsh_mcp_config::upsert_server(
+        dsh_mcp_config::upsert_server(
             "on",
-            json!({"name": "on", "transport": "stdio", "command": "a"}),
+            &json!({"transport": "stdio", "command": "a"}),
         )
         .expect("seed on");
-        crate::dsh_mcp_config::upsert_server(
-            "off",
-            json!({"name": "off", "transport": "stdio", "command": "b", "enabled": false}),
-        )
-        .expect("seed off");
 
         let mut config = MultiAppConfig::default();
         let changed = import_from_dsh(&mut config).expect("import");
-        assert_eq!(changed, 2, "both entries imported");
+        assert_eq!(changed, 1);
 
         let servers = config.mcp.servers.expect("servers map");
-        assert!(servers["on"].apps.dsh, "enabled entry -> dsh on");
-        assert!(!servers["off"].apps.dsh, "enabled:false entry -> dsh off");
+        assert!(servers["on"].apps.dsh);
         assert!(!servers["on"].apps.claude);
     }
 
     #[test]
     #[serial]
-    fn sync_and_remove_write_live_file() {
+    fn sync_and_remove_write_live_patch_yml() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
 
@@ -325,15 +339,18 @@ mod tests {
             &json!({"type": "stdio", "command": "npx"}),
         )
         .expect("sync");
-        let servers = crate::dsh_mcp_config::get_servers().expect("read");
-        assert!(
-            servers
-                .iter()
-                .any(|(n, e)| n == "echo" && e["transport"] == "stdio")
-        );
+        let raw = std::fs::read_to_string(dsh_mcp_config::get_dsh_mcp_config_path())
+            .expect("read patch");
+        assert!(raw.contains("'@deepseek-ai/dsh-mcp-client'"));
+        assert!(raw.contains("serverName: echo"));
+
+        let servers = dsh_mcp_config::get_servers().expect("read");
+        assert!(servers
+            .iter()
+            .any(|(n, c)| n == "echo" && c["transport"] == "stdio"));
 
         remove_server_from_dsh("echo").expect("remove");
-        let servers = crate::dsh_mcp_config::get_servers().expect("read");
+        let servers = dsh_mcp_config::get_servers().expect("read");
         assert!(servers.iter().all(|(n, _)| n != "echo"));
     }
 
@@ -349,7 +366,7 @@ mod tests {
             &json!({"type": "sse", "url": "https://x/sse"}),
         )
         .expect("skip without error");
-        let servers = crate::dsh_mcp_config::get_servers().expect("read");
+        let servers = dsh_mcp_config::get_servers().expect("read");
         assert!(servers.is_empty());
     }
 }

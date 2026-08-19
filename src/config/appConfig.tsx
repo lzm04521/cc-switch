@@ -25,9 +25,9 @@ export const APP_IDS: AppId[] = [
   "opencode",
   "openclaw",
   "hermes",
-  "dsh",
   "pi",
   "zcode",
+  "dsh",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -52,9 +52,9 @@ export const SKILLS_APP_IDS: AppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
-  "dsh",
   "pi",
   "zcode",
+  "dsh",
 ];
 
 export type ProxyAppId = Extract<
@@ -99,8 +99,8 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
-  "dsh",
   "zcode",
+  "dsh",
 ];
 
 export function isMcpAppId(appId: string): appId is McpAppId {
@@ -194,11 +194,11 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 border-0 gap-1.5",
   },
   dsh: {
-    label: "DeepSeek Harness",
+    label: "Deepseek",
     icon: (
       <ProviderIcon
         icon="deepseek"
-        name="DeepSeek Harness"
+        name="Deepseek"
         size={14}
         showFallback={false}
       />

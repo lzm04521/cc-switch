@@ -22,6 +22,8 @@ interface PromptPanelProps {
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
   onPrimaryActionChange?: (action: PromptPrimaryAction) => void;
+  // 页内切换应用后上报（null 表示面板卸载，标题回退到外部 appId）
+  onSelectedAppChange?: (appId: AppId | null) => void;
 }
 
 export interface PromptPanelHandle {
@@ -57,6 +59,7 @@ const StandardPromptPanel = React.forwardRef<
       onInteractionBlockedChange,
       onNavigationBlockedChange,
       onPrimaryActionChange,
+      onSelectedAppChange,
     },
     ref,
   ) => {
@@ -112,12 +115,22 @@ const StandardPromptPanel = React.forwardRef<
       onPrimaryActionChange?.("prompt");
     }, [onPrimaryActionChange]);
 
+    // 标题跟随页内切换的应用；卸载时置空，外部回退到自己的 appId
+    useEffect(() => {
+      onSelectedAppChange?.(selectedAppId);
+    }, [selectedAppId, onSelectedAppChange]);
+
     useEffect(
       () => () => {
         onInteractionBlockedChange?.(false);
         onNavigationBlockedChange?.(false);
+        onSelectedAppChange?.(null);
       },
-      [onInteractionBlockedChange, onNavigationBlockedChange],
+      [
+        onInteractionBlockedChange,
+        onNavigationBlockedChange,
+        onSelectedAppChange,
+      ],
     );
 
     const runExternalReload = React.useCallback(async () => {
@@ -286,7 +299,8 @@ const StandardPromptPanel = React.forwardRef<
 
     return (
       <div className="flex flex-col flex-1 min-h-0 px-6">
-        <div className="flex-shrink-0 pt-4 pb-2">
+        {/* 应用切换下拉框靠右，与页头右侧操作区对齐 */}
+        <div className="flex-shrink-0 pt-4 pb-2 flex justify-end">
           <Select
             value={selectedAppId}
             onValueChange={(value) => setSelectedAppId(value as AppId)}

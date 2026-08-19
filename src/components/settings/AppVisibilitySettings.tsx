@@ -31,9 +31,9 @@ const APP_CONFIG: Array<{
   { id: "opencode", icon: "opencode", nameKey: "apps.opencode" },
   { id: "openclaw", icon: "openclaw", nameKey: "apps.openclaw" },
   { id: "hermes", icon: "hermes", nameKey: "apps.hermes" },
-  { id: "dsh", icon: "deepseek", nameKey: "apps.dsh" },
   { id: "pi", icon: "pi", nameKey: "apps.pi" },
   { id: "zcode", icon: "zcode", nameKey: "apps.zcode" },
+  { id: "dsh", icon: "deepseek", nameKey: "apps.dsh" },
 ];
 
 export function AppVisibilitySettings({
@@ -84,13 +84,11 @@ export function AppVisibilitySettings({
               onClick={() => handleToggle(app.id)}
               icon={app.icon}
               name={t(app.nameKey, {
-                defaultValue:
-                  app.id === "dsh" ? "DeepSeek Harness" : app.nameKey,
+                defaultValue: app.id === "dsh" ? "Deepseek" : app.nameKey,
               })}
             >
               {t(app.nameKey, {
-                defaultValue:
-                  app.id === "dsh" ? "DeepSeek Harness" : app.nameKey,
+                defaultValue: app.id === "dsh" ? "Deepseek" : app.nameKey,
               })}
             </AppButton>
           );
