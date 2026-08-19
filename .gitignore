@@ -34,3 +34,6 @@ codegraph.json
 /doc/
 
 package-lock.json
+/.zcode/
+/.codegraph/
+/.superpowers/
