@@ -103,23 +103,6 @@ export function isMcpAppId(appId: string): appId is McpAppId {
   return (MCP_APP_IDS as string[]).includes(appId);
 }
 
-export type ProxyAppId = Extract<
-  AppId,
-  "claude" | "codex" | "gemini" | "grokbuild"
->;
-
-/** Apps with a complete local gateway + failover data plane. */
-export const PROXY_APP_IDS: ProxyAppId[] = [
-  "claude",
-  "codex",
-  "gemini",
-  "grokbuild",
-];
-
-export function isProxyAppId(appId: string): appId is ProxyAppId {
-  return (PROXY_APP_IDS as string[]).includes(appId);
-}
-
 export const APP_ICON_MAP: Record<AppId, AppConfig> = {
   claude: {
     label: "Claude",

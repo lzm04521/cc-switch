@@ -56,6 +56,7 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",
+  pi: "Pi",
   zcode: "ZCode",
 };
 

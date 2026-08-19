@@ -112,6 +112,7 @@ pub struct SkillApps {
     pub hermes: bool,
     #[serde(default)]
     pub pi: bool,
+    #[serde(default)]
     pub zcode: bool,
 }
 
