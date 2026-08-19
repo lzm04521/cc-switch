@@ -11,6 +11,7 @@ mod commands;
 mod config;
 mod database;
 mod deeplink;
+mod dsh_config;
 mod error;
 mod gemini_config;
 mod gemini_mcp;
@@ -1411,6 +1412,9 @@ pub fn run() {
             commands::get_claude_code_config_path,
             commands::get_config_dir,
             commands::open_config_folder,
+            commands::dsh_get_home,
+            commands::dsh_get_default_home,
+            commands::dsh_open_home,
             commands::pick_directory,
             commands::open_external,
             commands::get_init_error,
