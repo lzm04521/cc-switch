@@ -15,10 +15,11 @@
 //! ```
 //!
 //! cc-switch 仅识别 name 为 dsh-mcp-client 的 insert 条目，其余 patch 条目
-//! （插件启停、overrides 等）原样保留；首次读写时把旧版 mcp.json 的条目
-//! 一次性迁移进 patch（原文件改名 `mcp.json.bak`，不删除）。
-//! 根非数组、YAML 无法解析（含 `!!js` 表达式，round-trip 会破坏用户文件）
-//! 时报错、不覆盖。
+//! （插件启停、overrides 等）语义原样保留；写回按 DSH 原生风格重新序列化
+//!（见 dump_patch_yaml——DSH Desktop 行级手术依赖其缩进契约）；首次读写时
+//! 把旧版 mcp.json 的条目一次性迁移进 patch（原文件改名 `mcp.json.bak`，
+//! 不删除）。根非数组、YAML 无法解析（含 `!!js` 表达式，round-trip 会破坏
+//! 用户文件）时报错、不覆盖。
 
 use crate::error::AppError;
 use serde_json::{json, Map, Value as JsonValue};
@@ -158,16 +159,197 @@ fn yaml_kind(value: &YamlValue) -> &'static str {
     }
 }
 
+// ===== DSH 原生风格序列化 =====
+//
+// 写回不能用 serde_yaml：它的 block 缩进是"序列项与父键对齐"（insert 内层
+// 条目缩进 2），而 DSH Desktop 的行级手术（plugin-manager-patch.js 的
+// topLevelEntryRe 等）以"顶层条目 0-2 空格、insert 内层条目 >=4 空格"区分
+// 条目层级——2 空格内层条目会被误判为顶层条目，插件管理操作即误删整条
+// 登记。DSH 自身所有写入方（js-yaml dump, indent 2）的输出契约是
+// "序列项相对父键额外 +2 缩进"，cc-switch 必须产出同款风格（v3.20.0-4
+// 事故分析见 doc/20260820-bug报告-DSH-patch-yml-序列化风格不兼容.md）。
+
+/// 标量的行内文本形态；非标量返回 None
+fn scalar_text(value: &YamlValue) -> Option<String> {
+    match value {
+        YamlValue::Null => Some("null".to_string()),
+        YamlValue::Bool(b) => Some(b.to_string()),
+        YamlValue::Number(n) => Some(n.to_string()),
+        YamlValue::String(s) => Some(quote_dsh_style(s)),
+        _ => None,
+    }
+}
+
+/// 裸标量白名单：仅 ASCII 字母数字与 `_ ./\:=+-*,@`，首字符额外排除
+/// `@`（YAML 保留字）、`.` 以外的特殊形态；可解析为 bool/null/数字的
+/// 字面量与文档标记（---/...）必须引号。引号形态永远语义安全，
+/// 白名单偏保守只是让常见路径/URL 保持 DSH 原生的裸风格。
+fn is_bare_safe(s: &str) -> bool {
+    if s.is_empty() || s.ends_with(':') {
+        return false;
+    }
+    let lower = s.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~" | "inf" | "nan"
+    ) {
+        return false;
+    }
+    if s.parse::<f64>().is_ok() {
+        return false;
+    }
+    let first = s.chars().next().unwrap_or(' ');
+    if !(first.is_ascii_alphanumeric() || matches!(first, '_' | '*' | '.' | '-')) {
+        return false;
+    }
+    if matches!(s, "-" | "--" | "---" | "...") {
+        return false;
+    }
+    s.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                '_' | '.' | '/' | '\\' | ':' | '=' | '-' | '+' | '*' | ',' | '@'
+            )
+    })
+}
+
+/// 双引号 + YAML/js-yaml 兼容转义（\x 覆盖控制字符，非 ASCII 原样输出）
+fn double_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn quote_dsh_style(s: &str) -> String {
+    if is_bare_safe(s) {
+        s.to_string()
+    } else {
+        double_quote(s)
+    }
+}
+
+/// 序列块：每项 `<indent>- ` + 条目体（内容基线 indent+2）。
+/// 值为序列时项相对父键 +2 缩进——DSH 行级手术的层级契约所在。
+fn emit_sequence(out: &mut String, items: &[YamlValue], indent: usize) -> Result<(), AppError> {
+    for item in items {
+        out.push_str(&" ".repeat(indent));
+        out.push_str("- ");
+        emit_entry_body(out, item, indent + 2)?;
+    }
+    Ok(())
+}
+
+/// 条目体（紧跟 `- ` 或行首）：标量同行收行；mapping 首键同行、其余键
+/// 按基线缩进；子序列换行后项再进 2
+fn emit_entry_body(out: &mut String, value: &YamlValue, base: usize) -> Result<(), AppError> {
+    if let Some(text) = scalar_text(value) {
+        out.push_str(&text);
+        out.push('\n');
+        return Ok(());
+    }
+    match value {
+        YamlValue::Mapping(map) => {
+            for (i, (k, v)) in map.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(&" ".repeat(base));
+                }
+                emit_mapping_entry(out, k, v, base)?;
+            }
+            Ok(())
+        }
+        YamlValue::Sequence(items) => {
+            out.push('\n');
+            emit_sequence(out, items, base + 2)
+        }
+        YamlValue::Tagged(_) => Err(AppError::Config(
+            "DSH cordis.patch.yml 含 !!js 扩展表达式条目，cc-switch 不重写该文件".into(),
+        )),
+        // 标量已在函数开头处理
+        _ => unreachable!("scalar handled above"),
+    }
+}
+
+/// mapping 键值行：标量值同行；空集合 inline（[] / {}）；非空子结构
+/// 换行后整体缩进 +2（序列项再 +2，见 emit_sequence）
+fn emit_mapping_entry(
+    out: &mut String,
+    key: &YamlValue,
+    value: &YamlValue,
+    base: usize,
+) -> Result<(), AppError> {
+    let Some(key_text) = scalar_text(key) else {
+        return Err(AppError::Config(
+            "DSH cordis.patch.yml 存在非字符串键，cc-switch 无法安全序列化".into(),
+        ));
+    };
+    if let Some(text) = scalar_text(value) {
+        out.push_str(&key_text);
+        out.push_str(": ");
+        out.push_str(&text);
+        out.push('\n');
+        return Ok(());
+    }
+    match value {
+        YamlValue::Sequence(items) if items.is_empty() => {
+            out.push_str(&key_text);
+            out.push_str(": []\n");
+        }
+        YamlValue::Sequence(items) => {
+            out.push_str(&key_text);
+            out.push_str(":\n");
+            emit_sequence(out, items, base + 2)?;
+        }
+        YamlValue::Mapping(map) if map.is_empty() => {
+            out.push_str(&key_text);
+            out.push_str(": {}\n");
+        }
+        YamlValue::Mapping(map) => {
+            out.push_str(&key_text);
+            out.push_str(":\n");
+            for (k, v) in map {
+                out.push_str(&" ".repeat(base + 2));
+                emit_mapping_entry(out, k, v, base + 2)?;
+            }
+        }
+        YamlValue::Tagged(_) => {
+            return Err(AppError::Config(
+                "DSH cordis.patch.yml 含 !!js 扩展表达式条目，cc-switch 不重写该文件".into(),
+            ))
+        }
+        _ => unreachable!("scalar handled above"),
+    }
+    Ok(())
+}
+
+/// 整体序列化：与 DSH 写入方（js-yaml dump, indent 2）同风格；空条目
+/// 输出 `[]` 占位（DSH 约定 patch 文件保持合法顶层数组）
+fn dump_patch_yaml(entries: &[YamlValue]) -> Result<String, AppError> {
+    if entries.is_empty() {
+        return Ok("[]\n".to_string());
+    }
+    let mut out = String::new();
+    emit_sequence(&mut out, entries, 0)?;
+    Ok(out)
+}
+
 fn write_patch_file(path: &Path, file: &PatchFile) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
     }
-    let body = serde_yaml::to_string(&file.entries).map_err(|e| {
-        AppError::Config(format!(
-            "Failed to serialize DSH cordis.patch.yml: {}: {e}",
-            path.display()
-        ))
-    })?;
+    let body = dump_patch_yaml(&file.entries)?;
     let mut out = String::new();
     if !file.header.is_empty() {
         out.push_str(&file.header);
@@ -214,15 +396,13 @@ fn find_mcp_client_entries(entries: &[YamlValue]) -> Vec<(usize, usize, String)>
 }
 
 fn json_to_yaml(value: &JsonValue) -> Result<YamlValue, AppError> {
-    serde_yaml::to_value(value).map_err(|e| {
-        AppError::Config(format!("Failed to convert JSON to YAML value: {e}"))
-    })
+    serde_yaml::to_value(value)
+        .map_err(|e| AppError::Config(format!("Failed to convert JSON to YAML value: {e}")))
 }
 
 fn yaml_to_json(value: &YamlValue) -> Result<JsonValue, AppError> {
-    serde_json::to_value(value).map_err(|e| {
-        AppError::Config(format!("Failed to convert YAML to JSON value: {e}"))
-    })
+    serde_json::to_value(value)
+        .map_err(|e| AppError::Config(format!("Failed to convert YAML to JSON value: {e}")))
 }
 
 /// 组装一条独立的 `- insert: [plugin]` patch 条目（与 DSH 生成文件中
@@ -457,8 +637,8 @@ pub fn remove_server(name: &str) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
     use serde_json::json;
+    use serial_test::serial;
 
     /// 同时 guard CC_SWITCH_TEST_HOME 与 DSH_HOME，
     /// 避免 DSH_HOME 泄漏到其他测试或受本机环境影响
@@ -557,9 +737,19 @@ mod tests {
             "header comments preserved"
         );
         assert!(raw.contains("harness-pet"), "foreign patch entry preserved");
-        assert!(raw.contains("'@deepseek-ai/dsh-balance'"));
-        assert!(raw.contains("'@deepseek-ai/dsh-mcp-client'"));
+        assert!(raw.contains("\"@deepseek-ai/dsh-balance\""));
+        assert!(raw.contains("\"@deepseek-ai/dsh-mcp-client\""));
         assert!(raw.contains("serverName: echo"));
+        // DSH 缩进契约：insert 内层条目 4 空格，绝不允许 2 空格 `- id:`
+        // （DSH Desktop 行级手术按 0-2/>=4 区分顶层与内层条目）
+        assert!(
+            raw.contains("\n    - id: "),
+            "insert inner entries at 4 spaces"
+        );
+        assert!(
+            !raw.contains("\n  - "),
+            "no 2-space sequence items (DSH contract)"
+        );
 
         // 同名再写 = 更新而非追加
         upsert_server("echo", &json!({"transport": "stdio", "command": "updated"}))
@@ -575,11 +765,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
 
-        upsert_server(
-            "keep",
-            &json!({"transport": "stdio", "command": "k"}),
-        )
-        .expect("seed keep");
+        upsert_server("keep", &json!({"transport": "stdio", "command": "k"})).expect("seed keep");
         upsert_server(
             "drop",
             &json!({"transport": "streamable-http", "url": "http://x/mcp"}),
@@ -649,11 +835,7 @@ mod tests {
         let servers = get_servers().expect("comments mentioning !!js must be readable");
         assert!(servers.is_empty());
 
-        upsert_server(
-            "echo",
-            &json!({"transport": "stdio", "command": "npx"}),
-        )
-        .expect("upsert");
+        upsert_server("echo", &json!({"transport": "stdio", "command": "npx"})).expect("upsert");
         let raw = std::fs::read_to_string(&path).expect("raw");
         assert!(
             raw.contains("`!!js` expressions allowed"),
@@ -661,6 +843,86 @@ mod tests {
         );
         assert!(raw.contains("harness-pet"), "foreign entry preserved");
         assert!(raw.contains("serverName: echo"));
+    }
+
+    #[test]
+    #[serial]
+    fn dump_matches_dsh_yaml_style() {
+        // 纯函数：与 DSH 写入方（js-yaml dump, indent 2）的关键风格对齐
+        let entries: Vec<YamlValue> = serde_yaml::from_str(
+            "[{insert: [{id: mcp-x, name: \"@deepseek-ai/dsh-mcp-client\", \
+             config: {serverName: x, transport: stdio, command: npx, \
+             args: ['@playwright/mcp@latest', '600', 'a b'], timeout: 600, \
+             args2: [], url: 'https://x/y', flag: true}}]}, \
+             {id: harness-pet, disabled: true}]",
+        )
+        .expect("seed yaml");
+        let out = dump_patch_yaml(&entries).expect("dump");
+        // insert 内层条目 4 空格；config 键 6/8 空格
+        assert!(out.contains("\n    - id: mcp-x\n"));
+        assert!(out.contains("\n      name: \"@deepseek-ai/dsh-mcp-client\"\n"));
+        assert!(out.contains("\n        serverName: x\n"));
+        // 嵌套序列项 = 键缩进 +2（10 空格）；数字字符串加引号、含空格串加引号
+        assert!(out.contains("\n          - \"@playwright/mcp@latest\"\n"));
+        assert!(out.contains("\n          - \"600\"\n"));
+        assert!(out.contains("\n          - \"a b\"\n"));
+        // 数字 / bool / URL 裸写；空序列 inline
+        assert!(out.contains("timeout: 600\n"));
+        assert!(out.contains("flag: true\n"));
+        assert!(out.contains("url: https://x/y\n"));
+        assert!(out.contains("args2: []\n"));
+        // 顶层直条目 0 缩进
+        assert!(out.ends_with("- id: harness-pet\n  disabled: true\n"));
+        // 契约红线：全文不允许 2 空格缩进的序列项
+        assert!(!out.contains("\n  - "));
+        // 语义 round-trip 等价
+        let parsed: Vec<YamlValue> = serde_yaml::from_str(&out).expect("re-parse");
+        let orig: String = serde_yaml::to_string(&entries).expect("orig");
+        let reparsed: String = serde_yaml::to_string(&parsed).expect("re-dump");
+        assert_eq!(orig, reparsed, "dump output must be semantically identical");
+        // 空条目输出 [] 占位
+        assert_eq!(dump_patch_yaml(&[]).unwrap(), "[]\n");
+    }
+
+    #[test]
+    #[serial]
+    fn upsert_keeps_dsh_style_on_real_world_file() {
+        // 以 DSH 官方风格的真实样例（头部注释 + 无关条目 + 复杂 MCP 条目）
+        // 为底，upsert 后文件必须仍满足 DSH 缩进契约且既有条目语义不变
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = TestEnvGuard::set(temp.path());
+        let path = get_dsh_mcp_config_path();
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(
+            &path,
+            "# Your patch layer for this dsh profile:\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n\
+             - id: harness-pet\n  disabled: true\n\
+             - insert:\n    - id: mcp-windbg\n      name: \"@deepseek-ai/dsh-mcp-client\"\n      config:\n        serverName: mcp_windbg\n        transport: stdio\n        command: python\n        args:\n          - -m\n          - mcp_windbg\n          - --timeout\n          - \"600\"\n        env:\n          _NT_SYMBOL_PATH: SRV*V:\\dbg-symbols*https://msdl.microsoft.com/download/symbols\n",
+        )
+        .expect("seed dsh-style patch");
+
+        upsert_server(
+            "echo",
+            &json!({"transport": "stdio", "command": "npx", "args": ["-y", "echo"]}),
+        )
+        .expect("upsert");
+
+        let raw = std::fs::read_to_string(&path).expect("raw");
+        // 契约红线：不允许任何 2 空格缩进序列项（顶层条目 0、insert 内层 4）
+        assert!(!raw.contains("\n  - "), "DSH indent contract violated");
+        // 既有条目按 DSH 风格保留：4 空格内层、10 空格 args 项、引号数字串
+        assert!(raw.contains("\n    - id: mcp-windbg\n"));
+        assert!(raw.contains("\n          - mcp_windbg\n"));
+        assert!(raw.contains("\n          - \"600\"\n"));
+        assert!(raw.contains("_NT_SYMBOL_PATH: SRV*V:\\dbg-symbols"));
+        // 新增条目同为 DSH 风格
+        assert!(raw.contains("\n    - id: mcp-echo\n"));
+        assert!(raw.contains("serverName: echo"));
+        // 读回语义完整：两个 server 均在
+        let servers = get_servers().expect("read back");
+        let names: Vec<&str> = servers.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["mcp_windbg", "echo"]);
+        assert_eq!(servers[0].1["args"][3], "600");
     }
 
     #[test]
@@ -685,7 +947,11 @@ mod tests {
 
         let servers = get_servers().expect("read triggers migration");
         let names: Vec<&str> = servers.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["echo", "remote"], "enabled:false and nameless skipped");
+        assert_eq!(
+            names,
+            vec!["echo", "remote"],
+            "enabled:false and nameless skipped"
+        );
 
         let echo_config = &servers[0].1;
         assert_eq!(echo_config["transport"], "stdio");
@@ -697,11 +963,8 @@ mod tests {
         assert!(legacy_mcp_json_path().with_extension("json.bak").exists());
 
         // 迁移后的 patch 可继续 upsert/remove，且不会重复迁移
-        upsert_server(
-            "extra",
-            &json!({"transport": "stdio", "command": "e"}),
-        )
-        .expect("upsert after migration");
+        upsert_server("extra", &json!({"transport": "stdio", "command": "e"}))
+            .expect("upsert after migration");
         let servers = get_servers().expect("read");
         assert_eq!(servers.len(), 3);
     }
@@ -720,8 +983,7 @@ mod tests {
         )
         .expect("seed custom");
 
-        upsert_server("echo", &json!({"transport": "stdio", "command": "new"}))
-            .expect("upsert");
+        upsert_server("echo", &json!({"transport": "stdio", "command": "new"})).expect("upsert");
 
         let raw = std::fs::read_to_string(&path).expect("raw");
         assert!(raw.contains("my-custom-id"), "custom plugin id preserved");
