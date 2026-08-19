@@ -53,7 +53,9 @@ use std::sync::Mutex;
 
 /// 当前 Schema 版本号
 /// 每次修改表结构时递增，并在 schema.rs 中添加相应的迁移逻辑
-pub(crate) const SCHEMA_VERSION: i32 = 18;
+/// v18/v19 为 fork 迁移（enabled_zcode/enabled_dsh），v20 承接上游 v3.20.1
+/// 的会话日志字节游标列（上游侧编号为 v18，此处 renumber 顺延）
+pub(crate) const SCHEMA_VERSION: i32 = 20;
 
 /// 安全地序列化 JSON，避免 unwrap panic
 pub(crate) fn to_json_string<T: Serialize>(value: &T) -> Result<String, AppError> {
