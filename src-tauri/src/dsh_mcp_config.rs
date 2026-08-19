@@ -55,8 +55,25 @@ fn legacy_mcp_json_path() -> PathBuf {
 /// 检测到即拒绝读写，避免静默破坏用户 patch 文件。
 /// DSH 的扩展表达式只有 `!!js`（README 明示），且与 YAML 内置 tag 无前缀
 /// 冲突，按子串检测即可覆盖行首/值位置两种写法。
+/// 注释里的 `!!js` 字样不是扩展表达式——DSH 官方模板的头部注释就写着
+/// "`!!js` expressions allowed"，按原文检测会误拒所有默认生成的文件。
 fn contains_yaml_tag_extensions(content: &str) -> bool {
-    content.lines().any(|line| line.contains("!!js"))
+    content
+        .lines()
+        .any(|line| strip_yaml_comment(line).contains("!!js"))
+}
+
+/// 剥离行注释：整行注释返回空串，行内注释截断到 `#` 前（YAML 要求 `#`
+/// 前有空白）。引号内的 ` #` 会被误剥，但引号内文本本就不是 tag，
+/// round-trip 安全，漏检无害。
+fn strip_yaml_comment(line: &str) -> &str {
+    if line.trim_start().starts_with('#') {
+        return "";
+    }
+    match line.find(" #") {
+        Some(idx) => &line[..idx],
+        None => line,
+    }
 }
 
 /// 提取文件头部注释块（首个非注释行之前的所有行），写回时原样保留。
@@ -612,6 +629,38 @@ mod tests {
         assert!(get_servers().is_err(), "!!js must be rejected, not parsed");
         let raw = std::fs::read_to_string(&path).expect("file untouched");
         assert!(raw.contains("!!js"), "rejected file must not be rewritten");
+    }
+
+    #[test]
+    #[serial]
+    fn js_tag_in_comments_is_allowed() {
+        // DSH 官方模板头部注释含 "`!!js` expressions allowed"，行内注释
+        // 同理——只有真实的值位置扩展表达式才应拒绝
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = TestEnvGuard::set(temp.path());
+        let path = get_dsh_mcp_config_path();
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(
+            &path,
+            "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n- id: harness-pet\n  disabled: true # inline note about !!js\n",
+        )
+        .expect("seed official template");
+
+        let servers = get_servers().expect("comments mentioning !!js must be readable");
+        assert!(servers.is_empty());
+
+        upsert_server(
+            "echo",
+            &json!({"transport": "stdio", "command": "npx"}),
+        )
+        .expect("upsert");
+        let raw = std::fs::read_to_string(&path).expect("raw");
+        assert!(
+            raw.contains("`!!js` expressions allowed"),
+            "official header preserved"
+        );
+        assert!(raw.contains("harness-pet"), "foreign entry preserved");
+        assert!(raw.contains("serverName: echo"));
     }
 
     #[test]
