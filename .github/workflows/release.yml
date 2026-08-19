@@ -33,6 +33,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Verify tag matches tauri.conf.json version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          CONF_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$TAG_VER" != "$CONF_VER" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 tauri.conf.json version ${CONF_VER} 不一致——发版前必须先 bump package.json / Cargo.toml / tauri.conf.json 三处 version 再打 tag（v3.20.0-3 曾因漏 bump 发出内嵌旧版本号的安装包，导致更新器死循环）"
+            exit 1
+          fi
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
