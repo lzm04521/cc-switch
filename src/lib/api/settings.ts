@@ -299,6 +299,18 @@ export const settingsApi = {
   async setLogConfig(config: LogConfig): Promise<boolean> {
     return await invoke("set_log_config", { config });
   },
+
+  async getApiLogConfig(): Promise<ApiLogConfig> {
+    return await invoke("get_api_log_config");
+  },
+
+  async setApiLogConfig(config: ApiLogConfig): Promise<boolean> {
+    return await invoke("set_api_log_config", { config });
+  },
+
+  async openApiLogDir(): Promise<boolean> {
+    return await invoke("open_api_log_dir");
+  },
 };
 
 /** 单处工具安装的诊断信息（多处安装冲突检测）。字段对应后端 ToolInstallation。 */
@@ -338,6 +350,10 @@ export interface OptimizerConfig {
 export interface LogConfig {
   enabled: boolean;
   level: "error" | "warn" | "info" | "debug" | "trace";
+}
+
+export interface ApiLogConfig {
+  enabled: boolean;
 }
 
 export interface BackupEntry {

@@ -163,6 +163,8 @@ pub struct RequestForwarder {
     non_streaming_timeout: std::time::Duration,
     /// 流式请求响应头等待超时（秒）
     streaming_first_byte_timeout: std::time::Duration,
+    /// API 报文捕获器（开关关闭时为 None）；记录每次上游尝试的出站请求与响应头
+    api_log: Option<super::api_log::ApiLogCapture>,
     /// 单个客户端请求最多尝试的 provider 数。
     ///
     /// 由 `AppProxyConfig.max_retries` (UI: "请求失败时的重试次数, 0-10") 派生：
@@ -236,6 +238,7 @@ impl RequestForwarder {
         optimizer_config: OptimizerConfig,
         copilot_optimizer_config: CopilotOptimizerConfig,
         max_retries: u32,
+        api_log: Option<super::api_log::ApiLogCapture>,
     ) -> Self {
         // max_retries 是「失败后重试次数」语义，attempt 上限 = retries + 1。
         // saturating_add 防止 u32::MAX + 1 溢出。
@@ -258,6 +261,7 @@ impl RequestForwarder {
             streaming_first_byte_timeout: std::time::Duration::from_secs(
                 streaming_first_byte_timeout,
             ),
+            api_log,
             max_attempts,
         }
     }
@@ -2231,6 +2235,18 @@ impl RequestForwarder {
             short_value_hash(Some(&filtered_body))
         );
 
+        // API 报文记录：出站请求段（URL 用上面已脱敏的 target_for_log）
+        if let Some(capture) = &self.api_log {
+            capture.record_forward_request(
+                &provider.id,
+                &provider.name,
+                &target_for_log,
+                method.as_str(),
+                &ordered_headers,
+                &body_bytes,
+            );
+        }
+
         // 确定超时
         let timeout = if self.non_streaming_timeout.is_zero() {
             std::time::Duration::from_secs(600) // 默认 600 秒
@@ -2314,6 +2330,16 @@ impl RequestForwarder {
 
         // 检查响应状态
         let status = response.status();
+
+        // API 报文记录：上游响应头段（响应体由 response_processor 侧回填——
+        // 非流式在整包读取处、流式在透传 tee 流结束时）
+        if let Some(capture) = &self.api_log {
+            capture.record_forward_response_head(
+                status.as_u16(),
+                response.headers(),
+                request_is_streaming,
+            );
+        }
 
         if status.is_success() {
             let mut response = self
@@ -3724,6 +3750,7 @@ mod tests {
             copilot_optimizer_config: CopilotOptimizerConfig::default(),
             non_streaming_timeout,
             streaming_first_byte_timeout,
+            api_log: None,
             max_attempts: 1,
         }
     }
