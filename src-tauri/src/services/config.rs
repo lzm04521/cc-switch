@@ -145,6 +145,9 @@ impl ConfigService {
             AppType::Zcode => {
                 // zcode 的 provider 由 zcode 应用内自管，无 live 同步
             }
+            AppType::Dsh => {
+                // dsh 的 provider 由 dsh 应用内自管，无 live 同步
+            }
         }
 
         Ok(())

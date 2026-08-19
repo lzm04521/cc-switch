@@ -77,6 +77,7 @@ pub fn import_from_zcode(config: &mut MultiAppConfig) -> Result<usize, AppError>
                         opencode: false,
                         hermes: false,
                         zcode: true,
+                        dsh: false,
                     },
                     description: None,
                     homepage: None,

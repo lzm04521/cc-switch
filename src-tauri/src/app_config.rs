@@ -21,6 +21,8 @@ pub struct McpApps {
     pub hermes: bool,
     #[serde(default)]
     pub zcode: bool,
+    #[serde(default)]
+    pub dsh: bool,
 }
 
 impl McpApps {
@@ -37,6 +39,7 @@ impl McpApps {
             AppType::Pi => false, // Pi core has no native MCP registry.
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
+            AppType::Dsh => self.dsh,
         }
     }
 
@@ -53,6 +56,7 @@ impl McpApps {
             AppType::Pi => {}            // Pi core has no native MCP registry.
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
             AppType::Zcode => self.zcode = enabled,
+            AppType::Dsh => self.dsh = enabled,
         }
     }
 
@@ -80,6 +84,9 @@ impl McpApps {
         if self.zcode {
             apps.push(AppType::Zcode);
         }
+        if self.dsh {
+            apps.push(AppType::Dsh);
+        }
         apps
     }
 
@@ -92,6 +99,7 @@ impl McpApps {
             && !self.opencode
             && !self.hermes
             && !self.zcode
+            && !self.dsh
     }
 }
 
@@ -114,6 +122,8 @@ pub struct SkillApps {
     pub pi: bool,
     #[serde(default)]
     pub zcode: bool,
+    #[serde(default)]
+    pub dsh: bool,
 }
 
 impl SkillApps {
@@ -130,6 +140,7 @@ impl SkillApps {
             AppType::OpenClaw => false, // OpenClaw doesn't support Skills
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
+            AppType::Dsh => self.dsh,
         }
     }
 
@@ -146,6 +157,7 @@ impl SkillApps {
             AppType::OpenClaw => {} // OpenClaw doesn't support Skills, ignore
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
             AppType::Zcode => self.zcode = enabled,
+            AppType::Dsh => self.dsh = enabled,
         }
     }
 
@@ -176,6 +188,9 @@ impl SkillApps {
         if self.zcode {
             apps.push(AppType::Zcode);
         }
+        if self.dsh {
+            apps.push(AppType::Dsh);
+        }
         apps
     }
 
@@ -189,6 +204,7 @@ impl SkillApps {
             && !self.hermes
             && !self.pi
             && !self.zcode
+            && !self.dsh
     }
 
     /// 仅启用指定应用（其他应用设为禁用）
@@ -335,6 +351,9 @@ pub struct McpRoot {
     /// ZCode MCP 配置（实际使用 ~/.zcode/cli/config.json 的 mcp.servers）
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
     pub zcode: McpConfig,
+    /// DSH MCP 配置（实际使用 ~/.dsh/mcp.json 数组容器，仅导入兼容保留）
+    #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
+    pub dsh: McpConfig,
 }
 
 impl Default for McpRoot {
@@ -352,6 +371,7 @@ impl Default for McpRoot {
             openclaw: McpConfig::default(),
             hermes: McpConfig::default(),
             zcode: McpConfig::default(),
+            dsh: McpConfig::default(),
         }
     }
 }
@@ -389,6 +409,8 @@ pub struct PromptRoot {
     pub hermes: PromptConfig,
     #[serde(default)]
     pub zcode: PromptConfig,
+    #[serde(default)]
+    pub dsh: PromptConfig,
 }
 
 use crate::config::{copy_file, get_app_config_dir, get_app_config_path, write_json_file};
@@ -415,6 +437,7 @@ pub enum AppType {
     Hermes,
     Pi,
     Zcode,
+    Dsh,
 }
 
 impl AppType {
@@ -430,6 +453,7 @@ impl AppType {
             AppType::Hermes => "hermes",
             AppType::Pi => "pi",
             AppType::Zcode => "zcode",
+            AppType::Dsh => "dsh",
         }
     }
 
@@ -465,6 +489,7 @@ impl AppType {
             AppType::Hermes,
             AppType::Pi,
             AppType::Zcode,
+            AppType::Dsh,
         ]
         .into_iter()
     }
@@ -486,10 +511,11 @@ impl FromStr for AppType {
             "hermes" => Ok(AppType::Hermes),
             "pi" => Ok(AppType::Pi),
             "zcode" => Ok(AppType::Zcode),
+            "dsh" => Ok(AppType::Dsh),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh."),
             )),
         }
     }
@@ -534,6 +560,8 @@ impl CommonConfigSnippets {
             AppType::Hermes => self.hermes.as_ref(),
             AppType::Pi => None,
             AppType::Zcode => self.zcode.as_ref(),
+            // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
+            AppType::Dsh => None,
         }
     }
 
@@ -550,6 +578,8 @@ impl CommonConfigSnippets {
             AppType::Hermes => self.hermes = snippet,
             AppType::Pi => {}
             AppType::Zcode => self.zcode = snippet,
+            // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
+            AppType::Dsh => {}
         }
     }
 }
@@ -881,6 +911,8 @@ impl MultiAppConfig {
             // this legacy config avoids a second, unused prompt state.
             AppType::Pi => return Ok(false),
             AppType::Zcode => &mut config.prompts.zcode.prompts,
+            // dsh 不支持 prompts
+            AppType::Dsh => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -922,6 +954,7 @@ impl MultiAppConfig {
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::GrokBuild => continue,
                 AppType::OpenCode => &self.mcp.opencode.servers,
+                AppType::Dsh => continue, // dsh 走 mcp.json 数组容器，无旧结构可迁移
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue,   // Hermes didn't exist in v3.6.x, skip
                 AppType::Pi => continue,       // Pi didn't exist in v3.6.x, skip

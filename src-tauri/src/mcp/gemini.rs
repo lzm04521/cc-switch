@@ -91,6 +91,7 @@ pub fn import_from_gemini(config: &mut MultiAppConfig) -> Result<usize, AppError
                         opencode: false,
                         hermes: false,
                         zcode: false,
+                        dsh: false,
                     },
                     description: None,
                     homepage: None,
