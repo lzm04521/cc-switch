@@ -201,7 +201,7 @@ impl ApiLogCapture {
             method: method.to_string(),
             endpoint: endpoint.to_string(),
             headers: sanitize_headers(headers),
-            body: lossy(body),
+            body: compact_body(&lossy(body)),
         });
     }
 
@@ -226,7 +226,7 @@ impl ApiLogCapture {
             request: MessageLog {
                 timestamp: now_rfc3339(),
                 headers: sanitize_headers(headers),
-                body: lossy(body),
+                body: compact_body(&lossy(body)),
             },
             response: ResponseLog::default(),
         });
@@ -255,7 +255,7 @@ impl ApiLogCapture {
     pub fn record_forward_response_body(&self, body: &[u8]) {
         let mut guard = self.inner.lock().unwrap();
         if let Some(entry) = guard.forwards.last_mut() {
-            entry.response.body = lossy(body);
+            entry.response.body = compact_body(&lossy(body));
         }
     }
 
@@ -265,7 +265,7 @@ impl ApiLogCapture {
         guard.final_response = Some(FinalLog {
             timestamp: now_rfc3339(),
             status,
-            body: lossy(body),
+            body: compact_body(&lossy(body)),
             note: note.to_string(),
         });
     }
@@ -279,6 +279,12 @@ impl ApiLogCapture {
 
 fn flush_locked(inner: &mut CaptureInner) {
     if inner.flushed {
+        return;
+    }
+    // 单测只验证内存中的捕获结构，不落盘——否则 Drop 兜底会把测试报文
+    // 写进用户真实数据目录（~/.cc-switch/logs/api_logs/）。
+    if cfg!(test) {
+        inner.flushed = true;
         return;
     }
     inner.flushed = true;
@@ -420,6 +426,195 @@ pub fn sanitize_headers(headers: &http::HeaderMap) -> BTreeMap<String, String> {
 
 fn lossy(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+// ============================================================================
+// 报文正文精简
+// ============================================================================
+
+/// 对话正文与工具定义占报文体积的绝大部分，且与"路由改了什么"的调试目标
+/// 无关（还含代码隐私）。落盘前把正文字段替换为带长度信息的占位符，
+/// 保留：model、thinking 配置、max_tokens、usage、stop_reason、消息/内容块
+/// 结构（role/type/id/name）、cache_control 断点、headers。
+pub(crate) fn compact_body(raw: &str) -> String {
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw) {
+        compact_value(&mut value);
+        return serde_json::to_string(&value).unwrap_or_else(|_| raw.to_string());
+    }
+    // SSE 流：逐 data 行精简，event:/注释/空行原样保留
+    if raw.contains("data:") {
+        return compact_sse(raw);
+    }
+    // 非 JSON 报文（错误页等）原样保留
+    raw.to_string()
+}
+
+/// 字符串值才占位的正文字段键。注意请求顶层的 `thinking` 是对象
+/// （{type, budget_tokens}），不受影响；content 块与 SSE delta 里的
+/// `thinking`/`text` 才是字符串正文。
+const TEXT_OMIT_KEYS: &[&str] = &[
+    "text",
+    "thinking",
+    "signature",
+    "thinking_signature",
+    "partial_json",
+    // image 块 source.data 的 base64（可能数 MB）；SSE 事件的 data 是行前缀非键，无冲突
+    "data",
+];
+
+fn placeholder(text: &str) -> String {
+    format!("<omitted {} chars>", text.chars().count())
+}
+
+fn compact_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, val) in map.iter_mut() {
+                match key.as_str() {
+                    "system" | "content" => compact_content(val),
+                    "tools" => compact_tools(val),
+                    k if TEXT_OMIT_KEYS.contains(&k) => {
+                        if let serde_json::Value::String(text) = val {
+                            *text = placeholder(text);
+                        } else {
+                            compact_value(val);
+                        }
+                    }
+                    "description" | "input_schema" => {
+                        // tools 定义专用：schema 是对象，统一替换为占位字符串
+                        *val = serde_json::Value::String(match val {
+                            serde_json::Value::String(text) => placeholder(text),
+                            ref other => {
+                                format!("<omitted {} bytes>", other.to_string().len())
+                            }
+                        });
+                    }
+                    _ => compact_value(val),
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items.iter_mut() {
+                compact_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// messages[*].content / system / 响应 content 数组的统一精简
+fn compact_content(content: &mut serde_json::Value) {
+    match content {
+        // 整段字符串正文（system 简写形式、text content 简写形式）
+        serde_json::Value::String(text) => *text = placeholder(text),
+        serde_json::Value::Array(blocks) => {
+            for block in blocks.iter_mut() {
+                compact_value(block);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// tools 定义：保留 name 等标识，description/input_schema 已由 compact_value
+/// 的键规则占位，这里只需保证数组递归进来。
+fn compact_tools(tools: &mut serde_json::Value) {
+    if let serde_json::Value::Array(items) = tools {
+        for item in items.iter_mut() {
+            compact_value(item);
+        }
+    }
+}
+
+/// SSE 精简：`content_block_delta` 是"数量多、单行小"的增量流（一个工具调用
+/// 的参数增量动辄上千行），逐行占位几乎不省体积，这里把连续同 (index,
+/// delta_type) 的 delta 事件折叠为一行摘要；其余事件（message_start/delta、
+/// content_block_start/stop、message_stop）经 compact_value 后逐行保留，
+/// usage/stop_reason/块结构完整可见。
+fn compact_sse(raw: &str) -> String {
+    // 当前折叠中的 delta run（None = 不在 run 中）
+    let mut run: Option<(usize, String, usize, usize)> = None; // (index, delta_type, events, chars)
+    let mut out = String::with_capacity(raw.len() / 16);
+
+    fn flush_run(
+        run: &mut Option<(usize, String, usize, usize)>,
+        out: &mut String,
+    ) {
+        if let Some((index, delta_type, events, chars)) = run.take() {
+            out.push_str(&format!(
+                "data: {{\"type\":\"_delta_summary\",\"index\":{index},\"delta_type\":\"{delta_type}\",\"events\":{events},\"omitted_chars\":{chars}}}\n"
+            ));
+        }
+    }
+
+    for line in raw.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        // 被折叠的 delta 事件对应的 event: 行（有的网关无空格）一并丢弃，
+        // 否则几千个孤儿 event:content_block_delta 行仍占数十 KB
+        if trimmed == "event:content_block_delta" || trimmed == "event: content_block_delta" {
+            continue;
+        }
+        // SSE 规范允许 "data:" 后无空格或恰好一个空格（部分网关不带空格）
+        let payload = trimmed
+            .strip_prefix("data:")
+            .map(|p| p.strip_prefix(' ').unwrap_or(p));
+        if let Some(payload) = payload {
+            if let Ok(mut event) = serde_json::from_str::<serde_json::Value>(payload) {
+                let is_delta = event.get("type").and_then(serde_json::Value::as_str) == Some("content_block_delta");
+                if is_delta {
+                    let index = event
+                        .get("index")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as usize;
+                    let delta_type = event
+                        .pointer("/delta/type")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    // delta 正文总字符数（text/thinking/partial_json 等增量字段）
+                    let chars: usize = event
+                        .get("delta")
+                        .and_then(serde_json::Value::as_object)
+                        .map(|delta| {
+                            delta
+                                .iter()
+                                .filter(|(k, _)| TEXT_OMIT_KEYS.contains(&k.as_str()))
+                                .map(|(_, v)| {
+                                    v.as_str().map(|s| s.chars().count()).unwrap_or(0)
+                                })
+                                .sum()
+                        })
+                        .unwrap_or(0);
+                    match &mut run {
+                        Some((r_index, r_type, r_events, r_chars))
+                            if *r_index == index && *r_type == delta_type =>
+                        {
+                            *r_events += 1;
+                            *r_chars += chars;
+                        }
+                        _ => {
+                            flush_run(&mut run, &mut out);
+                            run = Some((index, delta_type, 1, chars));
+                        }
+                    }
+                    continue;
+                }
+                flush_run(&mut run, &mut out);
+                compact_value(&mut event);
+                let compact =
+                    serde_json::to_string(&event).unwrap_or_else(|_| payload.to_string());
+                out.push_str("data: ");
+                out.push_str(&compact);
+                out.push('\n');
+                continue;
+            }
+        }
+        // 非 data 行（event:/注释/空行）、[DONE]、解析失败：原样保留
+        flush_run(&mut run, &mut out);
+        out.push_str(line);
+    }
+    flush_run(&mut run, &mut out);
+    out
 }
 
 // ============================================================================
@@ -580,5 +775,146 @@ mod tests {
             ]
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn compact_body_strips_message_content_but_keeps_config_fields() {
+        let body = r#"{
+            "model": "claude-opus-4-8",
+            "max_tokens": 32000,
+            "stream": true,
+            "thinking": {"type": "adaptive"},
+            "system": [{"type": "text", "text": "You are Claude Code...", "cache_control": {"type": "ephemeral"}}],
+            "messages": [
+                {"role": "user", "content": "hello world, this is the full conversation text"},
+                {"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": "internal reasoning...", "signature": "sig-abc"},
+                    {"type": "text", "text": "assistant answer", "cache_control": {"type": "ephemeral"}},
+                    {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}
+                ]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": [{"type": "text", "text": "file listing output"}]}
+                ]}
+            ],
+            "tools": [
+                {"name": "Bash", "description": "Runs a bash command", "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}}}
+            ]
+        }"#;
+        let compact = compact_body(body);
+        let parsed: serde_json::Value = serde_json::from_str(&compact).unwrap();
+
+        // 配置字段完整保留
+        assert_eq!(parsed["model"], "claude-opus-4-8");
+        assert_eq!(parsed["max_tokens"], 32000);
+        assert_eq!(parsed["thinking"]["type"], "adaptive");
+        assert_eq!(parsed["tools"][0]["name"], "Bash");
+
+        // 正文占位
+        let user_text = parsed["messages"][0]["content"].as_str().unwrap();
+        assert!(user_text.starts_with("<omitted "), "{user_text}");
+        assert!(parsed["messages"][1]["content"][0]["thinking"]
+            .as_str()
+            .unwrap()
+            .starts_with("<omitted"));
+        assert!(parsed["messages"][2]["content"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("<omitted"));
+        assert!(parsed["system"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("<omitted"));
+        assert!(parsed["tools"][0]["description"]
+            .as_str()
+            .unwrap()
+            .starts_with("<omitted"));
+        assert!(parsed["tools"][0]["input_schema"]
+            .as_str()
+            .unwrap()
+            .starts_with("<omitted"));
+
+        // 结构/标识/cache_control 保留
+        assert_eq!(parsed["messages"][1]["content"][1]["type"], "text");
+        assert_eq!(parsed["messages"][1]["content"][2]["name"], "Bash");
+        assert_eq!(
+            parsed["messages"][1]["content"][1]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(parsed["system"][0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn compact_body_sse_keeps_events_and_usage_but_folds_deltas() {
+        let sse = "event: message_start\n\
+                   data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-4-8\",\"content\":[{\"type\":\"text\",\"text\":\"\"}],\"usage\":{\"input_tokens\":100}}}\n\
+                   \n\
+                   event: content_block_delta\n\
+                   data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"the full model output\"}}\n\
+                   data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" continues here\"}}\n\
+                   \n\
+                   event: message_delta\n\
+                   data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}\n\
+                   \n\
+                   data: [DONE]\n";
+        let compact = compact_sse(sse);
+        let data_lines: Vec<&str> = compact
+            .lines()
+            .filter(|l| l.starts_with("data: ") && !l.contains("[DONE]"))
+            .collect();
+        // message_start + delta 摘要（2 行折叠为 1）+ message_delta
+        assert_eq!(data_lines.len(), 3);
+
+        let start: serde_json::Value =
+            serde_json::from_str(data_lines[0].trim_start_matches("data: ")).unwrap();
+        assert_eq!(start["message"]["usage"]["input_tokens"], 100);
+        assert_eq!(start["message"]["model"], "claude-opus-4-8");
+
+        let summary: serde_json::Value =
+            serde_json::from_str(data_lines[1].trim_start_matches("data: ")).unwrap();
+        assert_eq!(summary["type"], "_delta_summary");
+        assert_eq!(summary["delta_type"], "text_delta");
+        assert_eq!(summary["events"], 2);
+        assert_eq!(summary["omitted_chars"], 36); // "the full model output"(21) + " continues here"(15)
+
+        let end: serde_json::Value =
+            serde_json::from_str(data_lines[2].trim_start_matches("data: ")).unwrap();
+        assert_eq!(end["delta"]["stop_reason"], "end_turn");
+        assert_eq!(end["usage"]["output_tokens"], 42);
+
+        // event: 行与 [DONE] 原样保留（delta 的 event 行除外，已随折叠丢弃）
+        assert!(compact.contains("event: message_start"));
+        assert!(compact.contains("data: [DONE]"));
+        assert!(!compact.contains("event: content_block_delta"));
+    }
+
+    #[test]
+    fn compact_body_sse_handles_data_without_space() {
+        // 部分网关（如 Kimi）输出 "data:{...}" 无空格，SSE 规范允许；
+        // delta 事件同样折叠
+        let sse = "data:{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"long reasoning\"}}\n";
+        let compact = compact_body(sse);
+        let payload: serde_json::Value =
+            serde_json::from_str(compact.trim_start_matches("data: ")).unwrap();
+        assert_eq!(payload["type"], "_delta_summary");
+        assert_eq!(payload["index"], 1);
+        assert_eq!(payload["delta_type"], "thinking_delta");
+        assert_eq!(payload["omitted_chars"], 14); // "long reasoning"
+    }
+
+    #[test]
+    fn compact_body_passthrough_non_json() {
+        assert_eq!(compact_body("plain error page"), "plain error page");
+        assert_eq!(compact_body(""), "");
+    }
+
+    #[test]
+    fn compact_body_handles_image_block_base64() {
+        let body = r#"{"messages":[{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8gd29ybGQg"}}]}]}"#;
+        let compact = compact_body(body);
+        let parsed: serde_json::Value = serde_json::from_str(&compact).unwrap();
+        let source = &parsed["messages"][0]["content"][0]["source"];
+        assert_eq!(source["media_type"], "image/png");
+        assert!(source["data"].as_str().unwrap().starts_with("<omitted"));
     }
 }
