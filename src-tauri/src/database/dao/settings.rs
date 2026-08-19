@@ -324,4 +324,25 @@ impl Database {
             .map_err(|e| AppError::Database(format!("序列化日志配置失败: {e}")))?;
         self.set_setting("log_config", &json)
     }
+
+    // --- API 报文记录配置 ---
+
+    /// 获取 API 报文记录配置
+    pub fn get_api_log_config(&self) -> Result<crate::proxy::api_log::ApiLogConfig, AppError> {
+        match self.get_setting(crate::proxy::api_log::API_LOG_CONFIG_KEY)? {
+            Some(json) => serde_json::from_str(&json)
+                .map_err(|e| AppError::Database(format!("解析 API 报文记录配置失败: {e}"))),
+            None => Ok(crate::proxy::api_log::ApiLogConfig::default()),
+        }
+    }
+
+    /// 更新 API 报文记录配置
+    pub fn set_api_log_config(
+        &self,
+        config: &crate::proxy::api_log::ApiLogConfig,
+    ) -> Result<(), AppError> {
+        let json = serde_json::to_string(config)
+            .map_err(|e| AppError::Database(format!("序列化 API 报文记录配置失败: {e}")))?;
+        self.set_setting(crate::proxy::api_log::API_LOG_CONFIG_KEY, &json)
+    }
 }

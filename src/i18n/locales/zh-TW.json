@@ -2853,6 +2853,10 @@
           "label": "記錄請求用量",
           "description": "將路由請求的用量與狀態寫入本機統計資料庫"
         },
+        "enableApiLog": {
+          "label": "記錄 API 報文",
+          "description": "除錯用：完整落盤收到的請求、轉發出去的請求與回覆（含對話上下文，敏感標頭已遮蔽），預設保留最近 200 個請求"
+        },
         "streamingFirstByteTimeout": {
           "label": "串流首位元組逾時（秒）",
           "description": "等待首個資料區塊的最大時間"
@@ -2966,6 +2970,13 @@
       "enabled": "日誌紀錄已啟用",
       "disabled": "日誌紀錄已關閉",
       "failed": "切換日誌狀態失敗"
+    },
+    "apiLog": {
+      "enabled": "API 報文記錄已開啟",
+      "disabled": "API 報文記錄已關閉",
+      "saveFailed": "切換 API 報文記錄失敗",
+      "openFailed": "開啟報文目錄失敗",
+      "openDir": "開啟記錄目錄"
     },
     "server": {
       "started": "路由服務已啟動 - {{address}}:{{port}}",

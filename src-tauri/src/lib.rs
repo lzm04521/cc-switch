@@ -640,6 +640,21 @@ pub fn run() {
                 }
             }
 
+            // API 报文记录开关：启动时恢复（默认关闭），运行中可随时切换
+            match db.get_api_log_config() {
+                Ok(api_log_config) => {
+                    crate::proxy::api_log::set_enabled(api_log_config.enabled);
+                    log::info!(
+                        "已加载 API 报文记录配置: enabled={}",
+                        api_log_config.enabled
+                    );
+                }
+                Err(e) => {
+                    crate::proxy::api_log::set_enabled(false);
+                    log::warn!("读取 API 报文记录配置失败，已保持关闭: {e}");
+                }
+            }
+
             // 如果有预加载的配置，执行迁移
             if let Some(config) = migration_config {
                 log::info!("开始执行数据迁移...");
@@ -1431,6 +1446,9 @@ pub fn run() {
             commands::set_copilot_optimizer_config,
             commands::get_log_config,
             commands::set_log_config,
+            commands::get_api_log_config,
+            commands::set_api_log_config,
+            commands::open_api_log_dir,
             commands::restart_app,
             commands::install_update_and_restart,
             commands::check_app_update_available,

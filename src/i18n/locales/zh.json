@@ -2852,6 +2852,10 @@
           "label": "记录请求用量",
           "description": "将路由请求的用量与状态写入本地统计数据库"
         },
+        "enableApiLog": {
+          "label": "记录 API 报文",
+          "description": "调试用：完整落盘收到的请求、转发出去的请求与回复（含对话上下文，敏感头已脱敏），默认保留最近 200 个请求"
+        },
         "streamingFirstByteTimeout": {
           "label": "流式首字超时（秒）",
           "description": "等待首个数据块的最大时间"
@@ -2965,6 +2969,13 @@
       "enabled": "日志记录已启用",
       "disabled": "日志记录已关闭",
       "failed": "切换日志状态失败"
+    },
+    "apiLog": {
+      "enabled": "API 报文记录已开启",
+      "disabled": "API 报文记录已关闭",
+      "saveFailed": "切换 API 报文记录失败",
+      "openFailed": "打开报文目录失败",
+      "openDir": "打开记录目录"
     },
     "server": {
       "started": "路由服务已启动 - {{address}}:{{port}}",
