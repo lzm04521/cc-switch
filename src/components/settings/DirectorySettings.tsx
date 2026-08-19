@@ -27,6 +27,9 @@ interface DirectorySettingsProps {
   onDirectoryChange: (app: DirectoryAppId, value?: string) => void;
   onBrowseDirectory: (app: DirectoryAppId) => Promise<void>;
   onResetDirectory: (app: DirectoryAppId) => Promise<void>;
+  dshSkillsDir?: string;
+  onDshSkillsDirChange: (value?: string) => void;
+  onBrowseDshSkillsDir: () => Promise<void>;
 }
 
 export function DirectorySettings({
@@ -48,6 +51,9 @@ export function DirectorySettings({
   onDirectoryChange,
   onBrowseDirectory,
   onResetDirectory,
+  dshSkillsDir,
+  onDshSkillsDirChange,
+  onBrowseDshSkillsDir,
 }: DirectorySettingsProps) {
   const { t } = useTranslation();
 
@@ -192,6 +198,24 @@ export function DirectorySettings({
           onBrowse={() => onBrowseDirectory("dsh")}
           onReset={() => onResetDirectory("dsh")}
         />
+        <DirectoryInput
+          label={t("settings.dshSkillsDir", {
+            defaultValue: "DeepSeek Harness skills directory",
+          })}
+          description={t("settings.dshSkillsDirDescription", {
+            defaultValue:
+              "Skill 部署目录（默认 ~/.agents/skills，与上方 live 配置目录相互独立）",
+          })}
+          value={dshSkillsDir}
+          resolvedValue={"~/.agents/skills"}
+          placeholder={t("settings.browsePlaceholderDshSkills", {
+            defaultValue: "~/.agents/skills",
+          })}
+          onChange={onDshSkillsDirChange}
+          onBrowse={onBrowseDshSkillsDir}
+          onReset={async () => onDshSkillsDirChange(undefined)}
+        />
+
         <DirectoryInput
           label={t("settings.piConfigDir")}
           description={undefined}

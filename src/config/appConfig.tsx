@@ -52,6 +52,7 @@ export const SKILLS_APP_IDS: AppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "dsh",
   "pi",
   "zcode",
 ];
@@ -90,10 +91,7 @@ export function isAdditiveAppId(appId: string): appId is AdditiveAppId {
 }
 
 /** Pi has no native MCP registry; do not manufacture a disabled mirror. */
-export type McpAppId = Exclude<
-  AppId,
-  "claude-desktop" | "openclaw" | "pi" | "dsh"
->;
+export type McpAppId = Exclude<AppId, "claude-desktop" | "openclaw" | "pi">;
 export const MCP_APP_IDS: McpAppId[] = [
   "claude",
   "codex",
@@ -101,6 +99,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "dsh",
   "zcode",
 ];
 

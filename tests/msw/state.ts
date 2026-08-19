@@ -174,6 +174,7 @@ let mcpConfigs: McpConfigState = {
         openclaw: false,
         hermes: false,
         zcode: false,
+        dsh: false,
       },
       server: {
         type: "stdio",
@@ -195,6 +196,7 @@ let mcpConfigs: McpConfigState = {
         openclaw: false,
         hermes: false,
         zcode: false,
+        dsh: false,
       },
       server: {
         type: "http",
@@ -250,6 +252,7 @@ export const resetProviderState = () => {
           openclaw: false,
           hermes: false,
           zcode: false,
+          dsh: false,
         },
         server: {
           type: "stdio",
@@ -271,6 +274,7 @@ export const resetProviderState = () => {
           openclaw: false,
           hermes: false,
           zcode: false,
+          dsh: false,
         },
         server: {
           type: "http",

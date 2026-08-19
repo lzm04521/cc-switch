@@ -20,23 +20,25 @@ const sectionsFixture = [
 
 const hidePanel = vi.fn().mockResolvedValue(true);
 // 可变注入：各用例按需填充用量缓存快照（undefined = 无缓存）
-let usageSnapshots: Array<{
-  appType: string;
-  providerId: string;
-  result: {
-    success: boolean;
-    data?: Array<{
-      planName?: string;
-      remaining?: number;
-      total?: number;
-      used?: number;
-      unit?: string;
-      extra?: string;
-    }>;
-    error?: string;
-  };
-  queriedAt: number;
-}> | undefined;
+let usageSnapshots:
+  | Array<{
+      appType: string;
+      providerId: string;
+      result: {
+        success: boolean;
+        data?: Array<{
+          planName?: string;
+          remaining?: number;
+          total?: number;
+          used?: number;
+          unit?: string;
+          extra?: string;
+        }>;
+        error?: string;
+      };
+      queriedAt: number;
+    }>
+  | undefined;
 vi.mock("@/lib/api/floatingBall", () => ({
   floatingBallApi: {
     hidePanel: () => hidePanel(),

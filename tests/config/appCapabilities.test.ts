@@ -7,8 +7,9 @@ describe("DeepSeek Harness app capabilities", () => {
     expect(capabilities.providerMode).toBe("dsh-live");
     expect(capabilities.defaultModel).toBe(true);
     expect(capabilities.proxy).toBe(false);
-    expect(capabilities.mcp).toBe(false);
-    expect(capabilities.skills).toBe(false);
+    // fork 定制：DSH 接入统一 Skills/MCP 管理（~/.agents/skills 与 ~/.dsh/mcp.json）
+    expect(capabilities.mcp).toBe(true);
+    expect(capabilities.skills).toBe(true);
     expect(capabilities.sessions).toBe(false);
     expect(capabilities.usage).toBe(false);
     expect(capabilities.tray).toBe(false);
@@ -35,11 +36,13 @@ describe("DeepSeek Harness app capabilities", () => {
     expect(supportsAppView("claude-desktop", "universal")).toBe(false);
   });
 
-  it("only permits provider and settings views for DSH", () => {
+  it("permits provider, skills, MCP, and settings views for DSH", () => {
     expect(supportsAppView("dsh", "providers")).toBe(true);
     expect(supportsAppView("dsh", "settings")).toBe(true);
-    expect(supportsAppView("dsh", "mcp")).toBe(false);
-    expect(supportsAppView("dsh", "skills")).toBe(false);
+    // fork 定制：DSH 接入统一 Skills/MCP 管理
+    expect(supportsAppView("dsh", "mcp")).toBe(true);
+    expect(supportsAppView("dsh", "skills")).toBe(true);
+    expect(supportsAppView("dsh", "skillsDiscovery")).toBe(true);
     expect(supportsAppView("dsh", "sessions")).toBe(false);
     expect(supportsAppView("dsh", "universal")).toBe(false);
   });

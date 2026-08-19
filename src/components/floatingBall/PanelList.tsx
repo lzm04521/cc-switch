@@ -232,9 +232,7 @@ export function PanelList() {
   // 用量缓存快照按 app:provider 建索引，行渲染 O(1) 匹配
   const usageByProvider = useMemo(() => {
     const map = new Map<string, UsageCacheSnapshot>();
-    usageSnapshots?.forEach((s) =>
-      map.set(`${s.appType}:${s.providerId}`, s),
-    );
+    usageSnapshots?.forEach((s) => map.set(`${s.appType}:${s.providerId}`, s));
     return map;
   }, [usageSnapshots]);
 
