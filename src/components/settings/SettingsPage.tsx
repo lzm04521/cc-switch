@@ -356,11 +356,29 @@ export function SettingsPage({
                             opencodeDir={settings.opencodeConfigDir}
                             openclawDir={settings.openclawConfigDir}
                             hermesDir={settings.hermesConfigDir}
+                            dshDir={settings.dshConfigDir}
                             piDir={settings.piConfigDir}
                             zcodeDir={settings.zcodeConfigDir}
                             onDirectoryChange={updateDirectory}
                             onBrowseDirectory={browseDirectory}
                             onResetDirectory={resetDirectory}
+                            dshSkillsDir={settings.dshSkillsDir}
+                            onDshSkillsDirChange={(value) =>
+                              updateSettings({ dshSkillsDir: value })
+                            }
+                            onBrowseDshSkillsDir={async () => {
+                              try {
+                                const picked =
+                                  await settingsApi.selectConfigDirectory(
+                                    settings.dshSkillsDir ?? "~/.agents/skills",
+                                  );
+                                if (picked) {
+                                  updateSettings({ dshSkillsDir: picked });
+                                }
+                              } catch {
+                                // 用户取消选择，忽略
+                              }
+                            }}
                           />
                         </AccordionContent>
                       </AccordionItem>

@@ -38,8 +38,7 @@ export const floatingBallApi = {
   setEnabled: (enabled: boolean) =>
     invoke<boolean>("set_floating_ball_enabled", { enabled }),
   getSections: () => invoke<BallSection[]>("get_floating_ball_sections"),
-  getUsageCache: () =>
-    invoke<UsageCacheSnapshot[]>("get_provider_usage_cache"),
+  getUsageCache: () => invoke<UsageCacheSnapshot[]>("get_provider_usage_cache"),
   showMainWindow: () => invoke<boolean>("show_main_window"),
 };
 

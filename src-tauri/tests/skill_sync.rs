@@ -425,3 +425,51 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
         "migration should no longer infer OpenCode enablement from a duplicate directory alone"
     );
 }
+
+#[test]
+fn dsh_skill_toggle_syncs_agents_skills_dir() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    // 在 ~/.claude/skills 预置一个技能，导入时仅启用 DSH
+    write_skill(
+        &home.join(".claude").join("skills").join("dsh-skill"),
+        "Dsh Skill",
+    );
+
+    let state = create_test_state().expect("create test state");
+    let imported = SkillService::import_from_apps(
+        &state.db,
+        vec![ImportSkillSelection {
+            directory: "dsh-skill".to_string(),
+            apps: SkillApps {
+                dsh: true,
+                ..Default::default()
+            },
+        }],
+    )
+    .expect("import skills");
+    let skill = imported.first().expect("imported skill");
+
+    // import 只入库不落盘，toggle 才同步到部署目录
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, true).expect("enable dsh");
+
+    // DSH 默认部署根是 ~/.agents/skills（跨工具标准目录，非 ~/.dsh/skills）
+    let dsh_link = home.join(".agents").join("skills").join("dsh-skill");
+    assert!(
+        dsh_link.exists(),
+        "enabling DSH must materialize ~/.agents/skills/dsh-skill"
+    );
+
+    // 关闭 DSH：部署目录中的链接/副本必须移除
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, false).expect("disable dsh");
+    assert!(
+        !dsh_link.exists(),
+        "disabling DSH must remove the entry from ~/.agents/skills"
+    );
+
+    // 重新开启：恢复
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, true).expect("enable dsh");
+    assert!(dsh_link.exists());
+}

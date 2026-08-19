@@ -496,7 +496,9 @@ export function ProxyPanel({
                     onClick={() => void handleOpenApiLogDir()}
                   >
                     <FolderOpen className="h-3.5 w-3.5" />
-                    {t("proxy.apiLog.openDir", { defaultValue: "打开记录目录" })}
+                    {t("proxy.apiLog.openDir", {
+                      defaultValue: "打开记录目录",
+                    })}
                   </Button>
                 </div>
               </div>

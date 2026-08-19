@@ -25,6 +25,7 @@ export const APP_IDS: AppId[] = [
   "opencode",
   "openclaw",
   "hermes",
+  "dsh",
   "pi",
   "zcode",
 ];
@@ -38,6 +39,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   opencode: true,
   openclaw: true,
   hermes: true,
+  dsh: true,
   pi: true,
   zcode: false, // 默认不显示，需用户手动启用
 };
@@ -50,6 +52,7 @@ export const SKILLS_APP_IDS: AppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "dsh",
   "pi",
   "zcode",
 ];
@@ -96,6 +99,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "dsh",
   "zcode",
 ];
 
@@ -188,6 +192,21 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-violet-500/10 ring-1 ring-violet-500/20 hover:bg-violet-500/20 text-violet-600 dark:text-violet-400",
     badgeClass:
       "bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 border-0 gap-1.5",
+  },
+  dsh: {
+    label: "DeepSeek Harness",
+    icon: (
+      <ProviderIcon
+        icon="deepseek"
+        name="DeepSeek Harness"
+        size={14}
+        showFallback={false}
+      />
+    ),
+    activeClass:
+      "bg-sky-500/10 ring-1 ring-sky-500/20 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300",
+    badgeClass:
+      "bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 border-0 gap-1.5",
   },
   pi: {
     label: "Pi",

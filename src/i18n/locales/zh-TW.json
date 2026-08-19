@@ -797,6 +797,8 @@
     "openclawConfigDirDescription": "覆寫 OpenClaw 設定目錄 (openclaw.json)。",
     "hermesConfigDir": "Hermes 設定目錄",
     "hermesConfigDirDescription": "覆寫 Hermes 設定目錄 (config.yaml)。",
+    "dshConfigDir": "DeepSeek Harness 設定目錄",
+    "dshConfigDirDescription": "覆蓋 DeepSeek Harness 主目錄（mcp.json 所在目錄）。",
     "piConfigDir": "Pi 設定目錄",
     "piConfigDirDescription": "覆寫 Pi 設定目錄（models.json、指示檔案、提示、Skills 與工作階段）。",
     "browsePlaceholderClaude": "例如：/home/<您的帳號>/.claude",
@@ -806,6 +808,10 @@
     "browsePlaceholderOpencode": "例如：/home/<您的帳號>/.config/opencode",
     "browsePlaceholderOpenclaw": "例如：/home/<您的帳號>/.openclaw",
     "browsePlaceholderHermes": "例如：/home/<您的帳號>/.hermes",
+    "browsePlaceholderDsh": "例如：/home/<您的帳號>/.dsh",
+    "dshSkillsDir": "DeepSeek Harness Skills 目錄",
+    "dshSkillsDirDescription": "Skill 部署目錄（預設 ~/.agents/skills；指向 ~/.dsh/skills 可改為管理 dsh 原生 skill）。",
+    "browsePlaceholderDshSkills": "例如：/home/<你的使用者名稱>/.agents/skills",
     "browsePlaceholderPi": "例如：/home/<您的帳號>/.pi/agent",
     "browseDirectory": "瀏覽目錄",
     "resetDefault": "還原預設目錄（需儲存後生效）",
@@ -921,6 +927,7 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
+    "dsh": "DeepSeek Harness",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -3254,6 +3261,9 @@
     },
     "suggestedDefaults": "套用建議預設設定",
     "suggestedDefaultsHint": "使用此預設推薦的預設模型設定"
+  },
+  "dsh": {
+    "providerManagedExternally": "DSH 的 provider 由 DeepSeek Harness 應用程式自行管理，請前往 DSH 應用程式內新增、切換或設定 provider。"
   },
   "subscription": {
     "title": "訂閱額度",

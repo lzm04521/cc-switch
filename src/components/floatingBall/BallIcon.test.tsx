@@ -75,11 +75,21 @@ describe("BallIcon", () => {
       screenY: 10,
     });
     // 位移 sqrt(6^2+2^2) ≈ 6.3 > 4 → 进入拖动，调用后端 start_ball_drag
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 16, screenY: 12, buttons: 1 });
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 16,
+      screenY: 12,
+      buttons: 1,
+    });
     expect(startDrag).toHaveBeenCalledTimes(1);
     expect(startDragging).not.toHaveBeenCalled();
     // 后续 move 不再重复触发（前端已退出本次手势）
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 100, screenY: 100, buttons: 1 });
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 100,
+      screenY: 100,
+      buttons: 1,
+    });
     expect(startDrag).toHaveBeenCalledTimes(1);
     fireEvent.pointerUp(el, { pointerId: 1, screenX: 210, screenY: 10 });
     expect(togglePanel).not.toHaveBeenCalled();
@@ -95,7 +105,12 @@ describe("BallIcon", () => {
       screenY: 10,
     });
     // 位移 3.6px：> 0 但 < 拖动阈值 4px → 不进入拖动
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 13, screenY: 12, buttons: 1 });
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 13,
+      screenY: 12,
+      buttons: 1,
+    });
     fireEvent.pointerUp(el, { pointerId: 1, screenX: 13, screenY: 12 });
     expect(togglePanel).toHaveBeenCalledTimes(1); // 位移 3.6px < 5 → 点击
     expect(startDrag).not.toHaveBeenCalled();
@@ -120,7 +135,12 @@ describe("BallIcon", () => {
       screenX: 10,
       screenY: 10,
     });
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 16, screenY: 12, buttons: 1 }); // 进入拖动
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 16,
+      screenY: 12,
+      buttons: 1,
+    }); // 进入拖动
     fireEvent.mouseLeave(el); // 拖动中球被移走触发的 leave
     expect(onHover).toHaveBeenCalledWith(false);
   });
@@ -135,11 +155,21 @@ describe("BallIcon", () => {
       screenY: 10,
     });
     // 进入拖动（后端接管，pointerup 因球被移走而丢失）
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 16, screenY: 12, buttons: 1 });
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 16,
+      screenY: 12,
+      buttons: 1,
+    });
     expect(startDrag).toHaveBeenCalledTimes(1);
     // 左键已松开（buttons=0）仍收到 move：应自愈清理，而不是用残留 down
     // 再次判定为拖动
-    fireEvent.pointerMove(el, { pointerId: 1, screenX: 100, screenY: 100, buttons: 0 });
+    fireEvent.pointerMove(el, {
+      pointerId: 1,
+      screenX: 100,
+      screenY: 100,
+      buttons: 0,
+    });
     expect(startDrag).toHaveBeenCalledTimes(1);
     // 清理后 hover 不再被残留 dragging 抑制
     fireEvent.mouseEnter(el);

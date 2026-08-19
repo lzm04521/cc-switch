@@ -36,6 +36,7 @@ const APP_ICON_NAME: Record<AppId, string> = {
   opencode: "opencode",
   openclaw: "openclaw",
   hermes: "hermes",
+  dsh: "deepseek",
   pi: "pi",
   zcode: "zcode",
 };
@@ -49,6 +50,7 @@ const APP_DISPLAY_NAME: Record<AppId, string> = {
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",
+  dsh: "DeepSeek Harness",
   pi: "Pi",
   zcode: "ZCode",
 };

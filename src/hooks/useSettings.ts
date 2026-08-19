@@ -118,6 +118,7 @@ export function useSettings(): UseSettingsResult {
       opencode: sanitizeDir(data?.opencodeConfigDir),
       openclaw: sanitizeDir(data?.openclawConfigDir),
       hermes: sanitizeDir(data?.hermesConfigDir),
+      dsh: sanitizeDir(data?.dshConfigDir),
       pi: sanitizeDir(data?.piConfigDir),
       zcode: sanitizeDir(data?.zcodeConfigDir),
     });
@@ -201,6 +202,7 @@ export function useSettings(): UseSettingsResult {
         const sanitizedOpenclawDir = sanitizeDir(
           mergedSettings.openclawConfigDir,
         );
+        const sanitizedDshDir = sanitizeDir(mergedSettings.dshConfigDir);
         const sanitizedPiDir = sanitizeDir(mergedSettings.piConfigDir);
         const {
           webdavSync: _ignoredWebdavSync,
@@ -216,6 +218,7 @@ export function useSettings(): UseSettingsResult {
           grokConfigDir: sanitizedGrokDir,
           opencodeConfigDir: sanitizedOpencodeDir,
           openclawConfigDir: sanitizedOpenclawDir,
+          dshConfigDir: sanitizedDshDir,
           piConfigDir: sanitizedPiDir,
           language: mergedSettings.language,
         };
@@ -336,6 +339,7 @@ export function useSettings(): UseSettingsResult {
         const sanitizedOpenclawDir = sanitizeDir(
           mergedSettings.openclawConfigDir,
         );
+        const sanitizedDshDir = sanitizeDir(mergedSettings.dshConfigDir);
         const sanitizedPiDir = sanitizeDir(mergedSettings.piConfigDir);
         const previousAppDir = initialAppConfigDir;
         const previousClaudeDir = sanitizeDir(data?.claudeConfigDir);
@@ -359,6 +363,7 @@ export function useSettings(): UseSettingsResult {
           grokConfigDir: sanitizedGrokDir,
           opencodeConfigDir: sanitizedOpencodeDir,
           openclawConfigDir: sanitizedOpenclawDir,
+          dshConfigDir: sanitizedDshDir,
           piConfigDir: sanitizedPiDir,
           language: mergedSettings.language,
         };
