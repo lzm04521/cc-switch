@@ -9,6 +9,7 @@ import {
   Loader2,
   Zap,
   Power,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { toast } from "sonner";
 import { useFailoverQueue } from "@/lib/query/failover";
+import { settingsApi, type ApiLogConfig } from "@/lib/api/settings";
 import { ProviderHealthBadge } from "@/components/providers/ProviderHealthBadge";
 import { useProviderHealth } from "@/lib/query/failover";
 import {
@@ -55,6 +57,52 @@ export function ProxyPanel({
   // 获取全局代理配置
   const { data: globalConfig } = useGlobalProxyConfig();
   const updateGlobalConfig = useUpdateGlobalProxyConfig();
+
+  // API 报文记录开关（默认关闭；报文含完整对话上下文，仅调试时打开）
+  const [apiLogConfig, setApiLogConfig] = useState<ApiLogConfig>({
+    enabled: false,
+  });
+  const [isApiLogLoading, setIsApiLogLoading] = useState(true);
+
+  useEffect(() => {
+    settingsApi
+      .getApiLogConfig()
+      .then(setApiLogConfig)
+      .catch((e) => console.error("Failed to load api log config:", e))
+      .finally(() => setIsApiLogLoading(false));
+  }, []);
+
+  const handleApiLogChange = async (enabled: boolean) => {
+    const previous = apiLogConfig;
+    const next = { enabled };
+    setApiLogConfig(next);
+    try {
+      await settingsApi.setApiLogConfig(next);
+      toast.success(
+        enabled
+          ? t("proxy.apiLog.enabled", { defaultValue: "API 报文记录已开启" })
+          : t("proxy.apiLog.disabled", { defaultValue: "API 报文记录已关闭" }),
+        { closeButton: true },
+      );
+    } catch (e) {
+      setApiLogConfig(previous);
+      toast.error(
+        t("proxy.apiLog.saveFailed", { defaultValue: "切换 API 报文记录失败" }),
+      );
+      console.error("Failed to save api log config:", e);
+    }
+  };
+
+  const handleOpenApiLogDir = async () => {
+    try {
+      await settingsApi.openApiLogDir();
+    } catch (e) {
+      toast.error(
+        t("proxy.apiLog.openFailed", { defaultValue: "打开报文目录失败" }),
+      );
+      console.error("Failed to open api log dir:", e);
+    }
+  };
 
   // 监听地址/端口的本地状态（端口用字符串以支持完全清空）
   const [listenAddress, setListenAddress] = useState("127.0.0.1");
@@ -413,6 +461,43 @@ export function ProxyPanel({
                     onCheckedChange={handleLoggingChange}
                     disabled={updateGlobalConfig.isPending}
                   />
+                </div>
+              </div>
+
+              {/* [5.5] API payload logging toggle */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-md border border-border bg-background/60 px-3 py-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium">
+                      {t("proxy.settings.fields.enableApiLog.label", {
+                        defaultValue: "记录 API 报文",
+                      })}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t("proxy.settings.fields.enableApiLog.description", {
+                        defaultValue:
+                          "调试用：完整落盘收到的请求、转发出去的请求与回复（含对话上下文，敏感头已脱敏），默认保留最近 200 个请求",
+                      })}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={apiLogConfig.enabled}
+                    onCheckedChange={(checked) =>
+                      void handleApiLogChange(checked)
+                    }
+                    disabled={isApiLogLoading}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() => void handleOpenApiLogDir()}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    {t("proxy.apiLog.openDir", { defaultValue: "打开记录目录" })}
+                  </Button>
                 </div>
               </div>
 

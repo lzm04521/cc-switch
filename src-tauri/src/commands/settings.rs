@@ -733,3 +733,41 @@ pub async fn set_log_config(
     );
     Ok(true)
 }
+
+/// 获取 API 报文记录配置
+#[tauri::command]
+pub async fn get_api_log_config(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<crate::proxy::api_log::ApiLogConfig, String> {
+    state.db.get_api_log_config().map_err(|e| e.to_string())
+}
+
+/// 设置 API 报文记录配置（运行中切换即时生效，无需重启代理）
+#[tauri::command]
+pub async fn set_api_log_config(
+    state: tauri::State<'_, crate::AppState>,
+    config: crate::proxy::api_log::ApiLogConfig,
+) -> Result<bool, String> {
+    state
+        .db
+        .set_api_log_config(&config)
+        .map_err(|e| e.to_string())?;
+    crate::proxy::api_log::set_enabled(config.enabled);
+    log::info!("API 报文记录配置已更新: enabled={}", config.enabled);
+    Ok(true)
+}
+
+/// 打开 API 报文记录目录（不存在则创建）
+#[tauri::command]
+pub async fn open_api_log_dir(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let dir = crate::proxy::api_log::api_log_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return Err(format!("创建目录失败: {e}"));
+    }
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<String>)
+        .map_err(|e| format!("打开文件夹失败: {e}"))?;
+    Ok(true)
+}

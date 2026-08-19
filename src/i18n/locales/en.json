@@ -2645,6 +2645,10 @@
           "label": "Record Request Usage",
           "description": "Write routing request usage and status to the local statistics database"
         },
+        "enableApiLog": {
+          "label": "Record API Payloads",
+          "description": "For debugging: fully log received requests, forwarded requests, and responses (includes conversation context; sensitive headers redacted). Keeps the most recent 200 requests"
+        },
         "streamingFirstByteTimeout": {
           "label": "Streaming First Byte Timeout (sec)",
           "description": "Maximum time to wait for the first data chunk"
@@ -2758,6 +2762,13 @@
       "enabled": "Logging enabled",
       "disabled": "Logging disabled",
       "failed": "Failed to toggle logging"
+    },
+    "apiLog": {
+      "enabled": "API payload logging enabled",
+      "disabled": "API payload logging disabled",
+      "saveFailed": "Failed to toggle API payload logging",
+      "openFailed": "Failed to open payload log folder",
+      "openDir": "Open Log Folder"
     },
     "server": {
       "started": "Routing service started - {{address}}:{{port}}",

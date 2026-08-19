@@ -190,6 +190,10 @@ async fn handle_messages_for_app(
         .and_then(|prefix| raw_endpoint.strip_prefix(prefix))
         .unwrap_or(raw_endpoint);
 
+    if let Some(capture) = &ctx.api_log {
+        capture.record_received(method.as_str(), endpoint, &headers, &body_bytes);
+    }
+
     let is_stream = body
         .get("stream")
         .and_then(|s| s.as_bool())
@@ -497,6 +501,9 @@ async fn handle_claude_transform(
             usage_collector,
             timeout_config,
             connection_guard,
+            ctx.api_log
+                .clone()
+                .map(|capture| (capture, super::api_log::TeeTarget::FinalOutput)),
         );
 
         let mut headers = axum::http::HeaderMap::new();
@@ -522,6 +529,11 @@ async fn handle_claude_transform(
         };
     let (mut response_headers, _status, body_bytes) =
         read_decoded_body(response, ctx.tag, body_timeout).await?;
+
+    // API 报文记录：转换路径的上游原文（转换器消费前）
+    if let Some(capture) = &ctx.api_log {
+        capture.record_forward_response_body(&body_bytes);
+    }
 
     let body_str = String::from_utf8_lossy(&body_bytes);
 
@@ -638,6 +650,16 @@ async fn handle_claude_transform(
         ProxyError::TransformError(format!("Failed to serialize response: {e}"))
     })?;
 
+    // API 报文记录：转换后的最终回复（客户端实际收到的）
+    if let Some(capture) = &ctx.api_log {
+        capture.record_final(
+            Some(status.as_u16()),
+            &response_body,
+            "transformed (non-streaming)",
+        );
+        capture.flush();
+    }
+
     let body = axum::body::Body::from(response_body);
     builder.body(body).map_err(|e| {
         log::error!("[Claude] 构建响应失败: {e}");
@@ -721,6 +743,10 @@ pub async fn handle_chat_completions(
     let mut ctx =
         RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
     let endpoint = endpoint_with_query(&uri, "/chat/completions");
+
+    if let Some(capture) = &ctx.api_log {
+        capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
+    }
 
     let is_stream = body
         .get("stream")
@@ -811,6 +837,10 @@ async fn handle_responses_for_app(
     let mut ctx =
         RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
     let endpoint = endpoint_with_query(&uri, "/responses");
+
+    if let Some(capture) = &ctx.api_log {
+        capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
+    }
 
     let is_stream = body
         .get("stream")
@@ -949,6 +979,10 @@ async fn handle_responses_compact_for_app(
         RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
     let endpoint = endpoint_with_query(&uri, "/responses/compact");
 
+    if let Some(capture) = &ctx.api_log {
+        capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
+    }
+
     let is_stream = body
         .get("stream")
         .and_then(|v| v.as_bool())
@@ -1078,6 +1112,9 @@ async fn handle_codex_responses_namespace_restore(
             usage_collector,
             ctx.streaming_timeout_config(),
             connection_guard,
+            ctx.api_log
+                .clone()
+                .map(|capture| (capture, super::api_log::TeeTarget::FinalOutput)),
         );
 
         let body = axum::body::Body::from_stream(logged_stream);
@@ -1271,6 +1308,9 @@ async fn handle_codex_chat_to_responses_transform(
             usage_collector,
             ctx.streaming_timeout_config(),
             connection_guard,
+            ctx.api_log
+                .clone()
+                .map(|capture| (capture, super::api_log::TeeTarget::FinalOutput)),
         );
 
         let mut headers = axum::http::HeaderMap::new();
@@ -1644,6 +1684,9 @@ fn build_codex_anthropic_sse_response(
         usage_collector,
         ctx.streaming_timeout_config(),
         connection_guard,
+        ctx.api_log
+            .clone()
+            .map(|capture| (capture, super::api_log::TeeTarget::FinalOutput)),
     );
 
     let mut headers = axum::http::HeaderMap::new();
@@ -1959,6 +2002,10 @@ pub async fn handle_gemini(
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or(uri.path());
+
+    if let Some(capture) = &ctx.api_log {
+        capture.record_received(method.as_str(), endpoint, &headers, &body_bytes);
+    }
 
     let is_stream = body
         .get("stream")
@@ -2584,6 +2631,16 @@ fn log_forward_error(
     let status_code = map_proxy_error_to_status(error);
     let error_message = get_error_message(error);
     let request_id = uuid::Uuid::new_v4().to_string();
+
+    // API 报文记录：失败请求同样落盘（final 标注失败原因；Drop 兜底会跳过已落盘的）
+    if let Some(capture) = &ctx.api_log {
+        capture.record_final(
+            Some(status_code),
+            error_message.as_bytes(),
+            "forward failed",
+        );
+        capture.flush();
+    }
 
     if let Err(e) = logger.log_error_with_context(
         request_id,

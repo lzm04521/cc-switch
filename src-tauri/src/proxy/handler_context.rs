@@ -64,6 +64,8 @@ pub struct RequestContext {
     pub session_id: String,
     /// Session ID 是否由客户端提供。生成的 UUID 不能作为上游缓存 key，否则每个请求都会换 key。
     pub session_client_provided: bool,
+    /// API 报文捕获器；开关关闭时为 None（零捕获、零开销）
+    pub api_log: Option<super::api_log::ApiLogCapture>,
     /// 整流器配置
     pub rectifier_config: RectifierConfig,
     /// 优化器配置
@@ -157,6 +159,15 @@ impl RequestContext {
             session_id
         );
 
+        // API 报文捕获：开关关闭时保持 None，请求路径上不产生任何额外工作
+        let api_log = super::api_log::is_enabled().then(|| {
+            super::api_log::ApiLogCapture::new(
+                uuid::Uuid::new_v4().to_string(),
+                app_type_str.to_string(),
+                request_model.clone(),
+            )
+        });
+
         Ok(Self {
             start_time,
             app_config,
@@ -170,6 +181,7 @@ impl RequestContext {
             app_type,
             session_id,
             session_client_provided: session_result.client_provided,
+            api_log,
             rectifier_config,
             optimizer_config,
             copilot_optimizer_config,
@@ -241,6 +253,7 @@ impl RequestContext {
             self.optimizer_config.clone(),
             self.copilot_optimizer_config.clone(),
             max_retries,
+            self.api_log.clone(),
         )
     }
 

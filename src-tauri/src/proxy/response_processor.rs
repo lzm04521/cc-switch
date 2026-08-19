@@ -197,6 +197,9 @@ pub async fn handle_streaming(
         usage_collector,
         timeout_config,
         connection_guard,
+        ctx.api_log
+            .clone()
+            .map(|capture| (capture, super::api_log::TeeTarget::UpstreamPassthrough)),
     );
 
     let body = axum::body::Body::from_stream(logged_stream);
@@ -313,11 +316,24 @@ pub async fn handle_non_streaming(
         builder = builder.header(key, value);
     }
 
-    let body = axum::body::Body::from(body_bytes);
-    builder.body(body).map_err(|e| {
+    let body = axum::body::Body::from(body_bytes.clone());
+    let build_result = builder.body(body).map_err(|e| {
         log::error!("[{}] 构建响应失败: {e}", ctx.tag);
         ProxyError::Internal(format!("Failed to build response: {e}"))
-    })
+    });
+
+    // API 报文记录：非流式透传——响应体同时是上游原文与客户端最终回复
+    if let Some(capture) = &ctx.api_log {
+        capture.record_forward_response_body(&body_bytes);
+        capture.record_final(
+            Some(status.as_u16()),
+            b"",
+            "passthrough: identical to last forward response (status and body)",
+        );
+        capture.flush();
+    }
+
+    build_result
 }
 
 /// 通用响应处理入口
@@ -686,6 +702,10 @@ pub fn create_logged_passthrough_stream(
     usage_collector: Option<SseUsageCollector>,
     timeout_config: StreamingTimeoutConfig,
     connection_guard: Option<ActiveConnectionGuard>,
+    api_log_tee: Option<(
+        super::api_log::ApiLogCapture,
+        super::api_log::TeeTarget,
+    )>,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
     async_stream::stream! {
         let _conn_guard = connection_guard;
@@ -696,6 +716,8 @@ pub fn create_logged_passthrough_stream(
         let inspect_sse_events =
             collector.is_some() || log::log_enabled!(log::Level::Debug);
         let mut is_first_chunk = true;
+        let mut tee = api_log_tee;
+        let mut tee_buffer: Vec<u8> = Vec::new();
 
         // 超时配置
         let first_byte_timeout = if timeout_config.first_byte_timeout > 0 {
@@ -745,6 +767,9 @@ pub fn create_logged_passthrough_stream(
                         );
                     }
                     is_first_chunk = false;
+                    if tee.is_some() {
+                        tee_buffer.extend_from_slice(&bytes);
+                    }
                     if inspect_sse_events {
                         crate::proxy::sse::append_utf8_safe(&mut buffer, &mut utf8_remainder, &bytes);
 
@@ -799,6 +824,30 @@ pub fn create_logged_passthrough_stream(
         }
         if let Some(guard) = &mut finish_guard {
             guard.disarm();
+        }
+
+        // API 报文记录：流结束（正常 / 错误 / 超时统一走到这里）时把累积的
+        // 原始字节按 tee 目标落盘。缓冲不完整也没关系——调试现场正是要看到
+        // 中断在哪里。
+        if let Some((capture, target)) = tee.take() {
+            match target {
+                super::api_log::TeeTarget::UpstreamPassthrough => {
+                    capture.record_forward_response_body(&tee_buffer);
+                    capture.record_final(
+                        None,
+                        b"",
+                        "passthrough: identical to last forward response (status and body)",
+                    );
+                }
+                super::api_log::TeeTarget::FinalOutput => {
+                    capture.record_final(
+                        None,
+                        &tee_buffer,
+                        "transformed stream output; upstream raw body not captured on transform path",
+                    );
+                }
+            }
+            capture.flush();
         }
     }
 }
