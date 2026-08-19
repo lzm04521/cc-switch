@@ -96,9 +96,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
-=======
   "zcode",
->>>>>>> ebf441b4 (feat(zcode): add ZCode app support (skills, prompts, MCP, sessions))
 ];
 
 export function isMcpAppId(appId: string): appId is McpAppId {
