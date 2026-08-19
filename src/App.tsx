@@ -64,6 +64,7 @@ import {
   DRAG_REGION_STYLE,
 } from "@/lib/platform";
 import { AppSwitcher } from "@/components/AppSwitcher";
+import { getAppCapabilities, supportsAppView } from "@/config/appCapabilities";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
@@ -179,6 +180,7 @@ function App() {
   const queryClient = useQueryClient();
 
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
+  const capabilities = getAppCapabilities(activeApp);
   const sharedFeatureApp: AppId =
     activeApp === "claude-desktop" ? "claude" : activeApp;
   const [currentView, setCurrentView] = useState<View>(getInitialView);
@@ -225,10 +227,23 @@ function App() {
     }
   }, [visibleApps, activeApp]);
 
-  // zcode 的 provider 由 zcode 应用内自管：切到 zcode 时把视图重定向到
-  // 允许的功能页（providers 为默认页，但隐藏新增/路由/统计等管理功能，
-  // 仅展示 provider 列表并提示在 zcode 应用内维护），避免停留在代理等无效视图。
+  // zcode / dsh 的 provider 由应用内自管：切换时把视图重定向到允许的
+  // 功能页（providers 为默认页，仅展示提示；dsh 以 skills 为主入口），
+  // 避免停留在代理等无效视图。
   useEffect(() => {
+    if (activeApp === "dsh") {
+      const dshViews: View[] = [
+        "providers",
+        "skills",
+        "skillsDiscovery",
+        "mcp",
+        "settings",
+      ];
+      if (!dshViews.includes(currentView)) {
+        setCurrentView("skills");
+      }
+      return;
+    }
     if (activeApp !== "zcode") return;
     const allowedViews: View[] = [
       "providers",
@@ -244,7 +259,8 @@ function App() {
     }
   }, [activeApp, currentView]);
 
-  // Fallback from sessions view when switching to an app without session support
+  // Fallback from a saved/shared view when switching to an app without that
+  // capability.
   useEffect(() => {
     if (currentView === "mcp" && sharedFeatureApp === "pi") {
       setCurrentView("providers");
@@ -263,8 +279,12 @@ function App() {
       sharedFeatureApp !== "zcode"
     ) {
       setCurrentView("providers");
+      return;
     }
-  }, [sharedFeatureApp, currentView]);
+    if (!supportsAppView(activeApp, currentView)) {
+      setCurrentView("providers");
+    }
+  }, [activeApp, currentView]);
 
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
@@ -304,6 +324,7 @@ function App() {
   const isCurrentAppTakeoverActive = proxyAppId
     ? takeoverStatus?.[proxyAppId] || false
     : false;
+
   const activeProviderId = useMemo(() => {
     if (!proxyAppId) return undefined;
     const target = proxyStatus?.active_targets?.find(
@@ -328,18 +349,9 @@ function App() {
       currentView === "openclawAgents");
   const { data: openclawHealthWarnings = [] } =
     useOpenClawHealth(isOpenClawView);
-  const hasSkillsSupport = sharedFeatureApp !== "openclaw";
-  const hasSessionSupport =
-    sharedFeatureApp === "claude" ||
-    sharedFeatureApp === "codex" ||
-    sharedFeatureApp === "grokbuild" ||
-    sharedFeatureApp === "opencode" ||
-    sharedFeatureApp === "openclaw" ||
-    sharedFeatureApp === "gemini" ||
-    sharedFeatureApp === "hermes" ||
-    sharedFeatureApp === "pi" ||
-    sharedFeatureApp === "zcode";
-  const hasMcpSupport = sharedFeatureApp !== "pi";
+  const hasSkillsSupport = capabilities.skills;
+  const hasSessionSupport = capabilities.sessions;
+  const hasMcpSupport = capabilities.mcp;
 
   const {
     addProvider,
@@ -937,6 +949,7 @@ function App() {
   }, [activeApp, confirmAction, piCurrentState?.defaultProviderId, t]);
 
   const handleOpenTerminal = async (provider: Provider) => {
+    if (!capabilities.terminal) return;
     try {
       const selectedDir = await settingsApi.pickDirectory();
       if (!selectedDir) {
@@ -1027,8 +1040,11 @@ function App() {
   };
 
   const renderContent = () => {
+    const renderView = supportsAppView(activeApp, currentView)
+      ? currentView
+      : "providers";
     const content = (() => {
-      switch (currentView) {
+      switch (renderView) {
         case "settings":
           return (
             <SettingsPage
@@ -1112,84 +1128,92 @@ function App() {
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
-              {activeApp === "zcode" ? (
-                // zcode 的 provider 由 zcode 应用内自管，cc-switch 不提供
+              {activeApp === "zcode" || activeApp === "dsh" ? (
+                // zcode / dsh 的 provider 由应用内自管，cc-switch 不提供
                 // 新增/路由/统计等管理功能，仅展示一条提示。
                 <div className="flex flex-1 flex-col items-center justify-center text-center">
                   <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-sky-500/10">
                     <Info className="h-7 w-7 text-sky-600 dark:text-sky-400" />
                   </div>
                   <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                    {t("zcode.providerManagedExternally")}
+                    {activeApp === "dsh"
+                      ? t("dsh.providerManagedExternally")
+                      : t("zcode.providerManagedExternally")}
                   </p>
                 </div>
               ) : (
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeApp}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="space-y-4"
-                  >
-                    <ProviderList
-                      providers={providers}
-                      currentProviderId={currentProviderId}
-                      appId={activeApp}
-                      isLoading={isLoading}
-                      isProxyRunning={currentAppUsesProxy && isProxyRunning}
-                      isProxyTakeover={
-                        isProxyRunning && isCurrentAppTakeoverActive
-                      }
-                      activeProviderId={activeProviderId}
-                      onSwitch={
-                        activeApp === "pi"
-                          ? handleEnablePiProvider
-                          : switchProvider
-                      }
-                      onEdit={(provider) => {
-                        setEditingProvider(provider);
-                      }}
-                      onDelete={(provider) =>
-                        setConfirmAction({ provider, action: "delete" })
-                      }
-                      onRemoveFromConfig={
-                        activeApp === "opencode" ||
-                        activeApp === "openclaw" ||
-                        activeApp === "hermes" ||
-                        activeApp === "pi"
-                          ? (provider) =>
-                              setConfirmAction({ provider, action: "remove" })
-                          : undefined
-                      }
-                      onDisableOmo={
-                        activeApp === "opencode" ? handleDisableOmo : undefined
-                      }
-                      onDisableOmoSlim={
-                        activeApp === "opencode"
-                          ? handleDisableOmoSlim
-                          : undefined
-                      }
-                      onDuplicate={handleDuplicateProvider}
-                      onConfigureUsage={setUsageProvider}
-                      onOpenWebsite={handleOpenWebsite}
-                      onOpenTerminal={
-                        activeApp === "claude" ? handleOpenTerminal : undefined
-                      }
-                      onCreate={() => setIsAddOpen(true)}
-                      onSetAsDefault={
-                        activeApp === "openclaw"
-                          ? setAsDefaultModel
-                          : activeApp === "hermes"
-                            ? switchProvider
+                <div className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeApp}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className="space-y-4"
+                    >
+                      <ProviderList
+                        providers={providers}
+                        currentProviderId={currentProviderId}
+                        appId={activeApp}
+                        isLoading={isLoading}
+                        isProxyRunning={currentAppUsesProxy && isProxyRunning}
+                        isProxyTakeover={
+                          isProxyRunning && isCurrentAppTakeoverActive
+                        }
+                        activeProviderId={activeProviderId}
+                        onSwitch={
+                          activeApp === "pi"
+                            ? handleEnablePiProvider
+                            : switchProvider
+                        }
+                        onEdit={(provider) => {
+                          setEditingProvider(provider);
+                        }}
+                        onDelete={(provider) =>
+                          setConfirmAction({ provider, action: "delete" })
+                        }
+                        onRemoveFromConfig={
+                          activeApp === "opencode" ||
+                          activeApp === "openclaw" ||
+                          activeApp === "hermes" ||
+                          activeApp === "pi"
+                            ? (provider) =>
+                                setConfirmAction({ provider, action: "remove" })
                             : undefined
-                      }
-                    />
-                  </motion.div>
-                </AnimatePresence>
-              </div>
+                        }
+                        onDisableOmo={
+                          activeApp === "opencode"
+                            ? handleDisableOmo
+                            : undefined
+                        }
+                        onDisableOmoSlim={
+                          activeApp === "opencode"
+                            ? handleDisableOmoSlim
+                            : undefined
+                        }
+                        onDuplicate={handleDuplicateProvider}
+                        onConfigureUsage={
+                          capabilities.usage ? setUsageProvider : undefined
+                        }
+                        onOpenWebsite={handleOpenWebsite}
+                        onOpenTerminal={
+                          activeApp === "claude"
+                            ? handleOpenTerminal
+                            : undefined
+                        }
+                        onCreate={() => setIsAddOpen(true)}
+                        onSetAsDefault={
+                          activeApp === "openclaw"
+                            ? setAsDefaultModel
+                            : activeApp === "hermes"
+                              ? switchProvider
+                              : undefined
+                        }
+                      />
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
               )}
             </div>
           );
@@ -1357,13 +1381,15 @@ function App() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <RoutingActivationBrand
-                  active={isProxyRunning && isCurrentAppTakeoverActive}
-                  contextKey={activeApp}
-                  ready={
-                    proxyStatus !== undefined && takeoverStatus !== undefined
-                  }
-                />
+                {capabilities.proxy && (
+                  <RoutingActivationBrand
+                    active={isProxyRunning && isCurrentAppTakeoverActive}
+                    contextKey={activeApp}
+                    ready={
+                      proxyStatus !== undefined && takeoverStatus !== undefined
+                    }
+                  />
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1382,7 +1408,7 @@ function App() {
                     setCurrentView("settings");
                   }}
                 />
-                {isCurrentAppTakeoverActive && (
+                {capabilities.usage && isCurrentAppTakeoverActive && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1424,6 +1450,7 @@ function App() {
                 </div>
               )}
             {currentView === "providers" &&
+              capabilities.profiles &&
               (settingsData?.showProfileSwitcher ?? true) && (
                 <div
                   className="flex shrink-0 items-center"
@@ -1435,7 +1462,9 @@ function App() {
             {/* 弹性中段：空间不足时由 AppSwitcher 自行收纳溢出应用；
                 justify-end + overflow-hidden 只裁剪 resize 瞬间的过渡帧 */}
             <div className="flex flex-1 min-w-0 items-center justify-end overflow-hidden py-4">
-              {(currentView === "providers" || activeApp === "zcode") && (
+              {(currentView === "providers" ||
+                activeApp === "zcode" ||
+                activeApp === "dsh") && (
                 <AppSwitcher
                   activeApp={activeApp}
                   onSwitch={setActiveApp}
@@ -1465,7 +1494,7 @@ function App() {
                     )}
                   </Button>
                 )}
-                {currentView === "mcp" && (
+                {currentView === "mcp" && capabilities.mcp && (
                   <>
                     <Button
                       variant="ghost"
@@ -1489,7 +1518,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skills" && (
+                {currentView === "skills" && capabilities.skills && (
                   <>
                     <Button
                       variant="ghost"
@@ -1577,7 +1606,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skillsDiscovery" && (
+                {currentView === "skillsDiscovery" && capabilities.skills && (
                   <>
                     {getSkillsPageHeaderActions(skillsDiscoverySource).map(
                       ({ key, labelKey, Icon, execute }) => (
@@ -1762,7 +1791,7 @@ function App() {
                       </AnimatePresence>
                     </div>
 
-                    {activeApp !== "zcode" && (
+                    {activeApp !== "zcode" && activeApp !== "dsh" && (
                       <Button
                         onClick={() => setIsAddOpen(true)}
                         size="icon"
@@ -1808,7 +1837,7 @@ function App() {
         isProxyTakeover={isCurrentAppTakeoverActive}
       />
 
-      {effectiveUsageProvider && (
+      {capabilities.usage && effectiveUsageProvider && (
         <UsageScriptModal
           key={effectiveUsageProvider.id}
           provider={effectiveUsageProvider}

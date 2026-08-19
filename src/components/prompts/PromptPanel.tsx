@@ -305,9 +305,8 @@ const StandardPromptPanel = React.forwardRef<
               />
               <span>
                 {t(
-                  PROMPT_APP_OPTIONS.find(
-                    (opt) => opt.value === selectedAppId,
-                  )?.labelKey ?? "apps.claudeCode",
+                  PROMPT_APP_OPTIONS.find((opt) => opt.value === selectedAppId)
+                    ?.labelKey ?? "apps.claudeCode",
                 )}
               </span>
             </SelectTrigger>

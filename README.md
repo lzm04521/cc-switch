@@ -14,7 +14,7 @@
 
 ## 本 Fork 的定位
 
-[farion1231/cc-switch](https://github.com/farion1231/cc-switch) 是一款统一管理 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes 等 AI CLI 工具的桌面应用。本 Fork 在其基础上，面向**国产 Agent 扩展**（OpenClaw / Hermes / OpenCode 等）的配置管理与日常使用，裁剪为 Windows 单平台、自建更新源的自用版本。
+[farion1231/cc-switch](https://github.com/farion1231/cc-switch) 是一款统一管理 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes、DeepSeek Harness 等 AI CLI 工具的桌面应用。本 Fork 在其基础上，面向**国产 Agent 扩展**（OpenClaw / Hermes / OpenCode 等）的配置管理与日常使用，裁剪为 Windows 单平台、自建更新源的自用版本。
 
 ## 与原仓库的差异
 

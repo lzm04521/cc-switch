@@ -14,6 +14,7 @@ type AppDirectoryKey =
   | "opencode"
   | "openclaw"
   | "hermes"
+  | "dsh"
   | "pi"
   | "zcode";
 type DirectoryKey = "appConfig" | AppDirectoryKey;
@@ -27,6 +28,7 @@ export interface ResolvedDirectories {
   opencode: string;
   openclaw: string;
   hermes: string;
+  dsh: string;
   pi: string;
   zcode: string;
 }
@@ -43,6 +45,7 @@ const APP_DIRECTORY_META: Record<
   opencode: { key: "opencode", defaultFolder: ".config/opencode" },
   openclaw: { key: "openclaw", defaultFolder: ".openclaw" },
   hermes: { key: "hermes", defaultFolder: ".hermes" },
+  dsh: { key: "dsh", defaultFolder: ".dsh" },
   pi: { key: "pi", defaultFolder: ".pi/agent" },
   zcode: { key: "zcode", defaultFolder: ".zcode" },
 };
@@ -58,6 +61,7 @@ const DIRECTORY_KEY_TO_SETTINGS_FIELD: Record<
   opencode: "opencodeConfigDir",
   openclaw: "openclawConfigDir",
   hermes: "hermesConfigDir",
+  dsh: "dshConfigDir",
   pi: "piConfigDir",
   zcode: "zcodeConfigDir",
 };
@@ -146,6 +150,7 @@ export function useDirectorySettings({
     opencode: "",
     openclaw: "",
     hermes: "",
+    dsh: "",
     pi: "",
     zcode: "",
   });
@@ -160,6 +165,7 @@ export function useDirectorySettings({
     opencode: "",
     openclaw: "",
     hermes: "",
+    dsh: "",
     pi: "",
     zcode: "",
   });
@@ -171,6 +177,18 @@ export function useDirectorySettings({
     setIsLoading(true);
 
     const load = async () => {
+      const read = async <T>(promise: Promise<T>, fallback: T): Promise<T> => {
+        try {
+          return await promise;
+        } catch (error) {
+          console.error(
+            "[useDirectorySettings] Failed to read directory",
+            error,
+          );
+          return fallback;
+        }
+      };
+
       try {
         const [
           overrideRaw,
@@ -181,6 +199,7 @@ export function useDirectorySettings({
           opencodeDir,
           openclawDir,
           hermesDir,
+          dshDir,
           piDir,
           zcodeDir,
           defaultAppConfig,
@@ -191,29 +210,32 @@ export function useDirectorySettings({
           defaultOpencodeDir,
           defaultOpenclawDir,
           defaultHermesDir,
+          defaultDshDir,
           defaultPiDir,
           defaultZcodeDir,
         ] = await Promise.all([
-          settingsApi.getAppConfigDirOverride(),
-          settingsApi.getConfigDir("claude"),
-          settingsApi.getConfigDir("codex"),
-          settingsApi.getConfigDir("gemini"),
-          settingsApi.getConfigDir("grokbuild"),
-          settingsApi.getConfigDir("opencode"),
-          settingsApi.getConfigDir("openclaw"),
-          settingsApi.getConfigDir("hermes"),
-          settingsApi.getConfigDir("pi"),
-          settingsApi.getConfigDir("zcode"),
-          computeDefaultAppConfigDir(),
-          computeDefaultConfigDir("claude"),
-          computeDefaultConfigDir("codex"),
-          computeDefaultConfigDir("gemini"),
-          computeDefaultConfigDir("grokbuild"),
-          computeDefaultConfigDir("opencode"),
-          computeDefaultConfigDir("openclaw"),
-          computeDefaultConfigDir("hermes"),
-          computeDefaultConfigDir("pi"),
-          computeDefaultConfigDir("zcode"),
+          read(settingsApi.getAppConfigDirOverride(), null),
+          read(settingsApi.getConfigDir("claude"), ""),
+          read(settingsApi.getConfigDir("codex"), ""),
+          read(settingsApi.getConfigDir("gemini"), ""),
+          read(settingsApi.getConfigDir("grokbuild"), ""),
+          read(settingsApi.getConfigDir("opencode"), ""),
+          read(settingsApi.getConfigDir("openclaw"), ""),
+          read(settingsApi.getConfigDir("hermes"), ""),
+          read(settingsApi.getConfigDir("dsh"), ""),
+          read(settingsApi.getConfigDir("pi"), ""),
+          read(settingsApi.getConfigDir("zcode"), ""),
+          read(computeDefaultAppConfigDir(), undefined),
+          read(computeDefaultConfigDir("claude"), undefined),
+          read(computeDefaultConfigDir("codex"), undefined),
+          read(computeDefaultConfigDir("gemini"), undefined),
+          read(computeDefaultConfigDir("grokbuild"), undefined),
+          read(computeDefaultConfigDir("opencode"), undefined),
+          read(computeDefaultConfigDir("openclaw"), undefined),
+          read(computeDefaultConfigDir("hermes"), undefined),
+          read(computeDefaultConfigDir("dsh"), undefined),
+          read(computeDefaultConfigDir("pi"), undefined),
+          read(computeDefaultConfigDir("zcode"), undefined),
         ]);
 
         if (!active) return;
@@ -229,6 +251,7 @@ export function useDirectorySettings({
           opencode: defaultOpencodeDir ?? "",
           openclaw: defaultOpenclawDir ?? "",
           hermes: defaultHermesDir ?? "",
+          dsh: defaultDshDir ?? "",
           pi: defaultPiDir ?? "",
           zcode: defaultZcodeDir ?? "",
         };
@@ -245,6 +268,7 @@ export function useDirectorySettings({
           opencode: opencodeDir || defaultsRef.current.opencode,
           openclaw: openclawDir || defaultsRef.current.openclaw,
           hermes: hermesDir || defaultsRef.current.hermes,
+          dsh: dshDir || defaultsRef.current.dsh,
           pi: piDir || defaultsRef.current.pi,
           zcode: zcodeDir || defaultsRef.current.zcode,
         });
@@ -349,6 +373,30 @@ export function useDirectorySettings({
   const resetDirectory = useCallback(
     async (app: DirectoryAppId) => {
       const key = APP_DIRECTORY_META[app].key;
+      if (app === "dsh") {
+        // DSH's effective home may come from DSH_HOME, so ask the backend for
+        // the fallback after clearing the cc-switch override.
+        onUpdateSettings({ dshConfigDir: undefined });
+        const fallback = await settingsApi
+          .getDshDefaultHome()
+          .catch((error) => {
+            console.error(
+              "[useDirectorySettings] Failed to resolve DSH default",
+              error,
+            );
+            return undefined;
+          });
+        if (fallback) {
+          defaultsRef.current = { ...defaultsRef.current, dsh: fallback };
+          setResolvedDirs((prev) => ({ ...prev, dsh: fallback }));
+        } else {
+          setResolvedDirs((prev) => ({
+            ...prev,
+            dsh: defaultsRef.current.dsh,
+          }));
+        }
+        return;
+      }
       if (!defaultsRef.current[key]) {
         const fallback = await computeDefaultConfigDir(app);
         if (fallback) {
@@ -360,7 +408,7 @@ export function useDirectorySettings({
       }
       updateDirectoryState(key, undefined);
     },
-    [updateDirectoryState],
+    [onUpdateSettings, updateDirectoryState],
   );
 
   const resetAppConfigDir = useCallback(async () => {
@@ -389,6 +437,7 @@ export function useDirectorySettings({
         opencode: overrides?.opencode ?? defaultsRef.current.opencode,
         openclaw: overrides?.openclaw ?? defaultsRef.current.openclaw,
         hermes: overrides?.hermes ?? defaultsRef.current.hermes,
+        dsh: overrides?.dsh ?? defaultsRef.current.dsh,
         pi: overrides?.pi ?? defaultsRef.current.pi,
         zcode: overrides?.zcode ?? defaultsRef.current.zcode,
       });
