@@ -171,6 +171,7 @@ impl SkillApps {
         }
         if self.pi {
             apps.push(AppType::Pi);
+        }
         if self.zcode {
             apps.push(AppType::Zcode);
         }

@@ -5,15 +5,42 @@
 
 use std::collections::HashMap;
 use std::sync::RwLock;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 
 use crate::app_config::AppType;
 use crate::provider::UsageResult;
 use crate::services::subscription::SubscriptionQuota;
 
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 脚本型用量缓存条目：结果 + 查询时刻（悬浮球面板显示"x 分钟前"用）
+#[derive(Debug, Clone)]
+struct ScriptCacheEntry {
+    result: UsageResult,
+    queried_at: i64,
+}
+
+/// 全量快照条目（悬浮球面板按 app/provider 匹配消费）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageScriptSnapshot {
+    pub app_type: String,
+    pub provider_id: String,
+    pub result: UsageResult,
+    pub queried_at: i64,
+}
+
 #[derive(Default)]
 pub struct UsageCache {
     subscription: RwLock<HashMap<AppType, SubscriptionQuota>>,
-    script: RwLock<HashMap<(AppType, String), UsageResult>>,
+    script: RwLock<HashMap<(AppType, String), ScriptCacheEntry>>,
 }
 
 impl UsageCache {
@@ -29,7 +56,13 @@ impl UsageCache {
 
     pub fn put_script(&self, app_type: AppType, provider_id: String, result: UsageResult) {
         if let Ok(mut w) = self.script.write() {
-            w.insert((app_type, provider_id), result);
+            w.insert(
+                (app_type, provider_id),
+                ScriptCacheEntry {
+                    result,
+                    queried_at: now_millis(),
+                },
+            );
         }
     }
 
@@ -55,7 +88,27 @@ impl UsageCache {
         self.script
             .read()
             .ok()
-            .and_then(|r| r.get(&(app_type.clone(), provider_id.to_string())).map(f))
+            .and_then(|r| {
+                r.get(&(app_type.clone(), provider_id.to_string()))
+                    .map(|entry| f(&entry.result))
+            })
+    }
+
+    /// 全量脚本缓存快照（悬浮球面板一次取走所有 provider 的结果与查询时刻）。
+    pub fn snapshot_scripts(&self) -> Vec<UsageScriptSnapshot> {
+        self.script
+            .read()
+            .map(|r| {
+                r.iter()
+                    .map(|((app_type, provider_id), entry)| UsageScriptSnapshot {
+                        app_type: app_type.as_str().to_string(),
+                        provider_id: provider_id.clone(),
+                        result: entry.result.clone(),
+                        queried_at: entry.queried_at,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn invalidate_script(&self, app_type: &AppType, provider_id: &str) {
@@ -178,5 +231,32 @@ mod tests {
         assert!(cache
             .with_script(&AppType::Codex, "provider", |usage| usage.success)
             .is_none());
+}
+
+    fn snapshot_scripts_covers_all_apps_with_queried_at() {
+        let before = now_millis();
+        let cache = UsageCache::new();
+        cache.put_script(AppType::Claude, "a".to_string(), fake_result());
+        cache.put_script(
+            AppType::Codex,
+            "b".to_string(),
+            UsageResult {
+                success: false,
+                data: None,
+                error: Some("boom".to_string()),
+            },
+        );
+        // 失败结果同样进缓存（悬浮球面板要显示失败态，不吞错）
+        cache.invalidate_script(&AppType::Codex, "missing");
+
+        let mut snap = cache.snapshot_scripts();
+        snap.sort_by(|x, y| x.app_type.cmp(&y.app_type));
+        assert_eq!(snap.len(), 2);
+        assert_eq!(snap[0].app_type, "claude");
+        assert_eq!(snap[0].provider_id, "a");
+        assert!(snap[0].queried_at >= before);
+        assert_eq!(snap[1].app_type, "codex");
+        assert!(!snap[1].result.success);
+        assert_eq!(snap[1].result.error.as_deref(), Some("boom"));
     }
 }
