@@ -164,6 +164,13 @@ pub(crate) fn build_provider_from_request(
                 "ZCode providers are managed inside the ZCode app; deep link import is not supported",
             ))
         }
+        AppType::Dsh => {
+            return Err(AppError::localized(
+                "dsh.deeplink.provider_unsupported",
+                "dsh 的 provider 由 dsh 应用内自管，不支持通过深链接导入",
+                "DSH providers are managed inside the dsh app; deep link import is not supported",
+            ))
+        }
     };
 
     // Build usage script configuration if provided

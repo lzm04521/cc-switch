@@ -86,6 +86,7 @@ impl VisibleApps {
             AppType::Hermes => self.hermes,
             AppType::Pi => self.pi,
             AppType::Zcode => self.zcode,
+            AppType::Dsh => self.dsh,
         }
     }
 }
@@ -1129,6 +1130,8 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::Pi => None,
         // zcode 的 provider 由 zcode 应用内自管，cc-switch 不记录 current provider
         AppType::Zcode => None,
+        // dsh 的 provider 由 dsh 应用内自管，cc-switch 不记录 current provider
+        AppType::Dsh => None,
     }
 }
 
@@ -1150,6 +1153,8 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::Pi => {}
         // zcode 的 provider 由 zcode 应用内自管，忽略设置
         AppType::Zcode => {}
+        // dsh 的 provider 由 dsh 应用内自管，忽略设置
+        AppType::Dsh => {}
     })
 }
 

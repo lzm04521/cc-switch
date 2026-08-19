@@ -20,6 +20,7 @@ mod hermes;
 mod opencode;
 mod validation;
 mod zcode;
+mod dsh;
 
 // 重新导出公共 API
 pub use claude::{
@@ -41,3 +42,4 @@ pub use opencode::{
     import_from_opencode, remove_server_from_opencode, sync_single_server_to_opencode,
 };
 pub use zcode::{import_from_zcode, remove_server_from_zcode, sync_single_server_to_zcode};
+pub use dsh::{import_from_dsh, remove_server_from_dsh, sync_single_server_to_dsh};

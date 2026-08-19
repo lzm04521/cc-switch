@@ -149,6 +149,9 @@ impl McpService {
             AppType::Zcode => {
                 mcp::sync_single_server_to_zcode(&Default::default(), &server.id, &server.server)?;
             }
+            AppType::Dsh => {
+                mcp::sync_single_server_to_dsh(&Default::default(), &server.id, &server.server)?;
+            }
         }
         Ok(())
     }
@@ -188,6 +191,9 @@ impl McpService {
             AppType::Pi => {}
             AppType::Zcode => {
                 mcp::remove_server_from_zcode(id)?;
+            }
+            AppType::Dsh => {
+                mcp::remove_server_from_dsh(id)?;
             }
         }
         Ok(())
@@ -553,6 +559,41 @@ impl McpService {
         Ok(new_count)
     }
 
+    /// 从 DSH 导入 MCP（fork 定制，落盘 ~/.dsh/mcp.json 数组格式）
+    pub fn import_from_dsh(state: &AppState) -> Result<usize, AppError> {
+        let mut temp_config = crate::app_config::MultiAppConfig::default();
+        let count = crate::mcp::import_from_dsh(&mut temp_config)?;
+
+        let mut new_count = 0;
+
+        if count > 0 {
+            if let Some(servers) = &temp_config.mcp.servers {
+                let mut existing = state.db.get_all_mcp_servers()?;
+                for server in servers.values() {
+                    // 已存在：镜像 dsh 文件的 enabled 状态（temp 条目的 apps.dsh
+                    // 来自条目 enabled 标志），导入不应无条件改变 dsh 侧开关
+                    let to_save = if let Some(existing_server) = existing.get(&server.id) {
+                        let mut merged = existing_server.clone();
+                        merged.apps.dsh = server.apps.dsh;
+                        merged
+                    } else {
+                        // 真正的新服务器
+                        new_count += 1;
+                        server.clone()
+                    };
+
+                    state.db.save_mcp_server(&to_save)?;
+                    existing.insert(to_save.id.clone(), to_save.clone());
+
+                    // 导入是读取已有配置，不应反向写回任何应用的 live 配置。
+                    // 显式编辑、启用/禁用或手动同步时再执行写回。
+                }
+            }
+        }
+
+        Ok(new_count)
+    }
+
     /// 从所有支持 MCP 的应用导入服务器，返回新导入的数量。
     ///
     /// Best-effort：单个应用导入失败（如坏 config.toml）不阻断其余应用；
@@ -563,7 +604,7 @@ impl McpService {
         let mut total = 0;
         let mut failures: Vec<String> = Vec::new();
 
-        let results: [(&str, Result<usize, AppError>); 7] = [
+        let results: [(&str, Result<usize, AppError>); 8] = [
             ("claude", Self::import_from_claude(state)),
             ("codex", Self::import_from_codex(state)),
             ("gemini", Self::import_from_gemini(state)),
@@ -571,6 +612,7 @@ impl McpService {
             ("opencode", Self::import_from_opencode(state)),
             ("hermes", Self::import_from_hermes(state)),
             ("zcode", Self::import_from_zcode(state)),
+            ("dsh", Self::import_from_dsh(state)),
         ];
         for (app, result) in results {
             match result {

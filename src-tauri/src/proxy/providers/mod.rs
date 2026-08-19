@@ -210,6 +210,8 @@ impl ProviderType {
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => ProviderType::Codex,
             AppType::Pi => return None,
             AppType::Zcode => ProviderType::Codex,
+            // dsh 不接管本地代理（provider 由 dsh 应用内自管）
+            AppType::Dsh => return None,
         };
         Some(provider_type)
     }
@@ -267,6 +269,8 @@ pub fn get_adapter(app_type: &AppType) -> Option<Box<dyn ProviderAdapter>> {
         AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => Box::new(CodexAdapter::new()),
         AppType::Pi => return None,
         AppType::Zcode => Box::new(CodexAdapter::new()),
+        // dsh 不接管本地代理（provider 由 dsh 应用内自管）
+        AppType::Dsh => return None,
     })
 }
 
