@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next";
 import { type AppId } from "@/lib/api";
 import { usePromptActions } from "@/hooks/usePromptActions";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import PiPromptPanel, { type PromptPrimaryAction } from "./PiPromptPanel";
 import PromptFormPanel from "./PromptFormPanel";
 import { PromptLibrary } from "./PromptLibrary";
@@ -23,6 +30,22 @@ export interface PromptPanelHandle {
 
 export type { PromptPrimaryAction } from "./PiPromptPanel";
 
+// 提示词页面支持切换的 agent 列表（Pi 有独立模板面板，经主侧栏进入）
+const PROMPT_APP_OPTIONS: Array<{
+  value: AppId;
+  icon: string;
+  labelKey: string;
+}> = [
+  { value: "claude", icon: "claude", labelKey: "apps.claudeCode" },
+  { value: "codex", icon: "openai", labelKey: "apps.codex" },
+  { value: "gemini", icon: "gemini", labelKey: "apps.gemini" },
+  { value: "grokbuild", icon: "grok", labelKey: "apps.grokbuild" },
+  { value: "opencode", icon: "opencode", labelKey: "apps.opencode" },
+  { value: "openclaw", icon: "openclaw", labelKey: "apps.openclaw" },
+  { value: "hermes", icon: "hermes", labelKey: "apps.hermes" },
+  { value: "zcode", icon: "zcode", labelKey: "apps.zcode" },
+];
+
 const StandardPromptPanel = React.forwardRef<
   PromptPanelHandle,
   PromptPanelProps
@@ -38,6 +61,11 @@ const StandardPromptPanel = React.forwardRef<
     ref,
   ) => {
     const { t } = useTranslation();
+    // 面板内应用切换（polish 版行为）：默认跟随外部 appId，可在页内切换
+    const [selectedAppId, setSelectedAppId] = useState<AppId>(appId);
+    useEffect(() => {
+      setSelectedAppId(appId);
+    }, [appId]);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
@@ -63,7 +91,7 @@ const StandardPromptPanel = React.forwardRef<
       savePrompt,
       deletePrompt,
       toggleEnabled,
-    } = usePromptActions(appId);
+    } = usePromptActions(selectedAppId);
     const reloadRef = React.useRef(reload);
     reloadRef.current = reload;
 
@@ -130,7 +158,7 @@ const StandardPromptPanel = React.forwardRef<
 
     useEffect(() => {
       if (open) void runExternalReload();
-    }, [appId, open, runExternalReload]);
+    }, [selectedAppId, open, runExternalReload]);
 
     useEffect(() => {
       setSearchQuery("");
@@ -141,12 +169,12 @@ const StandardPromptPanel = React.forwardRef<
       if (externalReloadQueuedRef.current) {
         void runExternalReload();
       }
-    }, [appId, runExternalReload]);
+    }, [selectedAppId, runExternalReload]);
 
     useEffect(() => {
       const handlePromptImported = (event: Event) => {
         const customEvent = event as CustomEvent;
-        if (customEvent.detail?.app === appId) {
+        if (customEvent.detail?.app === selectedAppId) {
           void runExternalReload();
         }
       };
@@ -155,7 +183,7 @@ const StandardPromptPanel = React.forwardRef<
       return () => {
         window.removeEventListener("prompt-imported", handlePromptImported);
       };
-    }, [appId, runExternalReload]);
+    }, [selectedAppId, runExternalReload]);
 
     useTauriEvent("profile-applied", runExternalReload);
 
@@ -258,6 +286,43 @@ const StandardPromptPanel = React.forwardRef<
 
     return (
       <div className="flex flex-col flex-1 min-h-0 px-6">
+        <div className="flex-shrink-0 pt-4 pb-2">
+          <Select
+            value={selectedAppId}
+            onValueChange={(value) => setSelectedAppId(value as AppId)}
+          >
+            <SelectTrigger
+              className="h-8 w-auto gap-1.5 border-border-default bg-background text-sm"
+              aria-label={t("prompts.appFilterTooltip")}
+            >
+              <ProviderIcon
+                icon={
+                  PROMPT_APP_OPTIONS.find((opt) => opt.value === selectedAppId)
+                    ?.icon ?? "claude"
+                }
+                name={selectedAppId}
+                size={14}
+              />
+              <span>
+                {t(
+                  PROMPT_APP_OPTIONS.find(
+                    (opt) => opt.value === selectedAppId,
+                  )?.labelKey ?? "apps.claudeCode",
+                )}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {PROMPT_APP_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  <div className="flex items-center gap-2">
+                    <ProviderIcon icon={opt.icon} name={opt.value} size={14} />
+                    <span>{t(opt.labelKey)}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <PromptLibrary
           prompts={prompts}
           loading={loading}
@@ -276,7 +341,7 @@ const StandardPromptPanel = React.forwardRef<
 
         {isFormOpen && (
           <PromptFormPanel
-            appId={appId}
+            appId={selectedAppId}
             editingId={editingId || undefined}
             initialData={editingId ? prompts[editingId] : undefined}
             onSave={handleSave}
