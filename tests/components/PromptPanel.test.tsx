@@ -192,6 +192,36 @@ describe("PromptPanel", () => {
     expect(screen.queryByText("Harbor Prompt")).not.toBeInTheDocument();
   });
 
+  it("reports the selected app for the header title and null on unmount", async () => {
+    const onSelectedAppChange = vi.fn();
+    const view = render(
+      <PromptPanel
+        open
+        appId="claude"
+        onOpenChange={() => undefined}
+        onSelectedAppChange={onSelectedAppChange}
+      />,
+    );
+    await waitFor(() => {
+      expect(onSelectedAppChange).toHaveBeenLastCalledWith("claude");
+    });
+
+    view.rerender(
+      <PromptPanel
+        open
+        appId="codex"
+        onOpenChange={() => undefined}
+        onSelectedAppChange={onSelectedAppChange}
+      />,
+    );
+    await waitFor(() => {
+      expect(onSelectedAppChange).toHaveBeenLastCalledWith("codex");
+    });
+
+    view.unmount();
+    expect(onSelectedAppChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("distinguishes an empty prompt collection from no search matches", async () => {
     const view = renderPanel();
     await waitForPanelReady();

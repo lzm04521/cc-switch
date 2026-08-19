@@ -427,7 +427,7 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
 }
 
 #[test]
-fn dsh_skill_toggle_syncs_agents_skills_dir() {
+fn dsh_skill_toggle_syncs_dsh_skills_dir() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
@@ -455,18 +455,19 @@ fn dsh_skill_toggle_syncs_agents_skills_dir() {
     // import 只入库不落盘，toggle 才同步到部署目录
     SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, true).expect("enable dsh");
 
-    // DSH 默认部署根是 ~/.agents/skills（跨工具标准目录，非 ~/.dsh/skills）
-    let dsh_link = home.join(".agents").join("skills").join("dsh-skill");
+    // DSH skills 与 live 配置同根：默认部署到 ~/.dsh/skills
+    // （dsh_config::get_home 三级解析：dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh）
+    let dsh_link = home.join(".dsh").join("skills").join("dsh-skill");
     assert!(
         dsh_link.exists(),
-        "enabling DSH must materialize ~/.agents/skills/dsh-skill"
+        "enabling DSH must materialize ~/.dsh/skills/dsh-skill"
     );
 
     // 关闭 DSH：部署目录中的链接/副本必须移除
     SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, false).expect("disable dsh");
     assert!(
         !dsh_link.exists(),
-        "disabling DSH must remove the entry from ~/.agents/skills"
+        "disabling DSH must remove the entry from ~/.dsh/skills"
     );
 
     // 重新开启：恢复

@@ -351,7 +351,7 @@ pub struct McpRoot {
     /// ZCode MCP 配置（实际使用 ~/.zcode/cli/config.json 的 mcp.servers）
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
     pub zcode: McpConfig,
-    /// DSH MCP 配置（实际使用 ~/.dsh/mcp.json 数组容器，仅导入兼容保留）
+    /// DSH MCP 配置（实际使用 profiles/web/cordis.patch.yml 插件条目，仅导入兼容保留）
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
     pub dsh: McpConfig,
 }
@@ -954,7 +954,7 @@ impl MultiAppConfig {
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::GrokBuild => continue,
                 AppType::OpenCode => &self.mcp.opencode.servers,
-                AppType::Dsh => continue, // dsh 走 mcp.json 数组容器，无旧结构可迁移
+                AppType::Dsh => continue, // dsh 走 cordis.patch.yml 插件条目，无旧结构可迁移
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue,   // Hermes didn't exist in v3.6.x, skip
                 AppType::Pi => continue,       // Pi didn't exist in v3.6.x, skip

@@ -477,9 +477,6 @@ pub struct AppSettings {
     pub hermes_config_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dsh_config_dir: Option<String>,
-    /// DSH skills 目录覆盖（完整路径；默认 ~/.agents/skills，与 live 配置目录相互独立）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dsh_skills_dir: Option<String>,
     pub pi_config_dir: Option<String>,
     pub zcode_config_dir: Option<String>,
 
@@ -595,7 +592,6 @@ impl Default for AppSettings {
             openclaw_config_dir: None,
             hermes_config_dir: None,
             dsh_config_dir: None,
-            dsh_skills_dir: None,
             pi_config_dir: None,
             zcode_config_dir: None,
             current_provider_claude: None,
@@ -681,13 +677,6 @@ impl AppSettings {
 
         self.dsh_config_dir = self
             .dsh_config_dir
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        self.dsh_skills_dir = self
-            .dsh_skills_dir
             .as_ref()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
@@ -1063,23 +1052,6 @@ pub fn get_dsh_override_dir() -> Option<PathBuf> {
         .dsh_config_dir
         .as_ref()
         .map(|p| resolve_dsh_override_path(p))
-}
-
-/// DSH skills 目录（覆盖 → 默认 `~/.agents/skills`）。
-///
-/// 与 `dsh_config_dir`（live 配置目录）相互独立：skills 默认走跨工具的
-/// `.agents` 标准目录，避免混入 dsh 官方 skill 安装地 `~/.dsh/skills`。
-/// 解析走 test-aware home（CC_SWITCH_TEST_HOME），便于测试隔离。
-pub fn get_dsh_skills_dir() -> PathBuf {
-    let settings = settings_store().read().ok();
-    if let Some(dir) = settings
-        .as_ref()
-        .and_then(|s| s.dsh_skills_dir.as_ref())
-        .map(|p| resolve_dsh_override_path(p))
-    {
-        return dir;
-    }
-    crate::config::get_home_dir().join(".agents").join("skills")
 }
 
 pub fn get_pi_override_dir() -> Option<PathBuf> {

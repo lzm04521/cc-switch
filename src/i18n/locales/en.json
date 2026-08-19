@@ -795,8 +795,8 @@
     "openclawConfigDirDescription": "Override OpenClaw configuration directory (openclaw.json).",
     "hermesConfigDir": "Hermes Configuration Directory",
     "hermesConfigDirDescription": "Override Hermes configuration directory (config.yaml).",
-    "dshConfigDir": "DeepSeek Harness Configuration Directory",
-    "dshConfigDirDescription": "Override the DeepSeek Harness home directory (where mcp.json lives).",
+    "dshConfigDir": "Deepseek Configuration Directory",
+    "dshConfigDirDescription": "Override the Deepseek home directory (where MCP config and deployed skills live).",
     "piConfigDir": "Pi Configuration Directory",
     "piConfigDirDescription": "Override the Pi configuration directory (models.json, instruction files, prompts, skills, and sessions).",
     "browsePlaceholderClaude": "e.g., /home/<your-username>/.claude",
@@ -807,9 +807,6 @@
     "browsePlaceholderOpenclaw": "e.g., /home/<your-username>/.openclaw",
     "browsePlaceholderHermes": "e.g., /home/<your-username>/.hermes",
     "browsePlaceholderDsh": "e.g., /home/<your-username>/.dsh",
-    "dshSkillsDir": "DeepSeek Harness Skills Directory",
-    "dshSkillsDirDescription": "Skill deployment directory (default ~/.agents/skills; point it at ~/.dsh/skills to manage native DSH skills).",
-    "browsePlaceholderDshSkills": "e.g., /home/<your-username>/.agents/skills",
     "browsePlaceholderPi": "e.g., /home/<your-username>/.pi/agent",
     "browseDirectory": "Browse Directory",
     "resetDefault": "Reset to default directory (takes effect after saving)",
@@ -924,7 +921,7 @@
     "opencode": "OpenCode",
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
-    "dsh": "DeepSeek Harness",
+    "dsh": "Deepseek",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -3253,7 +3250,7 @@
     "suggestedDefaultsHint": "Use this preset's recommended default model configuration"
   },
   "dsh": {
-    "providerManagedExternally": "DSH providers are managed inside the DeepSeek Harness app. Add, switch, or configure providers there."
+    "providerManagedExternally": "DSH providers are managed inside the Deepseek app. Add, switch, or configure providers there."
   },
   "subscription": {
     "title": "Subscription Quota",

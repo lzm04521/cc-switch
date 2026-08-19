@@ -303,6 +303,10 @@ function App() {
   const promptPanelRef = useRef<PromptPanelHandle>(null);
   const [promptPrimaryAction, setPromptPrimaryAction] =
     useState<PromptPrimaryAction>("prompt");
+  // 全局提示词页内切换应用后同步顶部标题（null = 未在页内切换，回退当前应用）
+  const [promptSelectedApp, setPromptSelectedApp] = useState<AppId | null>(
+    null,
+  );
   const mcpPanelRef = useRef<any>(null);
   const skillsPageRef = useRef<any>(null);
   const unifiedSkillsPanelRef = useRef<any>(null);
@@ -1064,6 +1068,7 @@ function App() {
               onInteractionBlockedChange={setPromptManagementBusy}
               onNavigationBlockedChange={setPromptNavigationBusy}
               onPrimaryActionChange={setPromptPrimaryAction}
+              onSelectedAppChange={setPromptSelectedApp}
             />
           );
         case "hermesMemory":
@@ -1360,7 +1365,9 @@ function App() {
                   {currentView === "settings" && t("settings.title")}
                   {currentView === "prompts" &&
                     t("prompts.title", {
-                      appName: t(`apps.${sharedFeatureApp}`),
+                      appName: t(
+                        `apps.${promptSelectedApp ?? sharedFeatureApp}`,
+                      ),
                     })}
                   {currentView === "skills" && t("skills.title")}
                   {currentView === "skillsDiscovery" && t("skills.title")}
@@ -1460,11 +1467,11 @@ function App() {
                 </div>
               )}
             {/* 弹性中段：空间不足时由 AppSwitcher 自行收纳溢出应用；
-                justify-end + overflow-hidden 只裁剪 resize 瞬间的过渡帧 */}
+                justify-end + overflow-hidden 只裁剪 resize 瞬间的过渡帧。
+                仅供应商主页显示；进入 skills/mcp 等管理页后与 claude
+                一致地隐藏，经左上角返回按钮回到主页 */}
             <div className="flex flex-1 min-w-0 items-center justify-end overflow-hidden py-4">
-              {(currentView === "providers" ||
-                activeApp === "zcode" ||
-                activeApp === "dsh") && (
+              {currentView === "providers" && (
                 <AppSwitcher
                   activeApp={activeApp}
                   onSwitch={setActiveApp}
@@ -1754,7 +1761,13 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("prompts")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                className={cn(
+                                  "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5",
+                                  "transition-all duration-200 ease-in-out overflow-hidden",
+                                  capabilities.prompts
+                                    ? "opacity-100 w-8 scale-100 px-2"
+                                    : "opacity-0 w-0 scale-75 pointer-events-none px-0 -ml-1",
+                                )}
                                 title={t("prompts.manage")}
                               >
                                 <Book className="w-4 h-4" />
