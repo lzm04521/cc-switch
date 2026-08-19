@@ -227,6 +227,7 @@ const UnifiedSkillsPanel = React.forwardRef<
     if (!skills) return counts;
     skills.forEach((skill) => {
       for (const app of SKILLS_APP_IDS) {
+        if (app === "dsh") continue;
         if (skill.apps[app]) {
           counts[app]++;
         }
@@ -267,6 +268,7 @@ const UnifiedSkillsPanel = React.forwardRef<
       : null;
 
   const handleToggleApp = async (id: string, app: AppId, enabled: boolean) => {
+    if (app === "dsh") return;
     if (!beginWrite()) return;
 
     try {
@@ -279,6 +281,7 @@ const UnifiedSkillsPanel = React.forwardRef<
   };
 
   const handleToggleAll = async (app: AppId, enabled: boolean) => {
+    if (app === "dsh") return;
     if (!skills || !beginWrite()) return;
 
     const ids = skills

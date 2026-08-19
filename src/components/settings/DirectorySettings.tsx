@@ -21,6 +21,7 @@ interface DirectorySettingsProps {
   opencodeDir?: string;
   openclawDir?: string;
   hermesDir?: string;
+  dshDir?: string;
   piDir?: string;
   zcodeDir?: string;
   onDirectoryChange: (app: DirectoryAppId, value?: string) => void;
@@ -41,6 +42,7 @@ export function DirectorySettings({
   opencodeDir,
   openclawDir,
   hermesDir,
+  dshDir,
   piDir,
   zcodeDir,
   onDirectoryChange,
@@ -176,6 +178,20 @@ export function DirectorySettings({
           onReset={() => onResetDirectory("hermes")}
         />
 
+        <DirectoryInput
+          label={t("settings.dshConfigDir", {
+            defaultValue: "DeepSeek Harness config directory",
+          })}
+          description={undefined}
+          value={dshDir}
+          resolvedValue={resolvedDirs.dsh}
+          placeholder={t("settings.browsePlaceholderDsh", {
+            defaultValue: "~/.dsh",
+          })}
+          onChange={(val) => onDirectoryChange("dsh", val)}
+          onBrowse={() => onBrowseDirectory("dsh")}
+          onReset={() => onResetDirectory("dsh")}
+        />
         <DirectoryInput
           label={t("settings.piConfigDir")}
           description={undefined}
