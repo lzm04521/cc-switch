@@ -57,9 +57,21 @@ git config user.email "lzm04521@126.com"
 echo "==> git fetch upstream"
 git fetch upstream
 
-echo "==> main reset --hard upstream/$UPSTREAM_TAG"
+# remote.upstream.tagOpt=--no-tags 时裸 fetch 不拉 tag；upstream/<tag> 也不是合法 ref，
+# 优先用本地 tag（需先 git fetch upstream --tags），其次尝试 upstream/<tag>（配置了 tag refspec 的仓库）
+RESET_TARGET=""
+if git rev-parse --verify -q "refs/tags/$UPSTREAM_TAG" >/dev/null; then
+  RESET_TARGET="refs/tags/$UPSTREAM_TAG"
+elif git rev-parse --verify -q "upstream/$UPSTREAM_TAG" >/dev/null; then
+  RESET_TARGET="upstream/$UPSTREAM_TAG"
+else
+  echo "❌ 未找到 tag: $UPSTREAM_TAG（先执行 git fetch upstream --tags）" >&2
+  exit 1
+fi
+
+echo "==> main reset --hard $RESET_TARGET"
 git checkout main
-git reset --hard "upstream/$UPSTREAM_TAG"
+git reset --hard "$RESET_TARGET"
 
 echo "==> 从 local/main 恢复 fork 定制 README.md"
 git checkout local/main -- README.md
