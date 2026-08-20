@@ -1,7 +1,8 @@
 //! DSH MCP 同步和导入模块
 //!
 //! DSH 的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 插件条目配置在
-//! `<dsh home>/profiles/web/cordis.patch.yml`（由 dsh_mcp_config 读写）。
+//! `<dsh home>/profiles/{web,desktop}/cordis.patch.yml`（DSH 客户端部分
+//! 走 web、部分走 desktop，由 dsh_mcp_config 对两个文件同时读写）。
 //! 同步时把 CC Switch 统一 spec（Claude 风格对象）转换为插件 config：
 //! - stdio：`{type: "stdio"|省略, command, args, env, cwd}` ↔ `{transport: "stdio", ...}`
 //! - http：`{type: "http", url, headers}` ↔ `{transport: "streamable-http", url, headers}`
@@ -64,8 +65,8 @@ fn unified_spec_to_dsh_config(id: &str, spec: &Value) -> Result<Option<Value>, A
         other => {
             // sse：DSH 仅支持 stdio / streamable-http
             log::warn!(
-                "[DSH-MCP] 跳过 server '{id}'：DSH 不支持 type '{other}' \
-                 （仅支持 stdio/streamable-http；此条不会落盘，但整体操作仍报成功）"
+                "Skip MCP server '{id}' for DSH: unsupported type '{other}' \
+                 (dsh supports stdio/streamable-http only)"
             );
             Ok(None)
         }
@@ -106,16 +107,9 @@ pub fn sync_single_server_to_dsh(
     id: &str,
     server_spec: &Value,
 ) -> Result<(), AppError> {
-    match unified_spec_to_dsh_config(id, server_spec) {
-        Ok(Some(config)) => {
-            log::info!("[DSH-MCP] sync '{id}'：spec 转换成功，交由存储层写入");
-            dsh_mcp_config::upsert_server(id, &config)
-        }
-        Ok(None) => Ok(()), // sse 等不支持类型已在转换层告警跳过
-        Err(e) => {
-            log::error!("[DSH-MCP] sync '{id}' 失败（spec 校验/转换未通过）: {e}");
-            Err(e)
-        }
+    match unified_spec_to_dsh_config(id, server_spec)? {
+        Some(config) => dsh_mcp_config::upsert_server(id, &config),
+        None => Ok(()), // sse 等不支持类型已告警跳过
     }
 }
 
@@ -346,11 +340,13 @@ mod tests {
             &json!({"type": "stdio", "command": "npx"}),
         )
         .expect("sync");
-        let raw = std::fs::read_to_string(dsh_mcp_config::get_dsh_mcp_config_path())
-            .expect("read patch");
-        // `@` 开头的插件名按 DSH 原生风格加双引号（is_bare_safe 排除 @ 首字符）
-        assert!(raw.contains("\"@deepseek-ai/dsh-mcp-client\""));
-        assert!(raw.contains("serverName: echo"));
+        // 双 profile 落盘：web 与 desktop 文件均含该条目
+        for path in dsh_mcp_config::get_dsh_mcp_config_paths() {
+            let raw = std::fs::read_to_string(&path).expect("read patch");
+            // `@` 开头的插件名按 DSH 原生风格加双引号（is_bare_safe 排除 @ 首字符）
+            assert!(raw.contains("\"@deepseek-ai/dsh-mcp-client\""));
+            assert!(raw.contains("serverName: echo"));
+        }
 
         let servers = dsh_mcp_config::get_servers().expect("read");
         assert!(servers
@@ -360,6 +356,10 @@ mod tests {
         remove_server_from_dsh("echo").expect("remove");
         let servers = dsh_mcp_config::get_servers().expect("read");
         assert!(servers.iter().all(|(n, _)| n != "echo"));
+        for path in dsh_mcp_config::get_dsh_mcp_config_paths() {
+            let raw = std::fs::read_to_string(&path).expect("read patch after remove");
+            assert!(!raw.contains("serverName: echo"), "removed from {path:?}");
+        }
     }
 
     #[test]
