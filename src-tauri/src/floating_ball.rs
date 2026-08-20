@@ -747,9 +747,12 @@ pub fn build_sections(
     let mut sections = Vec::new();
 
     for app_type in crate::app_config::AppType::all() {
-        // zcode 的 provider 由 ZCode 应用内自管，cc-switch 不写入/不切换，
-        // 悬浮球（快速切换入口）不展示该分组
-        if matches!(app_type, crate::app_config::AppType::Zcode) {
+        // zcode / dsh 的 provider 均由应用内自管，cc-switch 不写入/不切换，
+        // 悬浮球（快速切换入口）不展示这两类分组
+        if matches!(
+            app_type,
+            crate::app_config::AppType::Zcode | crate::app_config::AppType::Dsh
+        ) {
             continue;
         }
         if !visible_apps.is_visible(&app_type) {
