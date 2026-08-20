@@ -1,4 +1,9 @@
-//! DSH MCP 配置读写（`<dsh home>/profiles/web/cordis.patch.yml`）
+//! DSH MCP 配置读写（`<dsh home>/profiles/<profile>/cordis.patch.yml`）
+//!
+//! DSH 客户端分 `web` / `desktop` 两类，各自读取自己 profile 目录下的
+//! cordis.patch.yml；cc-switch 对两个文件同时维护：写侧逐一落盘（单个
+//! 文件被拒不阻断其余文件，但错误最终上报），读侧按 profile 顺序合并
+//! 去重（同名条目 web 优先）。
 //!
 //! DSH 不读取 `<dsh home>/mcp.json`（历史误设，已废弃）。MCP server 以
 //! `@deepseek-ai/dsh-mcp-client` 插件条目的形式配置在 profile patch 层，
@@ -27,9 +32,11 @@ use serde_yaml::Value as YamlValue;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-/// DSH profile 名：目前 DSH 仅有 `web` 一个 profile，目录固定为
-/// `profiles/web/`；未来出现多 profile 时再引入设置项。
-const DSH_PROFILE: &str = "web";
+/// DSH profile 名：DSH 客户端部分走 `web`、部分走 `desktop`，各自读取
+/// 自己 profile 目录下的 cordis.patch.yml，cc-switch 对两个文件同时读写。
+/// 顺序即优先级：读侧重名条目先到者优先（web 优先），旧版 mcp.json 的
+/// 一次性迁移也落在首个可成功装载的文件上。
+const DSH_PROFILES: [&str; 2] = ["web", "desktop"];
 const MCP_CLIENT_PLUGIN: &str = "@deepseek-ai/dsh-mcp-client";
 
 fn dsh_mcp_config_lock() -> &'static Mutex<()> {
@@ -37,12 +44,26 @@ fn dsh_mcp_config_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-/// `<dsh home>/profiles/web/cordis.patch.yml`
+/// 全部需要维护的 patch 路径
+/// （`<dsh home>/profiles/<profile>/cordis.patch.yml`，顺序同 [`DSH_PROFILES`]）
+pub fn get_dsh_mcp_config_paths() -> Vec<PathBuf> {
+    DSH_PROFILES
+        .iter()
+        .map(|profile| {
+            crate::dsh_config::get_home()
+                .join("profiles")
+                .join(profile)
+                .join("cordis.patch.yml")
+        })
+        .collect()
+}
+
+/// 主路径（web profile），供测试种子与只需要单一文件引用的场景
 pub fn get_dsh_mcp_config_path() -> PathBuf {
-    crate::dsh_config::get_home()
-        .join("profiles")
-        .join(DSH_PROFILE)
-        .join("cordis.patch.yml")
+    get_dsh_mcp_config_paths()
+        .into_iter()
+        .next()
+        .expect("DSH_PROFILES is non-empty")
 }
 
 /// 旧版误设的存储位置，仅用于一次性迁移
@@ -114,10 +135,6 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
     };
 
     if contains_yaml_tag_extensions(&content) {
-        log::warn!(
-            "[DSH-MCP] 拒绝读写 {}：文件含 !!js 等 YAML 扩展表达式，MCP 同步将失败",
-            path.display()
-        );
         return Err(AppError::Config(format!(
             "DSH cordis.patch.yml 含 !!js 等 YAML 扩展表达式，cc-switch 无法安全读写: {}",
             path.display()
@@ -125,7 +142,6 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
     }
 
     let value: YamlValue = serde_yaml::from_str(&content).map_err(|e| {
-        log::warn!("[DSH-MCP] 解析 {} 失败: {e}", path.display());
         AppError::Config(format!(
             "Failed to parse DSH cordis.patch.yml: {}: {e}",
             path.display()
@@ -138,16 +154,11 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
         YamlValue::Sequence(items) => items,
         YamlValue::Null => Vec::new(),
         other => {
-            log::warn!(
-                "[DSH-MCP] 拒绝读写 {}：根节点必须是数组（实际为 {}）",
-                path.display(),
-                yaml_kind(&other)
-            );
             return Err(AppError::Config(format!(
                 "DSH cordis.patch.yml 根节点必须是数组: {}（实际为 {:?}）",
                 path.display(),
                 yaml_kind(&other)
-            )));
+            )))
         }
     };
 
@@ -365,18 +376,8 @@ fn write_patch_file(path: &Path, file: &PatchFile) -> Result<(), AppError> {
         out.push_str(&file.header);
     }
     out.push_str(&body);
-    let byte_len = out.len();
-    if let Err(e) = std::fs::write(path, out.as_bytes()) {
-        log::error!("[DSH-MCP] 写入 {} 失败: {e}", path.display());
-        return Err(AppError::io(path, e));
-    }
-    // 落盘问题对账依据：条目数 + 字节数 + 完整路径（用户可拿日志与文件比对）
-    log::info!(
-        "[DSH-MCP] cordis.patch.yml 写回成功: {} 个 patch 条目, {} 字节 -> {}",
-        file.entries.len(),
-        byte_len,
-        path.display()
-    );
+    std::fs::write(path, out).map_err(|e| AppError::io(path, e))?;
+    log::debug!("DSH cordis.patch.yml written to {:?}", path.display());
     Ok(())
 }
 
@@ -550,37 +551,71 @@ fn load_and_migrate(path: &Path) -> Result<PatchFile, AppError> {
 
 /// 读取全部 MCP server，返回 `(serverName, config)` 列表（保留文件顺序）。
 /// config 为插件 config 去掉 serverName 后的 server 定义。
+/// 逐 profile 读取并按 serverName 去重（路径顺序即优先级，web 优先）；
+/// 单个文件损坏（!!js、根非数组等）时跳过该文件继续读其余文件（告警
+/// 留痕），全部文件不可读才报错。
 pub fn get_servers() -> Result<Vec<(String, JsonValue)>, AppError> {
     let _guard = dsh_mcp_config_lock().lock()?;
-    let path = get_dsh_mcp_config_path();
-    let file = load_and_migrate(&path)?;
-    let mut result = Vec::new();
-    for (patch_idx, item_idx, server_name) in find_mcp_client_entries(&file.entries) {
-        let plugin = file.entries[patch_idx]
-            .as_mapping()
-            .and_then(|m| m.get("insert"))
-            .and_then(|v| v.as_sequence())
-            .and_then(|s| s.get(item_idx));
-        let config = plugin
-            .and_then(plugin_config_to_json)
-            .unwrap_or_else(|| json!({}));
-        result.push((server_name, config));
+    let mut result: Vec<(String, JsonValue)> = Vec::new();
+    let mut first_err: Option<AppError> = None;
+    let mut loaded_any = false;
+    for path in get_dsh_mcp_config_paths() {
+        let file = match load_and_migrate(&path) {
+            Ok(file) => {
+                loaded_any = true;
+                file
+            }
+            Err(err) => {
+                first_err.get_or_insert(err);
+                continue;
+            }
+        };
+        for (patch_idx, item_idx, server_name) in find_mcp_client_entries(&file.entries) {
+            if result.iter().any(|(name, _)| *name == server_name) {
+                continue;
+            }
+            let plugin = file.entries[patch_idx]
+                .as_mapping()
+                .and_then(|m| m.get("insert"))
+                .and_then(|v| v.as_sequence())
+                .and_then(|s| s.get(item_idx));
+            let config = plugin
+                .and_then(plugin_config_to_json)
+                .unwrap_or_else(|| json!({}));
+            result.push((server_name, config));
+        }
     }
-    Ok(result)
+    if loaded_any {
+        if let Some(err) = first_err {
+            log::warn!("部分 DSH profile 的 cordis.patch.yml 无法读取，已跳过该文件: {err}");
+        }
+        Ok(result)
+    } else {
+        Err(first_err.expect("no DSH profile patch loaded but no error recorded"))
+    }
 }
 
 /// 按 serverName 写入/更新 MCP server；config 为 server 定义字段
 /// （transport/command/args/env/cwd/url/headers）。同名替换（保留插件条目
 /// 原位置与用户自定义 id），异名在 patch 末尾追加一条独立 insert。
+/// 对 web 与 desktop 两个 profile 文件逐一写入：单个文件被拒或写失败
+/// 不阻断其余文件，但错误最终上报，不静默吞掉。
 pub fn upsert_server(name: &str, config: &JsonValue) -> Result<(), AppError> {
     let _guard = dsh_mcp_config_lock().lock()?;
-    let path = get_dsh_mcp_config_path();
-    log::info!(
-        "[DSH-MCP] upsert server '{name}' -> {}（home 来源: {}）",
-        path.display(),
-        crate::dsh_config::home_source()
-    );
-    let mut file = load_and_migrate(&path)?;
+    let mut first_err: Option<AppError> = None;
+    for path in get_dsh_mcp_config_paths() {
+        if let Err(err) = upsert_server_in_file(&path, name, config) {
+            first_err.get_or_insert(err);
+        }
+    }
+    match first_err {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+fn upsert_server_in_file(path: &Path, name: &str, config: &JsonValue) -> Result<(), AppError> {
+    let mut file = load_and_migrate(path)?;
 
     // 组装含 serverName 的完整 config
     let mut full_config = Map::new();
@@ -617,20 +652,32 @@ pub fn upsert_server(name: &str, config: &JsonValue) -> Result<(), AppError> {
             "config": full_config,
         });
         insert_seq[item_idx] = json_to_yaml(&plugin)?;
-        log::info!("[DSH-MCP] '{name}' 命中已有条目，原位替换");
     } else {
         file.entries.push(make_insert_entry(name, &full_config)?);
-        log::info!("[DSH-MCP] '{name}' 为新条目，追加到 patch 末尾");
     }
-    write_patch_file(&path, &file)
+    write_patch_file(path, &file)
 }
 
 /// 按 serverName 移除 MCP server（其余 patch 条目与同 insert 内的其他
-/// 插件条目原样保留；insert 被清空时移除该空 patch 条目）
+/// 插件条目原样保留；insert 被清空时移除该空 patch 条目）。
+/// 对 web 与 desktop 两个 profile 文件逐一处理，错误聚合策略同
+/// [`upsert_server`]。
 pub fn remove_server(name: &str) -> Result<(), AppError> {
     let _guard = dsh_mcp_config_lock().lock()?;
-    let path = get_dsh_mcp_config_path();
-    let mut file = load_and_migrate(&path)?;
+    let mut first_err: Option<AppError> = None;
+    for path in get_dsh_mcp_config_paths() {
+        if let Err(err) = remove_server_in_file(&path, name) {
+            first_err.get_or_insert(err);
+        }
+    }
+    match first_err {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+fn remove_server_in_file(path: &Path, name: &str) -> Result<(), AppError> {
+    let mut file = load_and_migrate(path)?;
 
     let targets: Vec<(usize, usize)> = find_mcp_client_entries(&file.entries)
         .into_iter()
@@ -638,17 +685,8 @@ pub fn remove_server(name: &str) -> Result<(), AppError> {
         .map(|(p, i, _)| (p, i))
         .collect();
     if targets.is_empty() {
-        log::info!(
-            "[DSH-MCP] remove '{name}'：{} 中无该条目，无需移除",
-            path.display()
-        );
         return Ok(());
     }
-    log::info!(
-        "[DSH-MCP] remove server '{name}'（{} 处条目）-> {}",
-        targets.len(),
-        path.display()
-    );
     // 同一 insert 内可能命中多条，倒序按 (patch_idx, item_idx) 删除
     for (patch_idx, item_idx) in targets.into_iter().rev() {
         let is_empty_after = {
@@ -667,7 +705,7 @@ pub fn remove_server(name: &str) -> Result<(), AppError> {
             file.entries.remove(patch_idx);
         }
     }
-    write_patch_file(&path, &file)
+    write_patch_file(path, &file)
 }
 
 #[cfg(test)]
@@ -707,24 +745,34 @@ mod tests {
         }
     }
 
+    /// desktop profile 的 patch 路径（web 用 get_dsh_mcp_config_path）
+    fn desktop_patch_path() -> PathBuf {
+        get_dsh_mcp_config_paths()[1].clone()
+    }
+
     #[test]
     #[serial]
-    fn mcp_path_points_to_profile_patch_yml() {
+    fn mcp_paths_cover_web_and_desktop_profiles() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
-        let path = get_dsh_mcp_config_path();
-        assert_eq!(
-            path.file_name().map(std::ffi::OsStr::to_str),
-            Some(Some("cordis.patch.yml"))
-        );
-        // <home>/profiles/web/cordis.patch.yml
-        assert!(path
-            .parent()
-            .is_some_and(|p| p.file_name().is_some_and(|n| n == "web")));
-        assert!(path
-            .parent()
-            .and_then(Path::parent)
-            .is_some_and(|p| p.file_name().is_some_and(|n| n == "profiles")));
+        let paths = get_dsh_mcp_config_paths();
+        assert_eq!(paths.len(), 2, "web + desktop");
+        for (path, profile) in paths.iter().zip(["web", "desktop"]) {
+            assert_eq!(
+                path.file_name().map(std::ffi::OsStr::to_str),
+                Some(Some("cordis.patch.yml"))
+            );
+            // <home>/profiles/<profile>/cordis.patch.yml
+            assert!(path
+                .parent()
+                .is_some_and(|p| p.file_name().is_some_and(|n| n == profile)));
+            assert!(path
+                .parent()
+                .and_then(Path::parent)
+                .is_some_and(|p| p.file_name().is_some_and(|n| n == "profiles")));
+        }
+        // 主路径 = web（首个 profile）
+        assert_eq!(get_dsh_mcp_config_path(), paths[0]);
     }
 
     #[test]
@@ -734,8 +782,10 @@ mod tests {
         let _guard = TestEnvGuard::set(temp.path());
         let servers = get_servers().expect("empty servers");
         assert!(servers.is_empty());
-        // 读操作不创建文件
-        assert!(!get_dsh_mcp_config_path().exists());
+        // 读操作不创建文件（两个 profile 均不落盘）
+        for path in get_dsh_mcp_config_paths() {
+            assert!(!path.exists());
+        }
     }
 
     #[test]
@@ -787,6 +837,11 @@ mod tests {
             "no 2-space sequence items (DSH contract)"
         );
 
+        // 双 profile 落盘：desktop 文件同步创建且含该条目
+        let desktop_raw =
+            std::fs::read_to_string(desktop_patch_path()).expect("desktop patch written");
+        assert!(desktop_raw.contains("serverName: echo"));
+
         // 同名再写 = 更新而非追加
         upsert_server("echo", &json!({"transport": "stdio", "command": "updated"}))
             .expect("upsert again");
@@ -814,9 +869,12 @@ mod tests {
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].0, "keep");
 
-        let raw = std::fs::read_to_string(get_dsh_mcp_config_path()).expect("raw");
-        assert!(!raw.contains("drop"), "empty insert entry removed entirely");
-        assert!(raw.contains("keep"));
+        // 双 profile：两个文件都完成移除
+        for path in get_dsh_mcp_config_paths() {
+            let raw = std::fs::read_to_string(&path).expect("raw");
+            assert!(!raw.contains("drop"), "empty insert entry removed entirely");
+            assert!(raw.contains("keep"));
+        }
     }
 
     #[test]
@@ -824,15 +882,21 @@ mod tests {
     fn root_not_sequence_is_error() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
-        let path = get_dsh_mcp_config_path();
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        std::fs::write(&path, "mapping: true\n").expect("seed mapping root");
+        // 两个 profile 全部损坏：读取无任何可用文件时必须报错
+        for path in get_dsh_mcp_config_paths() {
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, "mapping: true\n").expect("seed mapping root");
+        }
 
         assert!(get_servers().is_err(), "mapping root must be rejected");
         assert!(
             upsert_server("x", &json!({"transport": "stdio"})).is_err(),
             "must not overwrite user file with rebuilt root"
         );
+        for path in get_dsh_mcp_config_paths() {
+            let raw = std::fs::read_to_string(&path).expect("file untouched");
+            assert_eq!(raw, "mapping: true\n");
+        }
     }
 
     #[test]
@@ -840,17 +904,17 @@ mod tests {
     fn js_tag_expressions_are_rejected() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
-        let path = get_dsh_mcp_config_path();
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        std::fs::write(
-            &path,
-            "- insert:\n    - id: mcp-x\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: x\n        env:\n          TOKEN: !!js process.env.TOKEN\n",
-        )
-        .expect("seed js-tag patch");
+        let js_patch = "- insert:\n    - id: mcp-x\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: x\n        env:\n          TOKEN: !!js process.env.TOKEN\n";
+        for path in get_dsh_mcp_config_paths() {
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, js_patch).expect("seed js-tag patch");
+        }
 
         assert!(get_servers().is_err(), "!!js must be rejected, not parsed");
-        let raw = std::fs::read_to_string(&path).expect("file untouched");
-        assert!(raw.contains("!!js"), "rejected file must not be rewritten");
+        for path in get_dsh_mcp_config_paths() {
+            let raw = std::fs::read_to_string(&path).expect("file untouched");
+            assert!(raw.contains("!!js"), "rejected file must not be rewritten");
+        }
     }
 
     #[test]
@@ -879,6 +943,9 @@ mod tests {
         );
         assert!(raw.contains("harness-pet"), "foreign entry preserved");
         assert!(raw.contains("serverName: echo"));
+        // desktop 同步落盘
+        let desktop_raw = std::fs::read_to_string(desktop_patch_path()).expect("desktop raw");
+        assert!(desktop_raw.contains("serverName: echo"));
     }
 
     #[test]
@@ -954,7 +1021,14 @@ mod tests {
         // 新增条目同为 DSH 风格
         assert!(raw.contains("\n    - id: mcp-echo\n"));
         assert!(raw.contains("serverName: echo"));
-        // 读回语义完整：两个 server 均在
+        // desktop 新建文件同样满足 DSH 缩进契约
+        let desktop_raw = std::fs::read_to_string(desktop_patch_path()).expect("desktop raw");
+        assert!(
+            !desktop_raw.contains("\n  - "),
+            "DSH indent contract holds on desktop"
+        );
+        assert!(desktop_raw.contains("\n    - id: mcp-echo\n"));
+        // 读回语义完整：两个 server 均在（跨文件去重，各一次）
         let servers = get_servers().expect("read back");
         let names: Vec<&str> = servers.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["mcp_windbg", "echo"]);
@@ -998,11 +1072,22 @@ mod tests {
         assert!(!legacy_mcp_json_path().exists());
         assert!(legacy_mcp_json_path().with_extension("json.bak").exists());
 
+        // 迁移只发生一次：条目落在首个可装载的 web profile 上，
+        // mcp.json 已改名，desktop 侧不会再次迁移
+        assert!(!desktop_patch_path().exists(), "no duplicate migration");
+
         // 迁移后的 patch 可继续 upsert/remove，且不会重复迁移
         upsert_server("extra", &json!({"transport": "stdio", "command": "e"}))
             .expect("upsert after migration");
         let servers = get_servers().expect("read");
+        // 双文件去重：echo/remote/extra 各一条，不因双路径翻倍
         assert_eq!(servers.len(), 3);
+        let desktop_raw = std::fs::read_to_string(desktop_patch_path()).expect("desktop written");
+        assert!(desktop_raw.contains("serverName: extra"));
+        assert!(
+            !desktop_raw.contains("serverName: echo"),
+            "legacy entries not re-migrated into desktop"
+        );
     }
 
     #[test]
@@ -1025,7 +1110,63 @@ mod tests {
         assert!(raw.contains("my-custom-id"), "custom plugin id preserved");
         assert!(raw.contains("command: new"));
         assert!(!raw.contains("mcp-echo"), "default id not introduced");
+        // desktop 无同名条目，按新条目落盘（默认 id）
+        let desktop_raw = std::fs::read_to_string(desktop_patch_path()).expect("desktop written");
+        assert!(desktop_raw.contains("serverName: echo"));
         let servers = get_servers().expect("read");
-        assert_eq!(servers.len(), 1, "replaced in place, not appended");
+        assert_eq!(servers.len(), 1, "web entry wins dedup, not duplicated");
+    }
+
+    #[test]
+    #[serial]
+    fn partial_profile_failure_does_not_block_other_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = TestEnvGuard::set(temp.path());
+        // web 损坏（根非数组），desktop 干净（不存在 → 空 patch）
+        let web = get_dsh_mcp_config_path();
+        std::fs::create_dir_all(web.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&web, "mapping: true\n").expect("seed broken web");
+
+        let result = upsert_server("echo", &json!({"transport": "stdio", "command": "npx"}));
+        assert!(result.is_err(), "损坏文件的错误必须上报，不静默吞掉");
+        // 不阻断：desktop 已写入，web 原样未动
+        let desktop_raw =
+            std::fs::read_to_string(desktop_patch_path()).expect("desktop still written");
+        assert!(desktop_raw.contains("serverName: echo"));
+        assert_eq!(
+            std::fs::read_to_string(&web).expect("web untouched"),
+            "mapping: true\n"
+        );
+        // 读侧尽力而为：desktop 可读即返回其条目（错误仅告警留痕）
+        let servers = get_servers().expect("partial failure still readable");
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].0, "echo");
+    }
+
+    #[test]
+    #[serial]
+    fn get_servers_dedupes_with_web_priority() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = TestEnvGuard::set(temp.path());
+        // web：echo(from-web)；desktop：echo(from-desktop) + solo
+        upsert_server(
+            "echo",
+            &json!({"transport": "stdio", "command": "from-web"}),
+        )
+        .expect("seed web");
+        let desktop = desktop_patch_path();
+        std::fs::write(
+            &desktop,
+            "- insert:\n    - id: mcp-echo\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: echo\n        transport: stdio\n        command: from-desktop\n- insert:\n    - id: mcp-solo\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: solo\n        transport: stdio\n        command: s\n",
+        )
+        .expect("seed desktop");
+
+        let servers = get_servers().expect("read");
+        let names: Vec<&str> = servers.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["echo", "solo"], "dedup keeps one echo + solo");
+        assert_eq!(
+            servers[0].1["command"], "from-web",
+            "web profile wins on name conflict"
+        );
     }
 }

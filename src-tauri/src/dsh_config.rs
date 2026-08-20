@@ -1,7 +1,7 @@
 //! DSH (DeepSeek Harness) home directory resolution.
 //!
-//! cc-switch 只读写 `<dsh home>/profiles/web/cordis.patch.yml`（MCP）与
-//! skills 部署目录，不解析
+//! cc-switch 同时维护 `<dsh home>/profiles/{web,desktop}/cordis.patch.yml`
+//! （MCP，DSH 客户端部分走 web、部分走 desktop）与 skills 部署目录，不解析
 //! settings.yaml / .credentials.yaml（provider 由 DSH 应用内自管）。
 //! home 三级解析：设置覆盖（dsh_config_dir）→ `DSH_HOME` 环境变量 → `~/.dsh`。
 
@@ -13,22 +13,6 @@ pub fn get_home() -> PathBuf {
         return override_dir;
     }
     get_default_home()
-}
-
-/// DSH home 解析来源标签（仅诊断日志用），与 `get_home` 的三级解析保持镜像：
-/// 设置覆盖（dsh_config_dir）→ `DSH_HOME` 环境变量 → `~/.dsh`。
-/// 落盘问题排查时用于确认 cc-switch 实际写入的 DSH 目录由谁决定。
-pub(crate) fn home_source() -> &'static str {
-    if crate::settings::get_dsh_override_dir().is_some() {
-        "settings:dsh_config_dir"
-    } else if std::env::var_os("DSH_HOME")
-        .map(|raw| !raw.to_string_lossy().trim().is_empty())
-        .unwrap_or(false)
-    {
-        "env:DSH_HOME"
-    } else {
-        "default:~/.dsh"
-    }
 }
 
 /// Resolve the DSH home without consulting cc-switch's directory override.

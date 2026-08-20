@@ -156,8 +156,10 @@ pub async fn get_config_status(
             Ok(ConfigStatus { exists, path })
         }
         AppType::Dsh => {
-            let config_path = crate::dsh_mcp_config::get_dsh_mcp_config_path();
-            let exists = config_path.exists();
+            // web 与 desktop 两个 profile 任一存在即视为已配置
+            let exists = crate::dsh_mcp_config::get_dsh_mcp_config_paths()
+                .iter()
+                .any(|path| path.exists());
             let path = crate::dsh_config::get_home().to_string_lossy().to_string();
 
             Ok(ConfigStatus { exists, path })
