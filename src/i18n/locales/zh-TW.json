@@ -2027,7 +2027,9 @@
         "grokbuild": "Grok Build",
         "opencode": "OpenCode",
         "openclaw": "OpenClaw",
-        "hermes": "Hermes"
+        "hermes": "Hermes",
+        "dsh": "Deepseek",
+        "zcode": "ZCode"
       }
     },
     "userLevelPath": "使用者級 MCP 設定路徑",

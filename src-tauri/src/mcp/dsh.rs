@@ -64,8 +64,8 @@ fn unified_spec_to_dsh_config(id: &str, spec: &Value) -> Result<Option<Value>, A
         other => {
             // sse：DSH 仅支持 stdio / streamable-http
             log::warn!(
-                "Skip MCP server '{id}' for DSH: unsupported type '{other}' \
-                 (dsh supports stdio/streamable-http only)"
+                "[DSH-MCP] 跳过 server '{id}'：DSH 不支持 type '{other}' \
+                 （仅支持 stdio/streamable-http；此条不会落盘，但整体操作仍报成功）"
             );
             Ok(None)
         }
@@ -106,9 +106,16 @@ pub fn sync_single_server_to_dsh(
     id: &str,
     server_spec: &Value,
 ) -> Result<(), AppError> {
-    match unified_spec_to_dsh_config(id, server_spec)? {
-        Some(config) => dsh_mcp_config::upsert_server(id, &config),
-        None => Ok(()), // sse 等不支持类型已告警跳过
+    match unified_spec_to_dsh_config(id, server_spec) {
+        Ok(Some(config)) => {
+            log::info!("[DSH-MCP] sync '{id}'：spec 转换成功，交由存储层写入");
+            dsh_mcp_config::upsert_server(id, &config)
+        }
+        Ok(None) => Ok(()), // sse 等不支持类型已在转换层告警跳过
+        Err(e) => {
+            log::error!("[DSH-MCP] sync '{id}' 失败（spec 校验/转换未通过）: {e}");
+            Err(e)
+        }
     }
 }
 
@@ -341,7 +348,8 @@ mod tests {
         .expect("sync");
         let raw = std::fs::read_to_string(dsh_mcp_config::get_dsh_mcp_config_path())
             .expect("read patch");
-        assert!(raw.contains("'@deepseek-ai/dsh-mcp-client'"));
+        // `@` 开头的插件名按 DSH 原生风格加双引号（is_bare_safe 排除 @ 首字符）
+        assert!(raw.contains("\"@deepseek-ai/dsh-mcp-client\""));
         assert!(raw.contains("serverName: echo"));
 
         let servers = dsh_mcp_config::get_servers().expect("read");
