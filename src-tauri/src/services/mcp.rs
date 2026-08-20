@@ -46,6 +46,12 @@ impl McpService {
         if prev_apps.hermes && !server.apps.hermes {
             Self::remove_server_from_app(state, &server.id, &AppType::Hermes)?;
         }
+        if prev_apps.zcode && !server.apps.zcode {
+            Self::remove_server_from_app(state, &server.id, &AppType::Zcode)?;
+        }
+        if prev_apps.dsh && !server.apps.dsh {
+            Self::remove_server_from_app(state, &server.id, &AppType::Dsh)?;
+        }
 
         // 同步到各个启用的应用
         Self::sync_server_to_apps(state, &server)?;

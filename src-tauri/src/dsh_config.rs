@@ -15,6 +15,22 @@ pub fn get_home() -> PathBuf {
     get_default_home()
 }
 
+/// DSH home 解析来源标签（仅诊断日志用），与 `get_home` 的三级解析保持镜像：
+/// 设置覆盖（dsh_config_dir）→ `DSH_HOME` 环境变量 → `~/.dsh`。
+/// 落盘问题排查时用于确认 cc-switch 实际写入的 DSH 目录由谁决定。
+pub(crate) fn home_source() -> &'static str {
+    if crate::settings::get_dsh_override_dir().is_some() {
+        "settings:dsh_config_dir"
+    } else if std::env::var_os("DSH_HOME")
+        .map(|raw| !raw.to_string_lossy().trim().is_empty())
+        .unwrap_or(false)
+    {
+        "env:DSH_HOME"
+    } else {
+        "default:~/.dsh"
+    }
+}
+
 /// Resolve the DSH home without consulting cc-switch's directory override.
 ///
 /// The settings page uses this when resetting an override, so an environment

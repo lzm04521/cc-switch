@@ -114,6 +114,10 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
     };
 
     if contains_yaml_tag_extensions(&content) {
+        log::warn!(
+            "[DSH-MCP] 拒绝读写 {}：文件含 !!js 等 YAML 扩展表达式，MCP 同步将失败",
+            path.display()
+        );
         return Err(AppError::Config(format!(
             "DSH cordis.patch.yml 含 !!js 等 YAML 扩展表达式，cc-switch 无法安全读写: {}",
             path.display()
@@ -121,6 +125,7 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
     }
 
     let value: YamlValue = serde_yaml::from_str(&content).map_err(|e| {
+        log::warn!("[DSH-MCP] 解析 {} 失败: {e}", path.display());
         AppError::Config(format!(
             "Failed to parse DSH cordis.patch.yml: {}: {e}",
             path.display()
@@ -133,11 +138,16 @@ fn load_patch_file(path: &Path) -> Result<PatchFile, AppError> {
         YamlValue::Sequence(items) => items,
         YamlValue::Null => Vec::new(),
         other => {
+            log::warn!(
+                "[DSH-MCP] 拒绝读写 {}：根节点必须是数组（实际为 {}）",
+                path.display(),
+                yaml_kind(&other)
+            );
             return Err(AppError::Config(format!(
                 "DSH cordis.patch.yml 根节点必须是数组: {}（实际为 {:?}）",
                 path.display(),
                 yaml_kind(&other)
-            )))
+            )));
         }
     };
 
@@ -355,8 +365,18 @@ fn write_patch_file(path: &Path, file: &PatchFile) -> Result<(), AppError> {
         out.push_str(&file.header);
     }
     out.push_str(&body);
-    std::fs::write(path, out).map_err(|e| AppError::io(path, e))?;
-    log::debug!("DSH cordis.patch.yml written to {:?}", path.display());
+    let byte_len = out.len();
+    if let Err(e) = std::fs::write(path, out.as_bytes()) {
+        log::error!("[DSH-MCP] 写入 {} 失败: {e}", path.display());
+        return Err(AppError::io(path, e));
+    }
+    // 落盘问题对账依据：条目数 + 字节数 + 完整路径（用户可拿日志与文件比对）
+    log::info!(
+        "[DSH-MCP] cordis.patch.yml 写回成功: {} 个 patch 条目, {} 字节 -> {}",
+        file.entries.len(),
+        byte_len,
+        path.display()
+    );
     Ok(())
 }
 
@@ -555,6 +575,11 @@ pub fn get_servers() -> Result<Vec<(String, JsonValue)>, AppError> {
 pub fn upsert_server(name: &str, config: &JsonValue) -> Result<(), AppError> {
     let _guard = dsh_mcp_config_lock().lock()?;
     let path = get_dsh_mcp_config_path();
+    log::info!(
+        "[DSH-MCP] upsert server '{name}' -> {}（home 来源: {}）",
+        path.display(),
+        crate::dsh_config::home_source()
+    );
     let mut file = load_and_migrate(&path)?;
 
     // 组装含 serverName 的完整 config
@@ -592,8 +617,10 @@ pub fn upsert_server(name: &str, config: &JsonValue) -> Result<(), AppError> {
             "config": full_config,
         });
         insert_seq[item_idx] = json_to_yaml(&plugin)?;
+        log::info!("[DSH-MCP] '{name}' 命中已有条目，原位替换");
     } else {
         file.entries.push(make_insert_entry(name, &full_config)?);
+        log::info!("[DSH-MCP] '{name}' 为新条目，追加到 patch 末尾");
     }
     write_patch_file(&path, &file)
 }
@@ -611,8 +638,17 @@ pub fn remove_server(name: &str) -> Result<(), AppError> {
         .map(|(p, i, _)| (p, i))
         .collect();
     if targets.is_empty() {
+        log::info!(
+            "[DSH-MCP] remove '{name}'：{} 中无该条目，无需移除",
+            path.display()
+        );
         return Ok(());
     }
+    log::info!(
+        "[DSH-MCP] remove server '{name}'（{} 处条目）-> {}",
+        targets.len(),
+        path.display()
+    );
     // 同一 insert 内可能命中多条，倒序按 (patch_idx, item_idx) 删除
     for (patch_idx, item_idx) in targets.into_iter().rev() {
         let is_empty_after = {
