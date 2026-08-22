@@ -30,9 +30,9 @@
 
 ## 本 Fork 增强的功能
 
-- **DSH（DeepSeek Harness）接入**：skills 与 MCP 统一管理。MCP 条目写入 `<dsh home>/profiles/web/cordis.patch.yml`（DSH 原生风格序列化，含 `!!js` 扩展表达式时拒绝改写）；skills 部署目录可在设置页切换。
+- **DSH（DeepSeek Harness）接入**：skills 与 MCP 统一管理。MCP 条目同时写入 `<dsh home>/profiles/web` 与 `profiles/desktop` 两个 profile 的 `cordis.patch.yml`（DSH 客户端两种形态各用其一；DSH 原生风格序列化，含 `!!js` 扩展表达式时拒绝改写，单文件被拒不影响其余）；读取时按 serverName 去重合并（web 优先）。skills 部署目录可在设置页切换。
 - **Zcode 接入**：skills / prompts / MCP / sessions 管理。
-- **悬浮球快速切换**：贴边隐藏，显示 Provider 与今日 Token 用量，点击快速切换供应商。
+- **悬浮球快速切换**：贴边隐藏，显示 Provider 与今日 Token 用量，点击快速切换供应商（DSH / ZCode 供应商由应用内自管，不出现在悬浮球切换列表）。
 - **代理 API 报文记录**：本地代理可落盘记录转发报文用于排查（默认关闭，正文落盘前自动精简）。
 - **云同步启动延迟备份**：WebDAV / S3 备份可配置启动后延迟 N 分钟执行。
 
