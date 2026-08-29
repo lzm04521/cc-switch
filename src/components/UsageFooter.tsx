@@ -7,6 +7,10 @@ import { UsageData, Provider } from "@/types";
 import { TierBadge } from "@/components/SubscriptionQuotaFooter";
 import type { QuotaTier } from "@/types/subscription";
 import { isAdditiveAppId } from "@/config/appConfig";
+import { useSettingsQuery } from "@/lib/query/queries";
+
+/** 非启用 Provider 自动刷新的间隔下限（分钟），控制对第三方用量端点的请求频率 */
+const BACKGROUND_AUTO_QUERY_MIN_MINUTES = 5;
 
 interface UsageFooterProps {
   provider: Provider;
@@ -59,9 +63,16 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
   // 统一的用量查询（自动查询仅对当前激活的供应商启用）
   // 累加模式：使用 isInConfig 代替 isCurrent
   const shouldAutoQuery = isAdditiveAppId(appId) ? isInConfig : isCurrent;
+  // 全局开关开启后，非启用 Provider 也自动刷新，但间隔钳制为至少 5 分钟；
+  // Provider 自身未设置自动查询间隔（0）时仍不自动刷新
+  const { data: settings } = useSettingsQuery();
+  const configuredInterval =
+    provider.meta?.usage_script?.autoQueryInterval || 0;
   const autoQueryInterval = shouldAutoQuery
-    ? provider.meta?.usage_script?.autoQueryInterval || 0
-    : 0;
+    ? configuredInterval
+    : settings?.autoRefreshAllProvidersUsage && configuredInterval > 0
+      ? Math.max(configuredInterval, BACKGROUND_AUTO_QUERY_MIN_MINUTES)
+      : 0;
 
   const {
     data: usage,

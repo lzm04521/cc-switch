@@ -1885,7 +1885,11 @@
       "syncNow": "今すぐ同期"
     },
     "cacheReadCostPerMillion": "キャッシュ読み取りコスト（100万トークンあたり、USD）",
-    "cacheCreationCostPerMillion": "キャッシュ書き込みコスト（100万トークンあたり、USD）"
+    "cacheCreationCostPerMillion": "キャッシュ書き込みコスト（100万トークンあたり、USD）",
+    "providerUsageAutoRefresh": {
+      "title": "すべてのプロバイダー使用量を自動更新",
+      "description": "オンにすると、現在有効でないプロバイダーも使用量を定期的に取得します（最短 5 分間隔、設定値が 5 分を超える場合は設定に従います）。オフの場合は有効なプロバイダーのみ自動更新します"
+    }
   },
   "usageScript": {
     "title": "利用状況を設定",

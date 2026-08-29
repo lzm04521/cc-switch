@@ -1885,7 +1885,11 @@
       "syncNow": "立即同步"
     },
     "cacheReadCostPerMillion": "缓存读取成本 (每百万 tokens, USD)",
-    "cacheCreationCostPerMillion": "缓存写入成本 (每百万 tokens, USD)"
+    "cacheCreationCostPerMillion": "缓存写入成本 (每百万 tokens, USD)",
+    "providerUsageAutoRefresh": {
+      "title": "自动刷新所有供应商用量",
+      "description": "开启后非当前启用的供应商也定时查询余额用量（最快 5 分钟一次，若设置的刷新频率大于 5 分钟则按设置执行）；关闭时仅当前启用的供应商自动刷新"
+    }
   },
   "usageScript": {
     "title": "配置用量查询",

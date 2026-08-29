@@ -384,6 +384,8 @@ export interface Settings {
   // User has confirmed the usage query first-run notice
   usageConfirmed?: boolean;
   usageDashboardRefreshIntervalMs?: number;
+  // 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新；非启用 Provider 间隔下限 5 分钟）
+  autoRefreshAllProvidersUsage?: boolean;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）
   sessionAutoSyncEnabled?: boolean;
   // Whether to show the failover toggle independently on the main page

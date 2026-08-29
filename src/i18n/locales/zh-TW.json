@@ -1886,7 +1886,11 @@
       "syncNow": "立即同步"
     },
     "cacheReadCostPerMillion": "快取讀取成本 (每百萬 tokens, USD)",
-    "cacheCreationCostPerMillion": "快取寫入成本 (每百萬 tokens, USD)"
+    "cacheCreationCostPerMillion": "快取寫入成本 (每百萬 tokens, USD)",
+    "providerUsageAutoRefresh": {
+      "title": "自動重新整理所有供應商用量",
+      "description": "開啟後非目前啟用的供應商也會定時查詢餘額用量（最快 5 分鐘一次，若設定的重新整理頻率大於 5 分鐘則按設定執行）；關閉時僅目前啟用的供應商自動重新整理"
+    }
   },
   "usageScript": {
     "title": "設定用量查詢",

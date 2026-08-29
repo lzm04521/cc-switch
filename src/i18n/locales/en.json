@@ -1885,7 +1885,11 @@
       "syncNow": "Sync now"
     },
     "cacheReadCostPerMillion": "Cache Read Cost (per million tokens, USD)",
-    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)"
+    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)",
+    "providerUsageAutoRefresh": {
+      "title": "Auto-Refresh All Provider Usage",
+      "description": "When on, providers that are not currently active also refresh their usage periodically (at most once every 5 minutes, or slower if configured); when off, only the active provider auto-refreshes"
+    }
   },
   "usageScript": {
     "title": "Configure Usage Query",

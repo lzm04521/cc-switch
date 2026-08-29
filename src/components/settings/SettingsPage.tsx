@@ -524,6 +524,12 @@ export function SettingsPage({
                   onSessionAutoSyncEnabledChange={(sessionAutoSyncEnabled) =>
                     handleAutoSave({ sessionAutoSyncEnabled })
                   }
+                  providerUsageAutoRefreshEnabled={
+                    settings?.autoRefreshAllProvidersUsage ?? false
+                  }
+                  onProviderUsageAutoRefreshEnabledChange={(
+                    autoRefreshAllProvidersUsage,
+                  ) => handleAutoSave({ autoRefreshAllProvidersUsage })}
                 />
               </TabsContent>
             </div>

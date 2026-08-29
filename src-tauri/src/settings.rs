@@ -424,6 +424,10 @@ pub struct AppSettings {
     pub usage_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_dashboard_refresh_interval_ms: Option<u32>,
+    /// 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新）。
+    /// 开启后非启用 Provider 也定时查询，实际间隔钳制为至少 5 分钟（前端控制）。
+    #[serde(default)]
+    pub auto_refresh_all_providers_usage: bool,
     /// 会话用量自动扫描开关（默认开启=自动模式）。关闭后停止后台定时扫描
     /// 各客户端会话日志，仅在用户点击"立即同步"时手动扫描；只管扫描时机，
     /// 代理接管记账与启动费用回填（不读会话文件）不受此开关影响。
@@ -583,6 +587,7 @@ impl Default for AppSettings {
             proxy_confirmed: None,
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
+            auto_refresh_all_providers_usage: false,
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
             show_profile_switcher: true,
