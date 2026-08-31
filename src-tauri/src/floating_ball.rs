@@ -37,8 +37,10 @@ const DOCK_ANIMATE_MS: u64 = 150;
 const DOCK_ANIMATE_FRAME_MS: u64 = 8;
 /// mouseleave / 面板关闭后延迟收回的等待时长
 const RECOLLAPSE_DELAY_MS: u64 = 400;
-/// 启动恢复判定容差（物理像素）：位置与收起/展开位偏差在该值内视为对应状态
+/// 启动恢复判定容差（物理像素，按 DPI 缩放）：位置与收起/展开位偏差在该值内视为对应状态
 const RESTORE_TOLERANCE_PX: f64 = 4.0;
+/// 启动首显兜底定时：主窗口页面加载完成事件未触发时，延迟该时长后显示悬浮球
+pub const STARTUP_FALLBACK_MS: u64 = 3000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockSide {
@@ -59,6 +61,8 @@ static BALL_ANIMATING: AtomicBool = AtomicBool::new(false);
 /// 动画代数：新动画 / 拖动开始时递增，旧动画线程发现代数变化即自杀，
 /// 避免拖动与动画两个 SetWindowPos 循环同时驱动窗口产生抖动
 static DOCK_ANIM_GEN: AtomicU64 = AtomicU64::new(0);
+/// 启动首显闸门：页面加载事件与兜底定时竞争触发，仅第一次生效
+static BALL_STARTUP_SHOWN: AtomicBool = AtomicBool::new(false);
 
 fn dock_state() -> &'static Mutex<Option<DockSide>> {
     DOCK.get_or_init(|| Mutex::new(None))
@@ -402,18 +406,23 @@ pub fn ball_hover(_app: &AppHandle, _entered: bool) -> Result<bool, String> {
 
 /// 启动 / 启用悬浮球时按已保存的窗口位置恢复 dock 状态（不动画，直接对号入座）。
 /// window-state 插件保存的是收起/展开时的真实物理位置，据此反推。
-pub fn restore_dock_state(app: &AppHandle) {
+/// 返回是否命中贴边状态（false = 自由态或判定失败），调用方据此决定是否做可见性兜底。
+pub fn restore_dock_state(app: &AppHandle) -> bool {
     let Some(ball) = app.get_webview_window(BALL_LABEL) else {
-        return;
+        log::warn!("贴边状态恢复失败：未找到悬浮球窗口");
+        return false;
     };
     let Ok(Some(monitor)) = ball.current_monitor() else {
-        return;
+        log::warn!("贴边状态恢复失败：无法获取悬浮球所在显示器（开机早期显示器可能未就绪）");
+        return false;
     };
     let Ok(pos) = ball.outer_position() else {
-        return;
+        log::warn!("贴边状态恢复失败：无法读取悬浮球位置");
+        return false;
     };
     let Ok(size) = ball.inner_size() else {
-        return;
+        log::warn!("贴边状态恢复失败：无法读取悬浮球尺寸");
+        return false;
     };
     let work_rect = monitor.work_area();
     let ball = Rect {
@@ -429,7 +438,8 @@ pub fn restore_dock_state(app: &AppHandle) {
         height: work_rect.size.height as f64,
     };
     let visible = COLLAPSED_VISIBLE_LOGICAL_PX * monitor.scale_factor();
-    let tol = RESTORE_TOLERANCE_PX;
+    // 判定基准是物理像素，容差随 DPI 缩放，缓解高 DPI / 启动期 DPI 抖动导致的漏匹配
+    let tol = RESTORE_TOLERANCE_PX * monitor.scale_factor();
     let restored = [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom]
         .into_iter()
         .find_map(|side| {
@@ -443,10 +453,152 @@ pub fn restore_dock_state(app: &AppHandle) {
             }
             None
         });
-    if let Some((side, collapsed)) = restored {
-        set_dock(Some(side), collapsed);
-        log::info!("悬浮球贴边状态已恢复：{:?} collapsed={collapsed}", side);
+    match restored {
+        Some((side, collapsed)) => {
+            set_dock(Some(side), collapsed);
+            log::info!("悬浮球贴边状态已恢复：{:?} collapsed={collapsed}", side);
+            true
+        }
+        None => {
+            // 自由态属正常情况；打印现场数据便于排查"贴边未恢复 → 球不可见"类问题
+            log::info!(
+                "悬浮球处于自由态（未匹配贴边位）：pos=({},{}) size={}x{} scale={}",
+                ball.x,
+                ball.y,
+                ball.width,
+                ball.height,
+                monitor.scale_factor()
+            );
+            false
+        }
     }
+}
+
+/// 球矩形在各显示器矩形上的可见面积占比（交集面积/球面积），返回最大值及对应索引。
+/// 完全出界返回 (0.0, None)；并列时取先出现的显示器。
+fn visible_area_ratio(ball: &Rect, monitors: &[Rect]) -> (f64, Option<usize>) {
+    let ball_area = ball.width * ball.height;
+    if ball_area <= 0.0 {
+        return (0.0, None);
+    }
+    monitors
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let ix = (ball.x + ball.width).min(m.x + m.width) - ball.x.max(m.x);
+            let iy = (ball.y + ball.height).min(m.y + m.height) - ball.y.max(m.y);
+            let ratio = if ix > 0.0 && iy > 0.0 {
+                ix * iy / ball_area
+            } else {
+                0.0
+            };
+            (ratio, i)
+        })
+        .fold((0.0, None::<usize>), |best, (ratio, i)| {
+            if ratio > best.0 {
+                (ratio, Some(i))
+            } else {
+                best
+            }
+        })
+}
+
+/// 把球钳制进 work area（四周留 margin_px 物理像素边距）；work 比球还小时居中。
+fn clamp_into_work_area(ball: &Rect, work: &Rect, margin_px: f64) -> (f64, f64) {
+    let clamp_axis = |start: f64, len: f64, area_start: f64, area_len: f64| -> f64 {
+        let min = area_start + margin_px;
+        let max = area_start + area_len - margin_px - len;
+        if max < min {
+            area_start + (area_len - len) / 2.0
+        } else {
+            start.clamp(min, max)
+        }
+    };
+    let x = clamp_axis(ball.x, ball.width, work.x, work.width);
+    let y = clamp_axis(ball.y, ball.height, work.y, work.height);
+    (x, y)
+}
+
+/// 可见性兜底：球在所有显示器上的可见面积都不足半数（显示器拓扑变化、
+/// 历史保存位置越界、贴边恢复失败停在收起位等），移回目标显示器 work area 内并落盘。
+/// 返回是否发生了移动。命中贴边状态的调用方不应触发本函数（收起位大半出界是设计行为）。
+pub fn ensure_ball_visible(app: &AppHandle) -> bool {
+    let Some(ball_win) = app.get_webview_window(BALL_LABEL) else {
+        return false;
+    };
+    let Ok(monitors) = ball_win.available_monitors() else {
+        log::warn!("悬浮球可见性兜底失败：无法枚举显示器");
+        return false;
+    };
+    if monitors.is_empty() {
+        log::warn!("悬浮球可见性兜底失败：显示器列表为空");
+        return false;
+    }
+    let Ok(pos) = ball_win.outer_position() else {
+        log::warn!("悬浮球可见性兜底失败：无法读取位置");
+        return false;
+    };
+    let Ok(size) = ball_win.inner_size() else {
+        log::warn!("悬浮球可见性兜底失败：无法读取尺寸");
+        return false;
+    };
+    let ball = Rect {
+        x: pos.x as f64,
+        y: pos.y as f64,
+        width: size.width as f64,
+        height: size.height as f64,
+    };
+    let monitor_rects: Vec<Rect> = monitors
+        .iter()
+        .map(|m| Rect {
+            x: m.position().x as f64,
+            y: m.position().y as f64,
+            width: m.size().width as f64,
+            height: m.size().height as f64,
+        })
+        .collect();
+    let (ratio, best) = visible_area_ratio(&ball, &monitor_rects);
+    if ratio >= 0.5 {
+        return false;
+    }
+    // 目标显示器：可见交集最大者；完全无交集则主显示器（再退回第一个）
+    let target = match best {
+        Some(i) => Some(monitors[i].clone()),
+        None => ball_win
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| monitors.first().cloned()),
+    };
+    let Some(target) = target else {
+        log::warn!("悬浮球可见性兜底失败：无可用显示器");
+        return false;
+    };
+    let work_rect = target.work_area();
+    let work = Rect {
+        x: work_rect.position.x as f64,
+        y: work_rect.position.y as f64,
+        width: work_rect.size.width as f64,
+        height: work_rect.size.height as f64,
+    };
+    let (nx, ny) = clamp_into_work_area(&ball, &work, 8.0);
+    log::warn!(
+        "悬浮球窗口不可见（可见占比 {:.2}），已从 ({},{}) 移回工作区 ({},{})",
+        ratio,
+        ball.x,
+        ball.y,
+        nx.round(),
+        ny.round()
+    );
+    let _ = ball_win.set_position(PhysicalPosition::new(
+        nx.round() as i32,
+        ny.round() as i32,
+    ));
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = handle.save_window_state(StateFlags::POSITION);
+    });
+    true
 }
 
 /// 逻辑坐标矩形
@@ -484,6 +636,27 @@ pub fn compute_panel_position(
     (x, y)
 }
 
+/// 启动首显悬浮球（幂等、一次性）：由主窗口页面加载完成或兜底定时竞争触发，仅第一次生效。
+/// 延迟到此刻是因为开机登录早期 DPI / 显示器工作区可能尚未就绪，过早执行会让
+/// 贴边状态误判、球停在收起位不可见（用户手动开关后恢复正是同一逻辑的延迟重试）。
+pub fn startup_show(app: &AppHandle) {
+    if BALL_STARTUP_SHOWN.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || ensure_ball_window(&handle));
+}
+
+/// 启动首显兜底定时：主窗口页面加载事件未触发（页面加载异常等）时，
+/// 延迟 delay_ms 后仍触发首显。
+pub fn schedule_startup_fallback(app: &AppHandle, delay_ms: u64) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        startup_show(&handle);
+    });
+}
+
 /// 按设置同步悬浮球窗口可见性：启用则显示球，关闭则收起面板并隐藏球。
 /// 两个窗口由 tauri.conf 预配置、启动时自动创建，这里只负责 show/hide。
 pub fn ensure_ball_window(app: &AppHandle) {
@@ -496,8 +669,11 @@ pub fn ensure_ball_window(app: &AppHandle) {
         if let Err(e) = ball.show() {
             log::error!("显示悬浮球窗口失败: {e}");
         }
-        // 按已恢复的窗口位置还原贴边状态（收起/展开/自由）
-        restore_dock_state(app);
+        // 按已恢复的窗口位置还原贴边状态（收起/展开/自由）；
+        // 未命中时做可见性兜底，防止球停在收起位/出界位不可见
+        if !restore_dock_state(app) {
+            ensure_ball_visible(app);
+        }
     } else {
         hide_panel(app);
         if let Err(e) = ball.hide() {
@@ -963,5 +1139,43 @@ mod tests {
             dock_collapsed_pos(DockSide::Bottom, &work, &ball, 15.0),
             (4000.0, 1040.0 - 15.0)
         );
+    }
+
+    #[test]
+    fn visible_area_ratio_reports_max_intersection() {
+        let primary = rect(0.0, 0.0, 2560.0, 1320.0);
+        // 贴顶收起位：70px 高只露 12px 在屏内 → 占比 12/70
+        let top_collapsed = rect(2054.0, -58.0, 70.0, 70.0);
+        assert!((visible_area_ratio(&top_collapsed, &[primary]).0 - 12.0 / 70.0).abs() < 1e-9);
+        // 完全在屏内 → 1.0
+        let inside = rect(100.0, 100.0, 70.0, 70.0);
+        assert_eq!(visible_area_ratio(&inside, &[primary]), (1.0, Some(0)));
+        // 完全出界 → (0.0, None)
+        let off = rect(5000.0, 5000.0, 70.0, 70.0);
+        assert_eq!(visible_area_ratio(&off, &[primary]), (0.0, None));
+        // 双显示器各露一半时取先出现的（并列取最大即可）
+        let secondary = rect(2560.0, 0.0, 1920.0, 1080.0);
+        let spanning = rect(2525.0, 500.0, 70.0, 70.0);
+        let (ratio, best) = visible_area_ratio(&spanning, &[primary, secondary]);
+        assert!((ratio - 0.5).abs() < 1e-9);
+        assert_eq!(best, Some(0));
+    }
+
+    #[test]
+    fn clamp_into_work_area_pulls_ball_back_inside() {
+        let work = rect(0.0, 0.0, 2560.0, 1320.0);
+        // 贴顶收起位 y=-58 → 抬回顶部内边（margin=8）
+        let ball = rect(2054.0, -58.0, 70.0, 70.0);
+        assert_eq!(clamp_into_work_area(&ball, &work, 8.0), (2054.0, 8.0));
+        // 完全出右界 → 拉回右侧内边
+        let off_right = rect(3000.0, 100.0, 70.0, 70.0);
+        assert_eq!(
+            clamp_into_work_area(&off_right, &work, 8.0),
+            (2560.0 - 8.0 - 70.0, 100.0)
+        );
+        // work 比球还小 → 居中（两侧对称出界）
+        let tiny = rect(0.0, 0.0, 40.0, 40.0);
+        let big = rect(-100.0, -100.0, 70.0, 70.0);
+        assert_eq!(clamp_into_work_area(&big, &tiny, 8.0), (-15.0, -15.0));
     }
 }

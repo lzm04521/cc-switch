@@ -398,11 +398,16 @@ pub fn run() {
             if webview.label() == "main"
                 && payload.event() == tauri::webview::PageLoadEvent::Finished
                 && payload.url().scheme() != "about"
-                && !startup_page_handled.swap(true, Ordering::Relaxed)
-                && !crate::settings::get_settings().silent_startup
             {
-                let _ = webview.window().show();
-                log::info!("主页面加载完成，主窗口已显示");
+                // 前端就绪信号：此刻 DPI / 显示器状态已稳定，触发悬浮球首显
+                //（幂等一次性，与下方主窗口显示解耦，不受 silent_startup 影响）
+                crate::floating_ball::startup_show(&webview.app_handle());
+                if !startup_page_handled.swap(true, Ordering::Relaxed)
+                    && !crate::settings::get_settings().silent_startup
+                {
+                    let _ = webview.window().show();
+                    log::info!("主页面加载完成，主窗口已显示");
+                }
             }
         });
     }
@@ -1153,8 +1158,12 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
-            // 悬浮球：按设置显示/隐藏（ball/panel 窗口启动时已由 tauri.conf 自动创建）
-            crate::floating_ball::ensure_ball_window(app.handle());
+            // 悬浮球：延迟到主窗口页面加载完成后首显（开机早期 DPI/显示器未就绪
+            // 会导致贴边状态误判、球停在收起位不可见），3 秒定时兜底
+            crate::floating_ball::schedule_startup_fallback(
+                app.handle(),
+                crate::floating_ball::STARTUP_FALLBACK_MS,
+            );
             crate::services::webdav_auto_sync::start_worker(
                 app_state.db.clone(),
                 app.handle().clone(),
