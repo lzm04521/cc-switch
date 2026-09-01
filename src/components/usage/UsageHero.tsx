@@ -11,6 +11,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Database,
+  Gauge,
   Info,
   Loader2,
   Sparkles,
@@ -81,9 +82,11 @@ const TITLE_THEMES: Record<AppType | "all", TitleTheme> = {
  * The backend's per-app rows already use fresh-input semantics (cache-inclusive
  * providers have been normalized in SQL), so plain addition is correct here.
  * `cacheHitRate` and `successRate` must be re-derived from the summed counts
- * rather than averaged across rows.
+ * rather than averaged across rows. Same for `avgTokensPerSecond`: re-divide
+ * from the summed numerator/denominator, never arithmetic-average the per-app
+ * values. Exported for unit tests.
  */
-function aggregateSummaries(items: UsageSummary[]): UsageSummary {
+export function aggregateSummaries(items: UsageSummary[]): UsageSummary {
   let totalRequests = 0;
   let successCount = 0;
   let totalCostNum = 0;
@@ -91,6 +94,8 @@ function aggregateSummaries(items: UsageSummary[]): UsageSummary {
   let output = 0;
   let cacheCreation = 0;
   let cacheRead = 0;
+  let streamOutput = 0;
+  let streamGenMs = 0;
 
   for (const s of items) {
     totalRequests += s.totalRequests;
@@ -100,6 +105,8 @@ function aggregateSummaries(items: UsageSummary[]): UsageSummary {
     output += s.totalOutputTokens;
     cacheCreation += s.totalCacheCreationTokens;
     cacheRead += s.totalCacheReadTokens;
+    streamOutput += s.streamOutputTokens ?? 0;
+    streamGenMs += s.streamGenMs ?? 0;
   }
 
   const cacheableInput = input + cacheCreation + cacheRead;
@@ -113,6 +120,12 @@ function aggregateSummaries(items: UsageSummary[]): UsageSummary {
     successRate: totalRequests > 0 ? (successCount / totalRequests) * 100 : 0,
     realTotalTokens: input + output + cacheCreation + cacheRead,
     cacheHitRate: cacheableInput > 0 ? cacheRead / cacheableInput : 0,
+    streamOutputTokens: streamOutput,
+    streamGenMs: streamGenMs,
+    // 跨 app 合并必须用分子分母重新相除（同 cacheHitRate 的重推导模式），
+    // 对各 app 的 avgTokensPerSecond 做算术平均会丢失时长权重。
+    avgTokensPerSecond:
+      streamGenMs > 0 ? (streamOutput * 1000) / streamGenMs : null,
   };
 }
 
@@ -191,6 +204,8 @@ export function UsageHero({
   const hitRate = summary?.cacheHitRate ?? 0;
   const totalCost = parseFiniteNumber(summary?.totalCost);
   const requests = summary?.totalRequests ?? 0;
+  // 后端只对代理直录流式行聚合；null = 范围内没有可计算请求
+  const avgTps = summary?.avgTokensPerSecond ?? null;
 
   const cacheWriteDisplay = {
     value:
@@ -294,7 +309,7 @@ export function UsageHero({
             </div>
 
             {/* Bottom row: Breakdown and Hit Rate */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
               <MiniStat
                 icon={<ArrowDownToLine className="h-3.5 w-3.5" />}
                 label={t("usage.freshInput", "新增输入")}
@@ -306,6 +321,17 @@ export function UsageHero({
                 label={t("usage.output")}
                 value={formatTokensShort(output, lang)}
                 accent="text-purple-500"
+              />
+              <MiniStat
+                icon={<Gauge className="h-3.5 w-3.5" />}
+                label={t("usage.avgTokensPerSecond", "平均输出速度")}
+                value={avgTps == null ? "—" : `${avgTps.toFixed(1)} t/s`}
+                accent="text-sky-500"
+                muted={avgTps == null}
+                tooltip={t(
+                  "usage.tokensPerSecondScope",
+                  "仅统计本地代理直录的流式请求",
+                )}
               />
               <MiniStat
                 icon={<Database className="h-3.5 w-3.5" />}

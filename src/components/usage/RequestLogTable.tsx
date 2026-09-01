@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useRequestLogs } from "@/lib/query/usage";
 import {
+  computeTokensPerSecond,
   getFreshInputTokens,
   isUnpricedUsage,
   type LogFilters,
@@ -297,6 +298,16 @@ export function RequestLogTable({
                               /{(log.firstTokenMs / 1000).toFixed(1)}s
                             </span>
                           )}
+                          {(() => {
+                            // 仅代理直录流式行可算：口径与后端 stream_speed_row_condition 一致
+                            const tps = computeTokensPerSecond(log);
+                            return tps != null ? (
+                              <span className="text-muted-foreground">
+                                {" · "}
+                                {tps.toFixed(1)} t/s
+                              </span>
+                            ) : null;
+                          })()}
                         </TableCell>
                         <TableCell className="text-center">
                           <span

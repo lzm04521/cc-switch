@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRequestDetail } from "@/lib/query/usage";
-import { getFreshInputTokens, isUnpricedUsage } from "@/types/usage";
+import { computeTokensPerSecond, getFreshInputTokens, isUnpricedUsage } from "@/types/usage";
 
 interface RequestDetailPanelProps {
   requestId: string;
@@ -304,6 +304,18 @@ export function RequestDetailPanel({
                   {t("usage.latency", "延迟")}
                 </dt>
                 <dd className="font-mono">{request.latencyMs}ms</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("usage.tokensPerSecond", "输出速度")}
+                </dt>
+                <dd className="font-mono">
+                  {(() => {
+                    // 仅代理直录流式行可算，口径与后端 stream_speed_row_condition 一致
+                    const tps = computeTokensPerSecond(request);
+                    return tps == null ? "—" : `${tps.toFixed(1)} t/s`;
+                  })()}
+                </dd>
               </div>
             </dl>
           </div>

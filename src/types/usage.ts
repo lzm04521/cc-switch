@@ -93,6 +93,12 @@ export interface UsageSummary {
   realTotalTokens: number;
   /** cache_read / (input + cache_creation + cache_read), range 0–1 */
   cacheHitRate: number;
+  /** t/s 分子/分母（仅代理直录流式可计算行）：加权平均 = streamOutputTokens ÷ (streamGenMs / 1000)。
+   *  暴露原始量供跨 app 合并时重新相除，禁止对 avgTokensPerSecond 算术平均。 */
+  streamOutputTokens?: number;
+  streamGenMs?: number;
+  /** 加权平均输出速度（t/s）；null = 范围内无可计算请求。 */
+  avgTokensPerSecond?: number | null;
 }
 
 export interface UsageSummaryByApp {
@@ -267,6 +273,30 @@ export function getFreshInputTokens(log: CacheNormalizableLog): number {
     return log.inputTokens - log.cacheReadTokens;
   }
   return log.inputTokens;
+}
+
+/** Fields needed to compute per-request output speed (t/s). */
+export type StreamSpeedLog = Pick<
+  RequestLog,
+  "dataSource" | "isStreaming" | "firstTokenMs" | "latencyMs" | "outputTokens"
+>;
+
+/**
+ * Per-request output speed in tokens/second, or null when not computable.
+ *
+ * Only proxy-direct streaming requests with usable first-token timing are
+ * eligible — session-imported / non-streaming / failed rows have no pure
+ * generation window. Generation time = latencyMs - firstTokenMs (excludes
+ * upstream queueing and first-byte wait). Mirrors the backend SQL condition
+ * `stream_speed_row_condition` — keep both in sync.
+ */
+export function computeTokensPerSecond(log: StreamSpeedLog): number | null {
+  if ((log.dataSource ?? "proxy") !== "proxy") return null;
+  if (!log.isStreaming) return null;
+  if (log.firstTokenMs == null) return null;
+  const genMs = log.latencyMs - log.firstTokenMs;
+  if (genMs <= 0 || log.outputTokens <= 0) return null;
+  return (log.outputTokens * 1000) / genMs;
 }
 
 export const NON_NEGATIVE_DECIMAL_REGEX = /^\d+(?:\.\d+)?$/;

@@ -5,7 +5,7 @@
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
 use crate::services::sql_helpers::{fresh_input_sql, INPUT_TOKEN_SEMANTICS_FRESH};
-use crate::services::usage_stats::effective_usage_log_filter;
+use crate::services::usage_stats::{effective_usage_log_filter, stream_speed_row_condition};
 use chrono::{Duration, Local, TimeZone};
 
 /// Compute the rollup/prune cutoff aligned to a local-day boundary.
@@ -118,6 +118,7 @@ impl Database {
         let effective_filter = effective_usage_log_filter("l");
         let fresh_detail_input = fresh_input_sql("l");
         let fresh_old_input = fresh_input_sql("old");
+        let stream_cond = stream_speed_row_condition("l");
         // request_model 维度保留路由接管的「客户端别名 → 真实模型」映射，
         // pricing_model 维度保留写入时的计价基准（request 计价模式下与 model 分叉）；
         // 明细行的这两列可能为 NULL（历史/手工数据），归一为 ''。
@@ -127,7 +128,8 @@ impl Database {
                  request_count, success_count,
                  input_tokens, output_tokens,
                  cache_read_tokens, cache_creation_tokens,
-                 input_token_semantics, total_cost_usd, avg_latency_ms)
+                 input_token_semantics, total_cost_usd, avg_latency_ms,
+                 stream_output_tokens, stream_gen_ms)
             SELECT
                 d, a, p, m, rm, pm,
                 COALESCE(old.request_count, 0) + new_req,
@@ -142,7 +144,9 @@ impl Database {
                     THEN (COALESCE(old.avg_latency_ms, 0) * COALESCE(old.request_count, 0)
                           + new_lat * new_req)
                          / (COALESCE(old.request_count, 0) + new_req)
-                    ELSE 0 END
+                    ELSE 0 END,
+                COALESCE(old.stream_output_tokens, 0) + new_sout,
+                COALESCE(old.stream_gen_ms, 0) + new_sgen
             FROM (
                 SELECT
                     date(l.created_at, 'unixepoch', 'localtime') as d,
@@ -156,7 +160,9 @@ impl Database {
                     COALESCE(SUM(l.cache_read_tokens), 0) as new_cr,
                     COALESCE(SUM(l.cache_creation_tokens), 0) as new_cc,
                     COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as new_cost,
-                    COALESCE(AVG(l.latency_ms), 0) as new_lat
+                    COALESCE(AVG(l.latency_ms), 0) as new_lat,
+                    COALESCE(SUM(CASE WHEN {stream_cond} THEN l.output_tokens ELSE 0 END), 0) as new_sout,
+                    COALESCE(SUM(CASE WHEN {stream_cond} THEN l.latency_ms - l.first_token_ms ELSE 0 END), 0) as new_sgen
                 FROM proxy_request_logs l
                 WHERE l.created_at < ?1 AND {effective_filter}
                 GROUP BY d, a, p, m, rm, pm
@@ -568,6 +574,95 @@ mod tests {
         )?;
         assert_eq!(count, 13, "10 existing + 3 new");
         assert_eq!(input, 1300, "1000 existing + 300 new");
+        Ok(())
+    }
+
+    /// t/s 速度列：只有代理直录流式可计算行计入，且与既有 rollup 行合并累加。
+    #[test]
+    fn test_rollup_aggregates_stream_speed_columns() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let now = chrono::Utc::now().timestamp();
+        let old_ts = now - 40 * 86400;
+
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            // 可计算：out=1000, gen=50000ms
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model, request_model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, latency_ms, first_token_ms, status_code, created_at,
+                    data_source, is_streaming
+                ) VALUES ('sp-1', 'openai', 'claude', 'claude-3', 'claude-3',
+                    10, 1000, 0, 0, '0', 53000, 3000, 200, ?1, 'proxy', 1)",
+                [old_ts],
+            )?;
+            // 非流式：不参与
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model, request_model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, latency_ms, first_token_ms, status_code, created_at,
+                    data_source, is_streaming
+                ) VALUES ('sp-2', 'openai', 'claude', 'claude-3', 'claude-3',
+                    10, 999, 0, 0, '0', 53000, 3000, 200, ?1, 'proxy', 0)",
+                [old_ts + 1],
+            )?;
+            // session 来源：不参与
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model, request_model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, latency_ms, first_token_ms, status_code, created_at,
+                    data_source, is_streaming
+                ) VALUES ('sp-3', '_session', 'claude', 'claude-3', 'claude-3',
+                    10, 888, 0, 0, '0', 53000, 3000, 200, ?1, 'session_log', 1)",
+                [old_ts + 2],
+            )?;
+        }
+
+        db.rollup_and_prune(30)?;
+
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            let (sout, sgen): (i64, i64) = conn.query_row(
+                "SELECT stream_output_tokens, stream_gen_ms FROM usage_daily_rollups
+                 WHERE app_type = 'claude' AND provider_id = 'openai'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            assert_eq!(sout, 1000, "仅可计算行的 output 计入分子");
+            assert_eq!(sgen, 50_000, "仅可计算行的生成时长计入分母");
+        }
+
+        // 第二轮：同维度再入一条可计算老明细，断言 old + new 合并累加
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model, request_model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, latency_ms, first_token_ms, status_code, created_at,
+                    data_source, is_streaming
+                ) VALUES ('sp-4', 'openai', 'claude', 'claude-3', 'claude-3',
+                    10, 250, 0, 0, '0', 13000, 3000, 200, ?1, 'proxy', 1)",
+                [old_ts + 3],
+            )?;
+        }
+
+        db.rollup_and_prune(30)?;
+
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            let (sout, sgen): (i64, i64) = conn.query_row(
+                "SELECT stream_output_tokens, stream_gen_ms FROM usage_daily_rollups
+                 WHERE app_type = 'claude' AND provider_id = 'openai'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            assert_eq!(sout, 1250, "1000 既有 + 250 新增");
+            assert_eq!(sgen, 60_000, "50000 既有 + 10000 新增");
+        }
         Ok(())
     }
 }

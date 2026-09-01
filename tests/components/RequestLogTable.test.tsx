@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RequestLogTable } from "@/components/usage/RequestLogTable";
-import type { UsageRangeSelection } from "@/types/usage";
+import type { RequestLog, UsageRangeSelection } from "@/types/usage";
 
 const useRequestLogsMock = vi.hoisted(() => vi.fn());
 
@@ -157,5 +157,63 @@ describe("RequestLogTable", () => {
         }),
       );
     });
+  });
+
+  it("appends t/s to the timing cell only for proxy-direct streaming rows", async () => {
+    const makeLog = (
+      overrides: Partial<RequestLog> & Pick<RequestLog, "requestId">,
+    ): RequestLog => ({
+      providerId: "openai",
+      appType: "claude",
+      model: "claude-3",
+      costMultiplier: "1",
+      inputTokens: 10,
+      outputTokens: 1000,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      inputCostUsd: "0",
+      outputCostUsd: "0",
+      cacheReadCostUsd: "0",
+      cacheCreationCostUsd: "0",
+      totalCostUsd: "0.01",
+      isStreaming: true,
+      latencyMs: 53_000,
+      firstTokenMs: 3_000,
+      statusCode: 200,
+      createdAt: 1_700_000_000,
+      dataSource: "proxy",
+      ...overrides,
+    });
+
+    useRequestLogsMock.mockImplementation(
+      ({ page = 0, pageSize = 20 }: { page?: number; pageSize?: number }) => ({
+        data: {
+          // r1 可计算：1000 tok / 50s = 20.0 t/s；r2 为 session 来源，不显示
+          data: [
+            makeLog({ requestId: "r1" }),
+            makeLog({
+              requestId: "r2",
+              dataSource: "session_log",
+            }),
+          ],
+          total: 2,
+          page,
+          pageSize,
+        },
+        isLoading: false,
+      }),
+    );
+
+    render(
+      <RequestLogTable
+        range={{ preset: "today" }}
+        rangeLabel="Today"
+        appType="all"
+        refreshIntervalMs={0}
+      />,
+    );
+
+    expect(await screen.findByText(/20\.0 t\/s/)).toBeTruthy();
+    expect(screen.getAllByText(/t\/s/)).toHaveLength(1);
   });
 });

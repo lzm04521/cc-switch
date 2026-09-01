@@ -33,6 +33,16 @@ pub struct UsageSummary {
     /// cache_read / (input + cache_creation + cache_read). Range 0.0–1.0.
     /// Reported as a fraction; multiply by 100 in UI for percentage display.
     pub cache_hit_rate: f64,
+    /// t/s 速度聚合的分子/分母（仅代理直录 + 流式 + 首包耗时可用的行）：
+    /// 加权平均输出速度 = stream_output_tokens / (stream_gen_ms / 1000)。
+    /// 暴露原始量供前端跨 app 合并时重新相除，禁止对平均值做算术平均。
+    #[serde(default)]
+    pub stream_output_tokens: u64,
+    #[serde(default)]
+    pub stream_gen_ms: u64,
+    /// 加权平均输出速度（t/s）；None = 范围内无可计算请求（展示为 —）。
+    #[serde(default)]
+    pub avg_tokens_per_second: Option<f64>,
 }
 
 /// Per-app-type usage summary used by the dashboard breakdown rail.
@@ -41,6 +51,16 @@ pub struct UsageSummary {
 pub struct UsageSummaryByApp {
     pub app_type: String,
     pub summary: UsageSummary,
+}
+
+/// Helper: 加权平均输出速度（t/s）= 总输出 token ÷ 总生成时长（秒）。
+/// 分母为 0 说明没有可计算行，返回 None（UI 显示 —）。
+fn derive_avg_tokens_per_second(stream_output_tokens: u64, stream_gen_ms: u64) -> Option<f64> {
+    if stream_gen_ms > 0 {
+        Some(stream_output_tokens as f64 * 1000.0 / stream_gen_ms as f64)
+    } else {
+        None
+    }
 }
 
 /// Helper: compute (real_total, hit_rate) from the four token counters.
@@ -230,6 +250,22 @@ pub(crate) const SESSION_PROXY_DEDUP_WINDOW_SECONDS: i64 = 10 * 60;
 /// 都应通过此 helper 生成片段，避免遗漏。
 fn data_source_expr(log_alias: &str) -> String {
     format!("COALESCE({log_alias}.data_source, 'proxy')")
+}
+
+/// t/s 速度聚合的"可计算行"条件：代理直录 + 流式 + 首包耗时可用 + 有输出。
+/// 生成时长 = latency_ms - first_token_ms（首 token 之后的纯生成时间）。
+/// summary 明细/rollup 双分支、by_app 双分支与 rollup 聚合共用，
+/// 保证展示口径与落库口径一致；session 导入、非流式、失败行不参与。
+pub(crate) fn stream_speed_row_condition(log_alias: &str) -> String {
+    let data_source = data_source_expr(log_alias);
+    format!(
+        "{data_source} = 'proxy' \
+         AND {a}.is_streaming = 1 \
+         AND {a}.first_token_ms IS NOT NULL \
+         AND {a}.latency_ms > {a}.first_token_ms \
+         AND {a}.output_tokens > 0",
+        a = log_alias
+    )
 }
 
 fn dedup_app_type_match_sql(left: &str, right: &str) -> String {
@@ -681,6 +717,7 @@ impl Database {
 
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
+        let stream_cond_detail = stream_speed_row_condition("l");
         let sql = format!(
             "SELECT
                 COALESCE(d.total_requests, 0) + COALESCE(r.total_requests, 0),
@@ -689,7 +726,9 @@ impl Database {
                 COALESCE(d.total_output_tokens, 0) + COALESCE(r.total_output_tokens, 0),
                 COALESCE(d.total_cache_creation_tokens, 0) + COALESCE(r.total_cache_creation_tokens, 0),
                 COALESCE(d.total_cache_read_tokens, 0) + COALESCE(r.total_cache_read_tokens, 0),
-                COALESCE(d.success_count, 0) + COALESCE(r.success_count, 0)
+                COALESCE(d.success_count, 0) + COALESCE(r.success_count, 0),
+                COALESCE(d.stream_output_tokens, 0) + COALESCE(r.stream_output_tokens, 0),
+                COALESCE(d.stream_gen_ms, 0) + COALESCE(r.stream_gen_ms, 0)
             FROM
                 (SELECT
                     COUNT(*) as total_requests,
@@ -698,7 +737,9 @@ impl Database {
                     COALESCE(SUM(l.output_tokens), 0) as total_output_tokens,
                     COALESCE(SUM(l.cache_creation_tokens), 0) as total_cache_creation_tokens,
                     COALESCE(SUM(l.cache_read_tokens), 0) as total_cache_read_tokens,
-                    COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
+                    COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.output_tokens ELSE 0 END), 0) as stream_output_tokens,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.latency_ms - l.first_token_ms ELSE 0 END), 0) as stream_gen_ms
                  FROM proxy_request_logs l {detail_join} {where_clause}) d,
                 (SELECT
                     COALESCE(SUM(r.request_count), 0) as total_requests,
@@ -707,7 +748,9 @@ impl Database {
                     COALESCE(SUM(r.output_tokens), 0) as total_output_tokens,
                     COALESCE(SUM(r.cache_creation_tokens), 0) as total_cache_creation_tokens,
                     COALESCE(SUM(r.cache_read_tokens), 0) as total_cache_read_tokens,
-                    COALESCE(SUM(r.success_count), 0) as success_count
+                    COALESCE(SUM(r.success_count), 0) as success_count,
+                    COALESCE(SUM(r.stream_output_tokens), 0) as stream_output_tokens,
+                    COALESCE(SUM(r.stream_gen_ms), 0) as stream_gen_ms
                  FROM usage_daily_rollups r {rollup_join} {rollup_where}) r"
         );
 
@@ -724,6 +767,8 @@ impl Database {
             let total_cache_creation_tokens: i64 = row.get(4)?;
             let total_cache_read_tokens: i64 = row.get(5)?;
             let success_count: i64 = row.get(6)?;
+            let stream_output_tokens: i64 = row.get(7)?;
+            let stream_gen_ms: i64 = row.get(8)?;
 
             let success_rate = if total_requests > 0 {
                 (success_count as f32 / total_requests as f32) * 100.0
@@ -738,6 +783,11 @@ impl Database {
                 total_cache_read_tokens as u64,
             );
 
+            // 加权平均输出速度：总输出 token ÷ 总生成时长（秒）。
+            // 分母为 0 说明范围内没有可计算行（session 导入/非流式/失败）。
+            let avg_tokens_per_second =
+                derive_avg_tokens_per_second(stream_output_tokens as u64, stream_gen_ms as u64);
+
             Ok(UsageSummary {
                 total_requests: total_requests as u64,
                 total_cost: format!("{total_cost:.6}"),
@@ -748,6 +798,9 @@ impl Database {
                 success_rate,
                 real_total_tokens,
                 cache_hit_rate,
+                stream_output_tokens: stream_output_tokens as u64,
+                stream_gen_ms: stream_gen_ms as u64,
+                avg_tokens_per_second,
             })
         })?;
 
@@ -826,6 +879,7 @@ impl Database {
         // 折叠 claude-desktop → claude：内层投影成同一桶名，外层 GROUP BY 自然合并。
         let detail_app_type = folded_app_type_sql("l.app_type");
         let rollup_app_type = folded_app_type_sql("r.app_type");
+        let stream_cond_detail = stream_speed_row_condition("l");
 
         let sql = format!(
             "SELECT app_type,
@@ -835,7 +889,9 @@ impl Database {
                 SUM(output_t) as output_t,
                 SUM(cache_create_t) as cache_create_t,
                 SUM(cache_read_t) as cache_read_t,
-                SUM(success_count) as success_count
+                SUM(success_count) as success_count,
+                SUM(stream_sout) as stream_sout,
+                SUM(stream_sgen) as stream_sgen
             FROM (
                 SELECT {detail_app_type} as app_type,
                     COUNT(*) as req_count,
@@ -844,7 +900,9 @@ impl Database {
                     COALESCE(SUM(l.output_tokens), 0) as output_t,
                     COALESCE(SUM(l.cache_creation_tokens), 0) as cache_create_t,
                     COALESCE(SUM(l.cache_read_tokens), 0) as cache_read_t,
-                    COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
+                    COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.output_tokens ELSE 0 END), 0) as stream_sout,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.latency_ms - l.first_token_ms ELSE 0 END), 0) as stream_sgen
                 FROM proxy_request_logs l {detail_join} {detail_where}
                 GROUP BY l.app_type
                 UNION ALL
@@ -855,7 +913,9 @@ impl Database {
                     COALESCE(SUM(r.output_tokens), 0),
                     COALESCE(SUM(r.cache_creation_tokens), 0),
                     COALESCE(SUM(r.cache_read_tokens), 0),
-                    COALESCE(SUM(r.success_count), 0)
+                    COALESCE(SUM(r.success_count), 0),
+                    COALESCE(SUM(r.stream_output_tokens), 0),
+                    COALESCE(SUM(r.stream_gen_ms), 0)
                 FROM usage_daily_rollups r {rollup_join} {rollup_where}
                 GROUP BY r.app_type
             )
@@ -876,6 +936,8 @@ impl Database {
             let total_cache_creation_tokens: i64 = row.get(5)?;
             let total_cache_read_tokens: i64 = row.get(6)?;
             let success_count: i64 = row.get(7)?;
+            let stream_output_tokens: i64 = row.get(8)?;
+            let stream_gen_ms: i64 = row.get(9)?;
 
             let success_rate = if total_requests > 0 {
                 (success_count as f32 / total_requests as f32) * 100.0
@@ -901,6 +963,12 @@ impl Database {
                     success_rate,
                     real_total_tokens,
                     cache_hit_rate,
+                    stream_output_tokens: stream_output_tokens as u64,
+                    stream_gen_ms: stream_gen_ms as u64,
+                    avg_tokens_per_second: derive_avg_tokens_per_second(
+                        stream_output_tokens as u64,
+                        stream_gen_ms as u64,
+                    ),
                 },
             })
         })?;
@@ -2412,6 +2480,47 @@ mod tests {
                 status_code,
                 created_at,
                 data_source
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 插入带流式速度字段（latency/first_token/is_streaming）的代理日志，
+    /// 供 t/s 聚合测试使用；成本列固定 0，状态码固定 200。
+    #[allow(clippy::too_many_arguments)]
+    fn insert_streaming_log(
+        conn: &Connection,
+        request_id: &str,
+        app_type: &str,
+        provider_id: &str,
+        model: &str,
+        data_source: &str,
+        output_tokens: i64,
+        latency_ms: i64,
+        first_token_ms: Option<i64>,
+        is_streaming: bool,
+        created_at: i64,
+    ) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO proxy_request_logs (
+                request_id, provider_id, app_type, model, request_model,
+                input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd,
+                total_cost_usd, latency_ms, first_token_ms, status_code, created_at,
+                data_source, is_streaming
+            ) VALUES (?, ?, ?, ?, ?, 10, ?, 0, 0, '0', '0', '0', '0', '0', ?, ?, 200, ?, ?, ?)",
+            params![
+                request_id,
+                provider_id,
+                app_type,
+                model,
+                model,
+                output_tokens,
+                latency_ms,
+                first_token_ms,
+                created_at,
+                data_source,
+                is_streaming as i64
             ],
         )?;
         Ok(())
@@ -4354,6 +4463,139 @@ mod tests {
         // 测试不存在的模型
         let result = find_model_pricing_row(&conn, "unknown-model-123")?;
         assert!(result.is_none(), "不应该匹配不存在的模型");
+
+        Ok(())
+    }
+
+    /// t/s 聚合：明细 + rollup 双分支合并的加权平均，以及不可计算行的排除。
+    #[test]
+    fn test_usage_summary_tokens_per_second_merges_detail_and_rollup() -> Result<(), AppError>
+    {
+        let db = Database::memory()?;
+        // 与 partial-rollup 测试相同的日期模式：01-02 是被完整卷起的边界天
+        let start = local_ts(2024, 1, 1, 12, 0, 0);
+        let end = local_ts(2024, 1, 3, 12, 0, 0);
+
+        {
+            let conn = lock_conn!(db.conn);
+            // 可计算：out=1000, gen=(53000-3000)/1000=50s → 贡献 1000 tok / 50000 ms
+            insert_streaming_log(
+                &conn, "tps-1", "claude", "openai", "claude-3", "proxy", 1000, 53_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 0, 0),
+            )?;
+            // 可计算：out=500, gen=20s → 贡献 500 tok / 20000 ms
+            insert_streaming_log(
+                &conn, "tps-2", "claude", "openai", "claude-3", "proxy", 500, 23_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 1, 0),
+            )?;
+            // 以下行均不应参与：非流式 / session 来源 / 零输出 / 首包>=总延迟 / 首包缺失
+            insert_streaming_log(
+                &conn, "tps-3", "claude", "openai", "claude-3", "proxy", 999, 53_000,
+                Some(3_000), false, local_ts(2024, 1, 1, 13, 2, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-4", "claude", "_session", "claude-3", "session_log", 888,
+                53_000, Some(3_000), true, local_ts(2024, 1, 1, 13, 3, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-5", "claude", "openai", "claude-3", "proxy", 0, 53_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 4, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-6", "claude", "openai", "claude-3", "proxy", 777, 30_000,
+                Some(30_000), true, local_ts(2024, 1, 1, 13, 5, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-7", "claude", "openai", "claude-3", "proxy", 666, 53_000,
+                None, true, local_ts(2024, 1, 1, 13, 6, 0),
+            )?;
+            // rollup 行：500 tok / 25000 ms
+            conn.execute(
+                "INSERT INTO usage_daily_rollups (
+                    date, app_type, provider_id, model, request_model, pricing_model,
+                    request_count, success_count, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens, input_token_semantics,
+                    total_cost_usd, avg_latency_ms, stream_output_tokens, stream_gen_ms
+                ) VALUES ('2024-01-02', 'claude', 'openai', 'claude-3', '', '',
+                    5, 5, 100, 500, 0, 0, 0, '0.5', 100, 500, 25000)",
+                [],
+            )?;
+        }
+
+        let summary = db.get_usage_summary(Some(start), Some(end), None, None, None)?;
+        // 明细 1000+500=1500 / 50000+20000=70000ms，rollup 500 / 25000ms
+        assert_eq!(summary.stream_output_tokens, 1500 + 500);
+        assert_eq!(summary.stream_gen_ms, 70_000 + 25_000);
+        let expected = (1500.0 + 500.0) * 1000.0 / (70_000.0 + 25_000.0);
+        let actual = summary
+            .avg_tokens_per_second
+            .expect("存在可计算行时 avg 不应为 None");
+        assert!((actual - expected).abs() < 1e-9, "actual={actual}, expected={expected}");
+
+        Ok(())
+    }
+
+    /// t/s 聚合：范围内只有不可计算行时返回 None（而非 0）。
+    #[test]
+    fn test_usage_summary_tokens_per_second_none_when_not_computable() -> Result<(), AppError> {
+        let db = Database::memory()?;
+
+        {
+            let conn = lock_conn!(db.conn);
+            insert_streaming_log(
+                &conn, "tps-n1", "claude", "_session", "claude-3", "session_log", 888,
+                53_000, Some(3_000), true, local_ts(2024, 1, 1, 13, 0, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-n2", "claude", "openai", "claude-3", "proxy", 999, 53_000,
+                Some(3_000), false, local_ts(2024, 1, 1, 13, 1, 0),
+            )?;
+        }
+
+        let summary = db.get_usage_summary(None, None, None, None, None)?;
+        assert_eq!(summary.stream_output_tokens, 0);
+        assert_eq!(summary.stream_gen_ms, 0);
+        assert!(summary.avg_tokens_per_second.is_none());
+
+        Ok(())
+    }
+
+    /// t/s 聚合：by_app（汇总卡片实际数据路径）各 app 的分子分母正确。
+    #[test]
+    fn test_get_usage_summary_by_app_tokens_per_second() -> Result<(), AppError> {
+        let db = Database::memory()?;
+
+        {
+            let conn = lock_conn!(db.conn);
+            insert_streaming_log(
+                &conn, "tps-a1", "claude", "openai", "claude-3", "proxy", 1000, 53_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 0, 0),
+            )?;
+            insert_streaming_log(
+                &conn, "tps-a2", "codex", "openai", "gpt-5.4", "proxy", 100, 13_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 1, 0),
+            )?;
+        }
+
+        let summaries = db.get_usage_summary_by_app(None, None, None, None)?;
+        let claude = summaries
+            .iter()
+            .find(|s| s.app_type == "claude")
+            .expect("应存在 claude 分组");
+        assert_eq!(claude.summary.stream_output_tokens, 1000);
+        assert_eq!(claude.summary.stream_gen_ms, 50_000);
+        let expected = 1000.0 * 1000.0 / 50_000.0;
+        assert!(
+            (claude.summary.avg_tokens_per_second.unwrap() - expected).abs() < 1e-9
+        );
+
+        let codex = summaries
+            .iter()
+            .find(|s| s.app_type == "codex")
+            .expect("应存在 codex 分组");
+        assert_eq!(codex.summary.stream_output_tokens, 100);
+        assert_eq!(codex.summary.stream_gen_ms, 10_000);
+        assert!((codex.summary.avg_tokens_per_second.unwrap() - 10.0).abs() < 1e-9);
 
         Ok(())
     }

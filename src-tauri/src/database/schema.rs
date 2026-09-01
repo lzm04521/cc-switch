@@ -294,6 +294,8 @@ impl Database {
                 input_token_semantics INTEGER NOT NULL DEFAULT 0,
                 total_cost_usd TEXT NOT NULL DEFAULT '0',
                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                stream_output_tokens INTEGER NOT NULL DEFAULT 0,
+                stream_gen_ms INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
             )",
             [],
@@ -562,6 +564,11 @@ impl Database {
                         log::info!("迁移数据库从 v19 到 v20（会话日志字节游标列）");
                         Self::migrate_v19_to_v20(conn)?;
                         Self::set_user_version(conn, 20)?;
+                    }
+                    20 => {
+                        log::info!("迁移数据库从 v20 到 v21（用量日聚合 t/s 速度列）");
+                        Self::migrate_v20_to_v21(conn)?;
+                        Self::set_user_version(conn, 21)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1609,6 +1616,31 @@ impl Database {
                 "session_log_sync",
                 "last_tail_fingerprint",
                 "INTEGER",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// v20 -> v21: usage_daily_rollups 添加 t/s 速度聚合列（fork 定制）。
+    ///
+    /// stream_output_tokens / stream_gen_ms 只累计"代理直录 + 流式 + 首包耗时
+    /// 可用"请求的 output_tokens 与生成时长（latency_ms - first_token_ms），
+    /// 供使用统计的平均输出速度（t/s）加权平均使用。存量 rollup 行没有
+    /// 这两个量（DEFAULT 0），保持不参与平均——明细行已被 prune，无法回填。
+    fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
+        // 缺表的库（异常/测试夹具）跳过：create_tables 会以含列的新 DDL 建表。
+        if Self::table_exists(conn, "usage_daily_rollups")? {
+            Self::add_column_if_missing(
+                conn,
+                "usage_daily_rollups",
+                "stream_output_tokens",
+                "INTEGER NOT NULL DEFAULT 0",
+            )?;
+            Self::add_column_if_missing(
+                conn,
+                "usage_daily_rollups",
+                "stream_gen_ms",
+                "INTEGER NOT NULL DEFAULT 0",
             )?;
         }
         Ok(())
@@ -3529,6 +3561,60 @@ mod tests {
         // 旧行默认 false，保留既有 enabled_zcode 值
         assert_eq!(mcp_values, (1, 0));
         assert_eq!(skill_values, (1, 0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v20_to_v21_adds_stream_speed_columns() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        // v20 时代的 rollup 表（无速度列）：迁移应补列且不影响既有行
+        conn.execute_batch(
+            "CREATE TABLE usage_daily_rollups (
+                date TEXT NOT NULL,
+                app_type TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                request_model TEXT NOT NULL DEFAULT '',
+                pricing_model TEXT NOT NULL DEFAULT '',
+                request_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                input_token_semantics INTEGER NOT NULL DEFAULT 0,
+                total_cost_usd TEXT NOT NULL DEFAULT '0',
+                avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
+            );
+            INSERT INTO usage_daily_rollups (
+                date, app_type, provider_id, model, request_count, output_tokens
+            ) VALUES ('2024-01-02', 'claude', 'openai', 'claude-3', 5, 500);",
+        )?;
+        Database::set_user_version(&conn, 20)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(
+            &conn,
+            "usage_daily_rollups",
+            "stream_output_tokens"
+        )?);
+        assert!(Database::has_column(
+            &conn,
+            "usage_daily_rollups",
+            "stream_gen_ms"
+        )?);
+        // 既有行的速度列取默认 0（历史天不参与平均，不回填）
+        let (sout, sgen): (i64, i64) = conn.query_row(
+            "SELECT stream_output_tokens, stream_gen_ms FROM usage_daily_rollups \
+             WHERE date = '2024-01-02'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!((sout, sgen), (0, 0));
 
         Ok(())
     }
