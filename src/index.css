@@ -473,17 +473,23 @@ input[type="password"]::-ms-clear {
   background: hsl(var(--accent));
 }
 /* 今日总Token小块：位于 footer 内、按钮上方，主色浅底卡片突出显示；
-   与「打开主界面」按钮之间由 floating-ball-footer-divider 横线分隔 */
+   与「打开主界面」按钮之间由 floating-ball-footer-divider 横线分隔；
+   今日有可计算速度时纵向排两行（仅 token 一行时视觉与单行布局等价） */
 .floating-ball-usage {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   margin: 0 8px 8px;
   padding: 8px 10px;
   border-radius: 8px;
   background: hsl(var(--primary) / 0.08);
   border: 1px solid hsl(var(--primary) / 0.2);
+}
+.floating-ball-usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .floating-ball-usage-label {
   display: flex;
@@ -502,4 +508,8 @@ input[type="password"]::-ms-clear {
   font-weight: 700;
   color: hsl(var(--primary));
   font-variant-numeric: tabular-nums;
+}
+/* 速度行数值：次信息，比主值小一号 */
+.floating-ball-usage-value-sub {
+  font-size: 14px;
 }

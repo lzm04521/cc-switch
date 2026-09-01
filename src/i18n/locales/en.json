@@ -703,6 +703,10 @@
     "minimizeToTrayDescription": "When checked, clicking the close button will hide to system tray, otherwise the app will exit directly.",
     "floatingBall": "Floating Ball",
     "floatingBallDescription": "Show a floating ball to quickly switch providers",
+    "floatingBallPanelSize": "Panel Size",
+    "floatingBallPanelWidth": "Panel width",
+    "floatingBallPanelHeight": "Panel height",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
     "useAppWindowControls": "Enable app-level window controls",
     "useAppWindowControlsDescription": "Use built-in minimize, maximize/restore, and close buttons in the app header.",
     "enableClaudePluginIntegration": "Apply to Claude Code extension",
@@ -1715,7 +1719,7 @@
     "outputTokens": "Output",
     "cacheReadTokens": "Cache Hit",
     "cacheCreationTokens": "Cache Creation",
-    "timingInfo": "Duration/TTFT",
+    "timingInfo": "Duration/TTFT/Speed",
     "status": "Status",
     "multiplier": "Multiplier",
     "requestModel": "Request Model",
@@ -3298,6 +3302,7 @@
   "floatingBall": {
     "openMainWindow": "Open Main Window",
     "todayUsage": "Tokens Today",
+    "todaySpeed": "Output Speed Today",
     "empty": "(no providers)",
     "switchFailed": "Switch failed, please retry"
   }

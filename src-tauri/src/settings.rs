@@ -376,11 +376,29 @@ pub struct FloatingBallSettings {
     /// 是否启用悬浮球（默认开启；旧配置缺字段时兜底为 true）
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 弹窗面板宽/高（逻辑像素）；缺省取 tauri.conf.json 的固定值，
+    /// 保存前与使用处均会 clamp 到合法区间（floating_ball.rs）
+    #[serde(default = "default_panel_width")]
+    pub panel_width: f64,
+    #[serde(default = "default_panel_height")]
+    pub panel_height: f64,
+}
+
+fn default_panel_width() -> f64 {
+    crate::floating_ball::PANEL_WIDTH
+}
+
+fn default_panel_height() -> f64 {
+    crate::floating_ball::PANEL_HEIGHT
 }
 
 impl Default for FloatingBallSettings {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            panel_width: default_panel_width(),
+            panel_height: default_panel_height(),
+        }
     }
 }
 
@@ -1380,6 +1398,25 @@ mod floating_ball_settings_tests {
     #[test]
     fn floating_ball_settings_default_impl_enabled() {
         assert!(FloatingBallSettings::default().enabled);
+    }
+
+    #[test]
+    fn floating_ball_settings_default_panel_size() {
+        // 旧版 settings.json 只有 enabled → 面板尺寸兜底为 tauri.conf 固定值
+        let s: FloatingBallSettings =
+            serde_json::from_str(r#"{"enabled":true}"#).expect("解析失败");
+        assert_eq!(s.panel_width, crate::floating_ball::PANEL_WIDTH);
+        assert_eq!(s.panel_height, crate::floating_ball::PANEL_HEIGHT);
+    }
+
+    #[test]
+    fn floating_ball_settings_explicit_panel_size() {
+        let s: FloatingBallSettings = serde_json::from_str(
+            r#"{"enabled":true,"panelWidth":360.0,"panelHeight":560.0}"#,
+        )
+        .expect("解析失败");
+        assert_eq!(s.panel_width, 360.0);
+        assert_eq!(s.panel_height, 560.0);
     }
 }
 

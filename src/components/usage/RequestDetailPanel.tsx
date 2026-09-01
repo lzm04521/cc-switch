@@ -6,7 +6,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRequestDetail } from "@/lib/query/usage";
-import { computeTokensPerSecond, getFreshInputTokens, isUnpricedUsage } from "@/types/usage";
+import {
+  computeTokensPerSecond,
+  getFreshInputTokens,
+  isUnpricedUsage,
+} from "@/types/usage";
 
 interface RequestDetailPanelProps {
   requestId: string;

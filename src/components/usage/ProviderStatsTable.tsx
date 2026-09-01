@@ -60,13 +60,16 @@ export function ProviderStatsTable({
             <TableHead className="text-right">
               {t("usage.avgLatency", "平均延迟")}
             </TableHead>
+            <TableHead className="text-right">
+              {t("usage.tokensPerSecond", "输出速度")}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {stats?.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={7}
                 className="text-center text-muted-foreground"
               >
                 {t("usage.noData", "暂无数据")}
@@ -90,8 +93,13 @@ export function ProviderStatsTable({
                 <TableCell className="text-right">
                   {stat.successRate.toFixed(1)}%
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right tabular-nums">
                   {stat.avgLatencyMs}ms
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {stat.avgTokensPerSecond != null
+                    ? `${stat.avgTokensPerSecond.toFixed(1)} t/s`
+                    : "—"}
                 </TableCell>
               </TableRow>
             ))

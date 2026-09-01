@@ -125,6 +125,12 @@ export interface ProviderStats {
   totalCost: string;
   successRate: number;
   avgLatencyMs: number;
+  /** t/s 分子/分母（仅代理直录流式可计算行）：加权平均 = streamOutputTokens ÷ (streamGenMs / 1000)。
+   *  口径同 UsageSummary，跨 provider 合并时须用分子分母重新相除，禁止对平均值算术平均。 */
+  streamOutputTokens?: number;
+  streamGenMs?: number;
+  /** 加权平均输出速度（t/s）；null = 该 provider 范围内无可计算请求。 */
+  avgTokensPerSecond?: number | null;
 }
 
 export interface ModelStats {

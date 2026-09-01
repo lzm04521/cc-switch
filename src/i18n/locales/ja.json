@@ -703,6 +703,10 @@
     "minimizeToTrayDescription": "チェックすると閉じるボタンでトレイに隠し、オフならアプリを終了します。",
     "floatingBall": "フローティングボール",
     "floatingBallDescription": "フローティングボールを表示してプロバイダーをすばやく切り替え",
+    "floatingBallPanelSize": "パネルサイズ",
+    "floatingBallPanelWidth": "パネル幅",
+    "floatingBallPanelHeight": "パネル高さ",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
     "useAppWindowControls": "アプリ内ウィンドウボタンを有効化",
     "useAppWindowControlsDescription": "有効にすると、アプリヘッダーに最小化・最大化/復元・閉じるボタンを表示します。",
     "enableClaudePluginIntegration": "Claude Code 拡張に適用",
@@ -1715,7 +1719,7 @@
     "outputTokens": "出力",
     "cacheReadTokens": "キャッシュヒット",
     "cacheCreationTokens": "キャッシュ作成",
-    "timingInfo": "応答時間/TTFT",
+    "timingInfo": "応答時間/TTFT/速度",
     "status": "ステータス",
     "multiplier": "倍率",
     "requestModel": "リクエストモデル",
@@ -3298,6 +3302,7 @@
   "floatingBall": {
     "openMainWindow": "メイン画面を開く",
     "todayUsage": "本日の合計Token",
+    "todaySpeed": "今日の出力速度",
     "empty": "（プロバイダーなし）",
     "switchFailed": "切り替えに失敗しました。再試行してください"
   }

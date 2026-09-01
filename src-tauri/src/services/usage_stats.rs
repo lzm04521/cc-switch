@@ -106,6 +106,15 @@ pub struct ProviderStats {
     pub total_cost: String,
     pub success_rate: f32,
     pub avg_latency_ms: u64,
+    /// t/s 速度聚合的分子/分母（仅代理直录流式可计算行），口径同 UsageSummary：
+    /// 加权平均 = stream_output_tokens / (stream_gen_ms / 1000)，禁止对平均值算术平均。
+    #[serde(default)]
+    pub stream_output_tokens: u64,
+    #[serde(default)]
+    pub stream_gen_ms: u64,
+    /// 加权平均输出速度（t/s）；None = 该 provider 范围内无可计算请求（展示为 —）。
+    #[serde(default)]
+    pub avg_tokens_per_second: Option<f64>,
 }
 
 /// 模型统计
@@ -1400,6 +1409,7 @@ impl Database {
         let rollup_pname = provider_name_coalesce("r", "p2");
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
+        let stream_cond_detail = stream_speed_row_condition("l");
         let sql = format!(
             "SELECT
                 provider_id, app_type, provider_name,
@@ -1409,7 +1419,9 @@ impl Database {
                 SUM(success_count) as success_count,
                 CASE WHEN SUM(request_count) > 0
                     THEN SUM(latency_sum) / SUM(request_count)
-                    ELSE 0 END as avg_latency
+                    ELSE 0 END as avg_latency,
+                COALESCE(SUM(stream_output_tokens), 0) as stream_output_tokens,
+                COALESCE(SUM(stream_gen_ms), 0) as stream_gen_ms
             FROM (
                 SELECT l.provider_id, l.app_type,
                     {detail_pname} as provider_name,
@@ -1417,7 +1429,9 @@ impl Database {
                     COALESCE(SUM({fresh_input_detail} + l.output_tokens), 0) as total_tokens,
                     COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as total_cost,
                     COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count,
-                    COALESCE(SUM(l.latency_ms), 0) as latency_sum
+                    COALESCE(SUM(l.latency_ms), 0) as latency_sum,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.output_tokens ELSE 0 END), 0) as stream_output_tokens,
+                    COALESCE(SUM(CASE WHEN {stream_cond_detail} THEN l.latency_ms - l.first_token_ms ELSE 0 END), 0) as stream_gen_ms
                 FROM proxy_request_logs l
                 LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
                 {detail_where}
@@ -1429,7 +1443,9 @@ impl Database {
                     COALESCE(SUM({fresh_input_rollup} + r.output_tokens), 0),
                     COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0),
                     COALESCE(SUM(r.success_count), 0),
-                    COALESCE(SUM(r.avg_latency_ms * r.request_count), 0)
+                    COALESCE(SUM(r.avg_latency_ms * r.request_count), 0),
+                    COALESCE(SUM(r.stream_output_tokens), 0),
+                    COALESCE(SUM(r.stream_gen_ms), 0)
                 FROM usage_daily_rollups r
                 LEFT JOIN providers p2 ON r.provider_id = p2.id AND r.app_type = p2.app_type
                 {rollup_where}
@@ -1451,6 +1467,8 @@ impl Database {
             } else {
                 0.0
             };
+            let stream_output_tokens: i64 = row.get(8)?;
+            let stream_gen_ms: i64 = row.get(9)?;
 
             Ok(ProviderStats {
                 provider_id: row.get(0)?,
@@ -1460,6 +1478,12 @@ impl Database {
                 total_cost: format!("{:.6}", row.get::<_, f64>(5)?),
                 success_rate,
                 avg_latency_ms: row.get::<_, f64>(7)? as u64,
+                stream_output_tokens: stream_output_tokens as u64,
+                stream_gen_ms: stream_gen_ms as u64,
+                avg_tokens_per_second: derive_avg_tokens_per_second(
+                    stream_output_tokens as u64,
+                    stream_gen_ms as u64,
+                ),
             })
         };
 
@@ -3983,6 +4007,62 @@ mod tests {
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].provider_id, "_opencode_session");
         assert_eq!(stats[0].provider_name, "OpenCode (Session)");
+
+        Ok(())
+    }
+
+    /// Provider 统计 t/s：同 provider 的明细 + rollup 双分支合并为加权平均；
+    /// 仅含不可计算行的 provider 返回 None（而非 0）。
+    #[test]
+    fn test_get_provider_stats_tokens_per_second_merges_detail_and_rollup()
+    -> Result<(), AppError> {
+        let db = Database::memory()?;
+        // 01-01 为边界天（明细仍在），01-02 是被完整卷起的天，01-03 为上边界
+        let start = local_ts(2024, 1, 1, 12, 0, 0);
+        let end = local_ts(2024, 1, 3, 12, 0, 0);
+
+        {
+            let conn = lock_conn!(db.conn);
+            // openai：明细 1000 tok / (53000-3000)=50000 ms
+            insert_streaming_log(
+                &conn, "tps-p1", "claude", "openai", "claude-3", "proxy", 1000, 53_000,
+                Some(3_000), true, local_ts(2024, 1, 1, 13, 0, 0),
+            )?;
+            // openai rollup 行（01-02）：500 tok / 25000 ms
+            conn.execute(
+                "INSERT INTO usage_daily_rollups (
+                    date, app_type, provider_id, model, request_model, pricing_model,
+                    request_count, success_count, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens, input_token_semantics,
+                    total_cost_usd, avg_latency_ms, stream_output_tokens, stream_gen_ms
+                ) VALUES ('2024-01-02', 'claude', 'openai', 'claude-3', '', '',
+                    5, 5, 100, 500, 0, 0, 0, '0.5', 100, 500, 25000)",
+                [],
+            )?;
+            // slowco：仅非流式行，无可计算数据
+            insert_streaming_log(
+                &conn, "tps-p2", "claude", "slowco", "claude-3", "proxy", 999, 53_000,
+                Some(3_000), false, local_ts(2024, 1, 1, 13, 1, 0),
+            )?;
+        }
+
+        let stats = db.get_provider_stats(Some(start), Some(end), None, None, None)?;
+        let openai = stats
+            .iter()
+            .find(|s| s.provider_id == "openai")
+            .expect("应存在 openai 分组");
+        assert_eq!(openai.stream_output_tokens, 1000 + 500);
+        assert_eq!(openai.stream_gen_ms, 50_000 + 25_000);
+        let expected = 1500.0 * 1000.0 / 75_000.0;
+        assert!((openai.avg_tokens_per_second.unwrap() - expected).abs() < 1e-9);
+
+        let slowco = stats
+            .iter()
+            .find(|s| s.provider_id == "slowco")
+            .expect("应存在 slowco 分组");
+        assert_eq!(slowco.stream_output_tokens, 0);
+        assert_eq!(slowco.stream_gen_ms, 0);
+        assert!(slowco.avg_tokens_per_second.is_none());
 
         Ok(())
     }

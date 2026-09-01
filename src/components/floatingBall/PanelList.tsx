@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, ExternalLink, Zap } from "lucide-react";
+import { Check, ExternalLink, Gauge, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -193,21 +193,37 @@ function SortableProviderRow({
  * 今日总Token小块（footer 内、「打开主界面」上方）：当天全部 app 的真实总消耗
  * token，口径与主窗口用量页 Hero 一致（input + output + cache_creation +
  * cache_read）；主色浅底卡片 + 大号数值突出显示，与按钮之间由
- * floating-ball-footer-divider 横线分隔
+ * floating-ball-footer-divider 横线分隔。
+ * 今日有可计算的代理直录流式请求时，第二行追加今日加权平均输出速度
+ * （avgTokensPerSecond 为 null = 无路由数据 / 数据未加载，均不渲染该行）。
  */
 function TodayUsageBlock() {
   const { t, i18n } = useTranslation();
   const { data: summary } = useUsageSummary({ preset: "today" });
   const realTotal = summary?.realTotalTokens ?? 0;
+  const avgTps = summary?.avgTokensPerSecond ?? null;
   return (
     <div className="floating-ball-usage">
-      <span className="floating-ball-usage-label">
-        <Zap size={13} className="floating-ball-usage-icon" />
-        {t("floatingBall.todayUsage", { defaultValue: "今日总Token" })}
-      </span>
-      <span className="floating-ball-usage-value">
-        {formatTokensShort(realTotal, getResolvedLang(i18n))}
-      </span>
+      <div className="floating-ball-usage-row">
+        <span className="floating-ball-usage-label">
+          <Zap size={13} className="floating-ball-usage-icon" />
+          {t("floatingBall.todayUsage", { defaultValue: "今日总Token" })}
+        </span>
+        <span className="floating-ball-usage-value">
+          {formatTokensShort(realTotal, getResolvedLang(i18n))}
+        </span>
+      </div>
+      {avgTps != null && (
+        <div className="floating-ball-usage-row">
+          <span className="floating-ball-usage-label">
+            <Gauge size={13} className="floating-ball-usage-icon" />
+            {t("floatingBall.todaySpeed", { defaultValue: "今日输出速度" })}
+          </span>
+          <span className="floating-ball-usage-value floating-ball-usage-value-sub">
+            {avgTps.toFixed(1)} t/s
+          </span>
+        </div>
+      )}
     </div>
   );
 }

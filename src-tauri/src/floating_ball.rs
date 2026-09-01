@@ -13,11 +13,37 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 pub const BALL_LABEL: &str = "ball";
 pub const PANEL_LABEL: &str = "panel";
-/// 面板逻辑尺寸（与 tauri.conf.json 中 panel 窗口配置一致）
+/// 面板默认逻辑尺寸（与 tauri.conf.json 中 panel 窗口配置一致，设置缺省值）
 pub const PANEL_WIDTH: f64 = 300.0;
 pub const PANEL_HEIGHT: f64 = 480.0;
 /// 面板与球之间的间距（逻辑像素）
 pub const PANEL_GAP: f64 = 8.0;
+
+// ===== 弹窗面板尺寸设置（逻辑像素）=====
+/// 面板宽/高下限：过窄挤压 provider 行、过矮放不下分组与 footer
+pub const PANEL_WIDTH_MIN: f64 = 240.0;
+pub const PANEL_HEIGHT_MIN: f64 = 320.0;
+/// 面板宽/高上限：过大超出常见屏幕高度
+pub const PANEL_WIDTH_MAX: f64 = 480.0;
+pub const PANEL_HEIGHT_MAX: f64 = 800.0;
+
+/// 面板宽度归一：clamp 到合法区间，非有限值回落默认
+pub fn clamp_panel_width(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(PANEL_WIDTH_MIN, PANEL_WIDTH_MAX)
+    } else {
+        PANEL_WIDTH
+    }
+}
+
+/// 面板高度归一：clamp 到合法区间，非有限值回落默认
+pub fn clamp_panel_height(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(PANEL_HEIGHT_MIN, PANEL_HEIGHT_MAX)
+    } else {
+        PANEL_HEIGHT
+    }
+}
 
 /// 面板当前是否可见（状态机单一事实源，所有显隐操作经 toggle/hide 修改）
 static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -722,7 +748,7 @@ pub fn toggle_panel(app: &AppHandle) -> Result<&'static str, String> {
     Ok("opened")
 }
 
-/// 打开面板：定位 + 显示。可失败步骤集中在此，失败时由 toggle_panel 复位状态。
+/// 打开面板：按设置定尺寸与位置 + 显示。可失败步骤集中在此，失败时由 toggle_panel 复位状态。
 fn show_panel(app: &AppHandle) -> Result<(), String> {
     let panel = app
         .get_webview_window(PANEL_LABEL)
@@ -731,11 +757,29 @@ fn show_panel(app: &AppHandle) -> Result<(), String> {
         .get_webview_window(BALL_LABEL)
         .ok_or("悬浮球窗口未初始化")?;
 
-    // 定位：基于球窗口位置，钳制在当前显示器 work area 内（多显示器安全）。
-    // 全程用物理像素（全局虚拟桌面坐标）计算，再用 PhysicalPosition 设置——
-    // 若改用 LogicalPosition，set_position 会按 panel 窗口所在显示器的缩放
-    // 换算回物理坐标，在混合 DPI（如 16 寸 150% + 外接 14 寸 100%）下
-    // 面板会被放到屏幕外，表现为"拖到扩展屏后点不出菜单"。
+    size_and_position_panel(&panel, &ball)?;
+    panel.show().map_err(|e| format!("显示面板失败: {e}"))?;
+    let _ = panel.set_focus();
+    Ok(())
+}
+
+/// 按设置调整面板尺寸并贴球定位（打开面板 / 面板可见期间设置变更共用）。
+/// 尺寸取设置（clamp 兜底），定位基于球窗口位置，钳制在当前显示器 work area 内
+/// （多显示器安全）。
+///
+/// 定位全程用物理像素（全局虚拟桌面坐标）计算，再用 PhysicalPosition 设置——
+/// 若改用 LogicalPosition，set_position 会按 panel 窗口所在显示器的缩放
+/// 换算回物理坐标，在混合 DPI（如 16 寸 150% + 外接 14 寸 100%）下
+/// 面板会被放到屏幕外，表现为"拖到扩展屏后点不出菜单"。
+/// set_size 与 set_position 互不覆盖位置/尺寸（内部分别为 SWP_NOMOVE / SWP_NOSIZE）。
+fn size_and_position_panel(
+    panel: &tauri::WebviewWindow,
+    ball: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let fb = crate::settings::get_settings().floating_ball;
+    let width = clamp_panel_width(fb.panel_width);
+    let height = clamp_panel_height(fb.panel_height);
+
     let monitor = ball
         .current_monitor()
         .map_err(|e| format!("获取显示器失败: {e}"))?
@@ -763,17 +807,35 @@ fn show_panel(app: &AppHandle) -> Result<(), String> {
             width: work.size.width as f64,
             height: work.size.height as f64,
         },
-        PANEL_WIDTH * scale,
-        PANEL_HEIGHT * scale,
+        width * scale,
+        height * scale,
         PANEL_GAP * scale,
     );
 
     panel
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| format!("设置面板尺寸失败: {e}"))?;
+    panel
         .set_position(PhysicalPosition::new(px.round() as i32, py.round() as i32))
         .map_err(|e| format!("设置面板位置失败: {e}"))?;
-    panel.show().map_err(|e| format!("显示面板失败: {e}"))?;
-    let _ = panel.set_focus();
     Ok(())
+}
+
+/// 面板可见期间尺寸设置变更时由 save_settings 调用：立即按新尺寸重摆，
+/// 免去"关掉重开才生效"；面板未显示时无需处理（下次打开自然按新设置渲染）。
+pub fn refresh_panel_if_visible(app: &AppHandle) {
+    if !PANEL_VISIBLE.load(Ordering::Acquire) {
+        return;
+    }
+    let (Some(panel), Some(ball)) = (
+        app.get_webview_window(PANEL_LABEL),
+        app.get_webview_window(BALL_LABEL),
+    ) else {
+        return;
+    };
+    if let Err(e) = size_and_position_panel(&panel, &ball) {
+        log::warn!("按新设置刷新面板尺寸/位置失败: {e}");
+    }
 }
 
 /// 面板失焦回调（前端 onFocusChanged(false) 触发）：

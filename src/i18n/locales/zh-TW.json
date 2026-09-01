@@ -703,6 +703,10 @@
     "minimizeToTrayDescription": "勾選後點擊關閉按鈕會隱藏至系統匣，取消則直接退出應用程式。",
     "floatingBall": "懸浮球",
     "floatingBallDescription": "在螢幕邊緣顯示懸浮球，單擊快速切換供應商",
+    "floatingBallPanelSize": "彈窗尺寸",
+    "floatingBallPanelWidth": "彈窗寬度",
+    "floatingBallPanelHeight": "彈窗高度",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
     "useAppWindowControls": "啟用應用程式等級視窗按鈕",
     "useAppWindowControlsDescription": "開啟後使用應用程式自建的最小化、最大化/還原、關閉按鈕；關閉後沿用系統視窗模式。",
     "enableClaudePluginIntegration": "套用至 Claude Code 外掛程式",
@@ -1716,7 +1720,7 @@
     "outputTokens": "輸出",
     "cacheReadTokens": "快取命中",
     "cacheCreationTokens": "快取建立",
-    "timingInfo": "耗時/首字",
+    "timingInfo": "耗時/首字/速度",
     "status": "狀態",
     "multiplier": "倍率",
     "requestModel": "請求模型",
@@ -3299,6 +3303,7 @@
   "floatingBall": {
     "openMainWindow": "開啟主介面",
     "todayUsage": "今日總Token",
+    "todaySpeed": "今日輸出速度",
     "empty": "（無供應商）",
     "switchFailed": "切換失敗，請重試"
   }

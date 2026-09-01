@@ -65,12 +65,21 @@ pub async fn save_settings(
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
     let existing = crate::settings::get_settings();
-    let merged = merge_settings_for_save(settings, &existing);
+    let mut merged = merge_settings_for_save(settings, &existing);
+    // 弹窗尺寸 clamp 到合法区间后再比较/落库（existing 已是 clamp 过的值，
+    // 避免手改 settings.json 写入超范围值后每次保存都误判"尺寸变化"）
+    merged.floating_ball.panel_width =
+        crate::floating_ball::clamp_panel_width(merged.floating_ball.panel_width);
+    merged.floating_ball.panel_height =
+        crate::floating_ball::clamp_panel_height(merged.floating_ball.panel_height);
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
     let floating_ball_enabled_changed =
         merged.floating_ball.enabled != existing.floating_ball.enabled;
+    let ball_panel_size_changed = merged.floating_ball.panel_width
+        != existing.floating_ball.panel_width
+        || merged.floating_ball.panel_height != existing.floating_ball.panel_height;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
 
     // 悬浮球开关联动：立即显示/隐藏悬浮球窗口 + 刷新托盘菜单勾选态
@@ -83,6 +92,11 @@ pub async fn save_settings(
                 log::error!("刷新托盘菜单失败: {e}");
             }
         });
+    }
+
+    // 弹窗尺寸变更：面板可见期间立即重摆，无需关掉重开
+    if ball_panel_size_changed {
+        crate::floating_ball::refresh_panel_if_visible(&app_handle);
     }
 
     // 统一会话开关变更时立即重写当前官方 Codex 供应商的 live 配置，
