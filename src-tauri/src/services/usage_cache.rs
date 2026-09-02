@@ -13,7 +13,7 @@ use crate::app_config::AppType;
 use crate::provider::UsageResult;
 use crate::services::subscription::SubscriptionQuota;
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -91,6 +91,22 @@ impl UsageCache {
             .and_then(|r| {
                 r.get(&(app_type.clone(), provider_id.to_string()))
                     .map(|entry| f(&entry.result))
+            })
+    }
+
+    /// 单键读取脚本缓存的上次查询时刻（毫秒 epoch）；无缓存返回 None。
+    /// 后台用量刷新任务判断到期用，避免每轮做全量快照深拷贝。
+    pub fn script_queried_at(
+        &self,
+        app_type: &AppType,
+        provider_id: &str,
+    ) -> Option<i64> {
+        self.script
+            .read()
+            .ok()
+            .and_then(|r| {
+                r.get(&(app_type.clone(), provider_id.to_string()))
+                    .map(|entry| entry.queried_at)
             })
     }
 

@@ -95,15 +95,26 @@ function BalanceItem({ data }: { data: UsageData }) {
 
 /**
  * 行下用量子行（横向单行，flex-wrap 兜底）：仅在缓存命中时渲染。
- * 数据取自后端 UsageCache（主窗口 / 托盘触发的查询写穿），面板不发网络请求：
+ * 数据取自后端 UsageCache（主窗口 / 托盘 / 后台刷新任务触发的查询写穿），
+ * 面板不发网络请求：
  * - Token Plan / 订阅类（unit === "%"）：TierBadge（与主界面 inline 展示一致）
  * - 余额类：BalanceItem
- * - 失败：红字查询失败（不吞错）
- * 最右为查询相对时间（数据新鲜度）。
+ * - 失败：红字查询失败（不吞错；不显示时间戳——失败查询也会写缓存刷新
+ *   queriedAt，显示"刚刚"会与主界面 keep-last-good 锚定上次成功时刻分叉）
+ * 最右为查询相对时间（数据新鲜度），30s tick 随真实时间走表（与主界面
+ * UsageFooter 一致）。
  */
 function UsageSubRow({ snapshot }: { snapshot: UsageCacheSnapshot }) {
   const { t } = useTranslation();
   const { result, queriedAt } = snapshot;
+
+  // 相对时间走表 tick：仅成功态需要（失败态不渲染时间）
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!result.success) return;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [result.success]);
 
   const list = result.data ?? [];
   // 成功但无数据：与主界面 UsageFooter 一致，整体不渲染
@@ -124,9 +135,11 @@ function UsageSubRow({ snapshot }: { snapshot: UsageCacheSnapshot }) {
           ),
         )
       )}
-      <span className="floating-ball-usage-time">
-        {formatRelativeTime(queriedAt, Date.now(), t)}
-      </span>
+      {result.success && (
+        <span className="floating-ball-usage-time">
+          {formatRelativeTime(queriedAt, now, t)}
+        </span>
+      )}
     </span>
   );
 }

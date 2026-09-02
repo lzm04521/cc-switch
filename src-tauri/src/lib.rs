@@ -1357,6 +1357,12 @@ pub fn run() {
                         run_session_sync(db_for_session_sync.clone(), false).await;
                     }
                 });
+
+                // Provider 用量后台周期刷新：「自动刷新所有 Provider 用量」
+                // 开关开启时脱离主窗口 WebView 生命周期兜底查询（主窗口隐藏/
+                // 视图切走后前端轮询停止，悬浮球面板只能读到陈旧缓存），
+                // 详见 services/usage_refresher.rs
+                crate::services::usage_refresher::spawn_usage_refresher(app_handle.clone());
             });
 
             // Linux: 禁用 WebKitGTK 硬件加速，防止 EGL 初始化失败导致白屏
