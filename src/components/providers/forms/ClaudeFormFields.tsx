@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +72,8 @@ interface EndpointCandidate {
 
 interface ClaudeFormFieldsProps {
   providerId?: string;
+  /** 渲染在「高级选项」折叠区之前的插槽（会话级路由等） */
+  contentBeforeAdvanced?: ReactNode;
   // API Key
   shouldShowApiKey: boolean;
   apiKey: string;
@@ -163,6 +166,7 @@ interface ClaudeFormFieldsProps {
 
 export function ClaudeFormFields({
   providerId,
+  contentBeforeAdvanced,
   shouldShowApiKey,
   apiKey,
   onApiKeyChange,
@@ -780,6 +784,8 @@ export function ClaudeFormFields({
           onCustomEndpointsChange={onCustomEndpointsChange}
         />
       )}
+
+      {contentBeforeAdvanced}
 
       {shouldShowModelSelector && (
         <Collapsible

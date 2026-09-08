@@ -2384,6 +2384,18 @@ function ProviderFormFull({
           {appId === "claude" && (
             <ClaudeFormFields
               providerId={providerId}
+              contentBeforeAdvanced={
+                <RouteSettingsFields
+                  routeEnabled={routeEnabled}
+                  routeKey={routeKey}
+                  onChange={({ routeEnabled: enabled, routeKey: key }) => {
+                    setRouteEnabled(enabled);
+                    setRouteKey(key);
+                  }}
+                  existingKeys={routeExistingKeys}
+                  currentProviderId={providerId}
+                />
+              }
               shouldShowApiKey={
                 (category !== "cloud_provider" ||
                   hasApiKeyField(form.getValues("settingsConfig"), "claude")) &&
@@ -2457,19 +2469,6 @@ function ProviderFormFull({
               onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
               localProxyBodyOverride={localProxyBodyOverride}
               onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
-            />
-          )}
-
-          {appId === "claude" && (
-            <RouteSettingsFields
-              routeEnabled={routeEnabled}
-              routeKey={routeKey}
-              onChange={({ routeEnabled: enabled, routeKey: key }) => {
-                setRouteEnabled(enabled);
-                setRouteKey(key);
-              }}
-              existingKeys={routeExistingKeys}
-              currentProviderId={providerId}
             />
           )}
 
