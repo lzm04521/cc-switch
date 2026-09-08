@@ -15,7 +15,7 @@ use crate::app_config::AppType;
 use crate::provider::Provider;
 use crate::proxy::error::ProxyError;
 use crate::proxy::handler_context::RequestContext;
-use crate::proxy::model_mapper::strip_one_m_suffix_for_upstream;
+use crate::proxy::model_mapper::{strip_one_m_suffix_for_upstream, ModelMapping};
 use crate::proxy::server::ProxyState;
 use serde_json::Value;
 
@@ -258,6 +258,137 @@ pub fn resolve_route_provider(
             Ok(chosen)
         }
     }
+}
+
+// ============================================================================
+// /v1/models 路由模型列表（设计 §4.4）
+// ============================================================================
+
+/// created_at 占位（无真实数据不编造时间，与 Agent-Dog / Claude Desktop
+/// models 端点同款口径）
+const MODELS_LIST_EPOCH_ISO: &str = "1970-01-01T00:00:00Z";
+
+/// 剥离并探测 `[1M]` 后缀：返回 (基础模型名, 是否带 1M)。
+/// 判定大小写不敏感（存储端存在 "[1M]" 与 "[1m]" 两种形态）；
+/// 渲染层统一大写 "[1M]"。
+fn split_base_and_one_m(raw: &str) -> (String, bool) {
+    let trimmed = raw.trim_end();
+    let stripped = strip_one_m_suffix_for_upstream(trimmed);
+    let has_one_m = stripped.len() != trimmed.len();
+    (stripped.trim().to_string(), has_one_m)
+}
+
+fn models_list_entry(id: &str, display_name: &str) -> Value {
+    serde_json::json!({
+        "type": "model",
+        "id": id,
+        "display_name": display_name,
+        "created_at": MODELS_LIST_EPOCH_ISO,
+    })
+}
+
+/// 构建会话级路由分组在 /v1/models 暴露的条目列表（设计 §4.4，纯函数）。
+///
+/// - 仅 `route_enabled = true` 且 `route_key` trim 非空的分组；
+///   key 重复（改库绕过保存校验）取首现（IndexMap 已按 sort_index 排序）并 warn
+/// - Groups：分组条目 `<前缀><key>`；分组 `ANTHROPIC_MODEL` 带 `[1M]` → 尾拼 `[1M]`
+/// - Models：组内 env 六档位（sonnet→opus→fable→haiku→subagent→default，
+///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
+///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
+/// - Both：分组条目在前、模型条目在后
+/// - 无路由分组 → 空 Vec（fail-open，空列表不是错误）
+pub fn build_route_models_list(
+    all: &indexmap::IndexMap<String, Provider>,
+    prefix: &str,
+    mode: crate::settings::RouteModelsMode,
+) -> Vec<Value> {
+    use crate::settings::RouteModelsMode;
+    use std::collections::HashSet;
+
+    // 先按 IndexMap（sort_index）顺序筛出合规分组并做 key 去重，
+    // 再按 mode 分两阶段输出：Both 时分组条目统一在前、模型条目在后
+    let mut seen_keys: HashSet<String> = HashSet::new();
+    let mut eligible: Vec<(&Provider, &str, ModelMapping)> = Vec::new();
+
+    for provider in all.values() {
+        let Some(meta) = provider.meta.as_ref() else { continue };
+        if meta.route_enabled != Some(true) {
+            continue;
+        }
+        let Some(key) = meta
+            .route_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+        else {
+            log::warn!(
+                "[RouteModels] 分组「{}」route_enabled 但 route_key 为空，跳过模型列表",
+                provider.name
+            );
+            continue;
+        };
+        if !seen_keys.insert(key.to_lowercase()) {
+            log::warn!(
+                "[RouteModels] 路由 key「{key}」重复（分组「{}」），取 sort_index 最小者",
+                provider.name
+            );
+            continue;
+        }
+        eligible.push((provider, key, ModelMapping::from_provider(provider)));
+    }
+
+    let mut entries: Vec<Value> = Vec::new();
+
+    if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
+        for (provider, key, mapping) in &eligible {
+            let group_one_m = mapping
+                .default_model
+                .as_deref()
+                .map(|m| split_base_and_one_m(m).1)
+                .unwrap_or(false);
+            let mut id = format!("{prefix}{key}");
+            if group_one_m {
+                id.push_str("[1M]");
+            }
+            entries.push(models_list_entry(&id, &provider.name));
+        }
+    }
+
+    if matches!(mode, RouteModelsMode::Models | RouteModelsMode::Both) {
+        for (_provider, key, mapping) in &eligible {
+            // IndexMap 保插入序：base 首现顺序 + 1M 取"或"
+            let mut models: indexmap::IndexMap<String, bool> = indexmap::IndexMap::new();
+            let tiers = [
+                &mapping.sonnet_model,
+                &mapping.opus_model,
+                &mapping.fable_model,
+                &mapping.haiku_model,
+                &mapping.subagent_model,
+                &mapping.default_model,
+            ];
+            for raw in tiers.into_iter().flatten() {
+                let (base, has_one_m) = split_base_and_one_m(raw);
+                if base.is_empty() {
+                    continue;
+                }
+                let flag = models.entry(base).or_insert(false);
+                if has_one_m {
+                    *flag = true;
+                }
+            }
+            for (base, has_one_m) in models {
+                let mut id = format!("{prefix}{key}:{base}");
+                let mut display = base.clone();
+                if has_one_m {
+                    id.push_str("[1M]");
+                    display.push_str(" [1M]");
+                }
+                entries.push(models_list_entry(&id, &display));
+            }
+        }
+    }
+
+    entries
 }
 
 /// session 粘性路由（设计 §3.8）：同 session 的无前缀请求
@@ -634,5 +765,124 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("notexist"), "msg: {msg}");
         assert!(msg.contains("ds") && msg.contains("glm"), "可用 key 列表缺失: {msg}");
+    }
+
+    // ---- build_route_models_list（/v1/models 路由模型列表）----
+
+    fn route_list_provider(
+        id: &str,
+        name: &str,
+        route_key: Option<&str>,
+        env: serde_json::Value,
+    ) -> Provider {
+        let mut p = Provider::with_id(id.to_string(), name.to_string(), env, None);
+        p.meta = Some(crate::provider::ProviderMeta {
+            route_enabled: Some(route_key.is_some()),
+            route_key: route_key.map(str::to_string),
+            ..Default::default()
+        });
+        p
+    }
+
+    fn ds_group() -> Provider {
+        route_list_provider(
+            "p1",
+            "DeepSeek",
+            Some("DS"),
+            serde_json::json!({
+                "env": {
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1M]",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
+                    "ANTHROPIC_MODEL": "deepseek-v4-pro[1M]"
+                }
+            }),
+        )
+    }
+
+    fn kc_group() -> Provider {
+        route_list_provider(
+            "p2",
+            "Kimi",
+            Some("KC"),
+            serde_json::json!({ "env": { "ANTHROPIC_MODEL": "kimi-k2" } }),
+        )
+    }
+
+    fn plain_group() -> Provider {
+        // 未开启路由的分组，不应出现在列表
+        route_list_provider("p3", "Official", None, serde_json::json!({ "env": {} }))
+    }
+
+    fn route_list_map(providers: Vec<Provider>) -> indexmap::IndexMap<String, Provider> {
+        providers.into_iter().map(|p| (p.id.clone(), p)).collect()
+    }
+
+    fn entry_ids(entries: &[serde_json::Value]) -> Vec<String> {
+        entries
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn models_list_groups_mode_returns_group_entries_only() {
+        let all = route_list_map(vec![ds_group(), kc_group(), plain_group()]);
+        let entries =
+            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
+        assert_eq!(entry_ids(&entries), vec!["G.DS[1M]", "G.KC"]);
+        // display_name = 分组名；未开启路由的 p3 不出现
+        assert_eq!(entries[0]["display_name"], serde_json::json!("DeepSeek"));
+    }
+
+    #[test]
+    fn models_list_models_mode_dedupes_and_merges_one_m() {
+        // sonnet=deepseek-v4-pro[1M]、opus=deepseek-v4-pro（同 base）、
+        // default=deepseek-v4-pro[1M] → 仅一条，且带 [1M]（1M 取"或"）
+        let all = route_list_map(vec![ds_group(), kc_group()]);
+        let entries =
+            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
+        );
+        assert_eq!(
+            entries[0]["display_name"],
+            serde_json::json!("deepseek-v4-pro [1M]")
+        );
+    }
+
+    #[test]
+    fn models_list_both_mode_groups_first() {
+        let all = route_list_map(vec![ds_group(), kc_group()]);
+        let entries =
+            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Both);
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.DS[1M]", "G.KC", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
+        );
+    }
+
+    #[test]
+    fn models_list_skips_dirty_and_duplicate_keys() {
+        // route_enabled 但 key 为空（改库脏数据）→ 跳过；key 重复取首现
+        let dirty = route_list_provider("p4", "Dirty", Some("  "), serde_json::json!({ "env": {} }));
+        let dup = route_list_provider("p5", "Dup", Some("ds"), serde_json::json!({ "env": {} }));
+        let all = route_list_map(vec![ds_group(), dirty, dup]);
+        let entries =
+            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
+        assert_eq!(entry_ids(&entries), vec!["G.DS[1M]"]);
+    }
+
+    #[test]
+    fn models_list_empty_when_no_route_groups() {
+        let all = route_list_map(vec![plain_group()]);
+        for mode in [
+            crate::settings::RouteModelsMode::Groups,
+            crate::settings::RouteModelsMode::Models,
+            crate::settings::RouteModelsMode::Both,
+        ] {
+            assert!(build_route_models_list(&all, "G.", mode).is_empty());
+        }
     }
 }
