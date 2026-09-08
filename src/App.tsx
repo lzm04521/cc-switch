@@ -1347,6 +1347,7 @@ function App() {
                   variant="outline"
                   size="icon"
                   disabled={managementBusy}
+                  aria-label={t("common.back")}
                   onClick={() =>
                     setCurrentView(
                       currentView === "skillsDiscovery"
