@@ -442,6 +442,10 @@ pub struct AppSettings {
     pub usage_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_dashboard_refresh_interval_ms: Option<u32>,
+    /// 会话级路由触发前缀（完整触发串，如 "G."、"@"）；None = 默认 "G."。
+    /// 仅 Claude / ClaudeDesktop 代理链路读取（设计 §3.9）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_prefix: Option<String>,
     /// 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新）。
     /// 开启后非启用 Provider 也定时查询，实际间隔钳制为至少 5 分钟（前端控制）。
     #[serde(default)]
@@ -605,6 +609,7 @@ impl Default for AppSettings {
             proxy_confirmed: None,
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
+            route_prefix: None,
             auto_refresh_all_providers_usage: false,
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
@@ -885,6 +890,12 @@ pub fn get_settings_for_frontend() -> AppSettings {
 
 pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     new_settings.normalize_paths();
+    // 会话级路由前缀：保存时 fail-fast 拦截非法值（裸字母数字结尾等，
+    // 见 route_prefix::validate_route_prefix），防止运行时高频 warn 回退
+    if let Some(prefix) = new_settings.route_prefix.as_deref() {
+        crate::proxy::route_prefix::validate_route_prefix(prefix)
+            .map_err(crate::error::AppError::Config)?;
+    }
     save_settings_file(&new_settings)?;
 
     let mut guard = settings_store().write().unwrap_or_else(|e| {
@@ -893,6 +904,12 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     });
     *guard = new_settings;
     Ok(())
+}
+
+/// 读取会话级路由触发前缀（DB 值非法时回退默认 "G." 并 warn，fail-safe，
+/// 设计 §3.9 运行时兜底）
+pub fn get_route_prefix() -> String {
+    crate::proxy::route_prefix::normalize_route_prefix(get_settings().route_prefix.as_deref())
 }
 
 fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
@@ -1374,6 +1391,43 @@ mod tests {
             resolve_override_path(r"~\pi\agent"),
             home.join("pi").join("agent")
         );
+    }
+
+    #[test]
+    fn route_prefix_serializes_as_camel_case_and_defaults_none() {
+        let mut s = AppSettings::default();
+        assert_eq!(s.route_prefix, None);
+        s.route_prefix = Some("@".to_string());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["routePrefix"], "@");
+        let back: AppSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.route_prefix.as_deref(), Some("@"));
+    }
+
+    #[test]
+    #[serial]
+    fn update_settings_rejects_invalid_route_prefix() {
+        // 合法值会真实写 settings 文件，走 CC_SWITCH_TEST_HOME 指向的测试目录
+        // （同 mod dsh_tilde_override 用例同款隔离机制），不污染真实 ~/.cc-switch
+        let previous = std::env::var_os("CC_SWITCH_TEST_HOME");
+        let temp = tempfile::tempdir().expect("temporary home");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        // 裸字母结尾：保存校验 fail-fast，Err 早于任何文件写入
+        let mut s = AppSettings::default();
+        s.route_prefix = Some("G".to_string());
+        assert!(update_settings(s).is_err());
+        // 含冒号同样拒绝
+        let mut s = AppSettings::default();
+        s.route_prefix = Some("G.:".to_string());
+        assert!(update_settings(s).is_err());
+        // 合法值通过（写入测试环境 settings 文件，与既有测试共用隔离机制）
+        let mut s = AppSettings::default();
+        s.route_prefix = Some("@".to_string());
+        assert!(update_settings(s).is_ok());
+        match previous {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
     }
 }
 
