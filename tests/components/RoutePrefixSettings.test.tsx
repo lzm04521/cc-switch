@@ -34,6 +34,9 @@ describe("RoutePrefixSettings 模型列表接口区块", () => {
         routeModelsEndpoint: { enabled: true, mode: "both" },
       }),
     );
+    // 开关保存成功只闪区块自身的反馈，不误闪前缀「保存」按钮
+    expect(screen.queryByRole("button", { name: "已保存" })).toBeNull();
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 
   it("开启后点「模型」按钮：onAutoSave 收到 mode=models", async () => {

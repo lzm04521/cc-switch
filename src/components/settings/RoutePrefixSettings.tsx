@@ -36,6 +36,7 @@ export function RoutePrefixSettings({
   const { t } = useTranslation();
   const [value, setValue] = useState(routePrefix ?? "");
   const [saved, setSaved] = useState(false);
+  const [endpointSaved, setEndpointSaved] = useState(false);
 
   useEffect(() => {
     setValue(routePrefix ?? "");
@@ -55,6 +56,12 @@ export function RoutePrefixSettings({
     setTimeout(() => setSaved(false), 1500);
   };
 
+  // 模型列表接口区块独立的保存反馈，不复用前缀保存按钮的 saved 状态
+  const flashEndpointSaved = () => {
+    setEndpointSaved(true);
+    setTimeout(() => setEndpointSaved(false), 1500);
+  };
+
   const handleSave = async () => {
     if (!validation.ok) return;
     const next = value.trim() === "" ? undefined : value.trim();
@@ -67,7 +74,7 @@ export function RoutePrefixSettings({
     mode: ModeOption;
   }) => {
     const ok = await onAutoSave({ routeModelsEndpoint: next });
-    if (ok !== false) flashSaved();
+    if (ok !== false) flashEndpointSaved();
   };
 
   return (
@@ -137,12 +144,19 @@ export function RoutePrefixSettings({
               })}
             </p>
           </div>
-          <Switch
-            checked={endpointEnabled}
-            onCheckedChange={(checked) =>
-              void saveEndpoint({ enabled: checked, mode: endpointMode })
-            }
-          />
+          <div className="flex items-center gap-2">
+            {endpointSaved && (
+              <span className="text-xs text-muted-foreground">
+                {t("common.saved", { defaultValue: "已保存" })}
+              </span>
+            )}
+            <Switch
+              checked={endpointEnabled}
+              onCheckedChange={(checked) =>
+                void saveEndpoint({ enabled: checked, mode: endpointMode })
+              }
+            />
+          </div>
         </div>
         {endpointEnabled && (
           <div className="space-y-1">
