@@ -950,7 +950,7 @@ pub fn get_route_prefix() -> String {
     crate::proxy::route_prefix::normalize_route_prefix(get_settings().route_prefix.as_deref())
 }
 
-/// 读取 /v1/models 路由模型列表设置（None = 默认关闭；DB 值由 serde
+/// 读取 /v1/models 路由模型列表设置（None = 默认关闭；存储值由 serde
 /// 反序列化保证合法，无非法态回退需求）
 pub fn get_route_models_endpoint() -> RouteModelsEndpointSettings {
     get_settings().route_models_endpoint.unwrap_or_default()
@@ -1452,6 +1452,8 @@ mod tests {
     fn route_models_endpoint_defaults_disabled_groups() {
         let mut s = AppSettings::default();
         assert!(s.route_models_endpoint.is_none());
+        // RouteModelsMode 默认 Groups（serde(default) 反序列化缺省 mode 时的取值）
+        assert_eq!(RouteModelsMode::default(), RouteModelsMode::Groups);
 
         s.route_models_endpoint = Some(RouteModelsEndpointSettings {
             enabled: true,

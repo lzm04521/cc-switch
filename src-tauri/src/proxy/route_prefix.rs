@@ -619,6 +619,10 @@ mod tests {
             parse_route_target("G.ds:sonnet[1M]", "G."),
             Some(ParsedRoute { key: "ds".into(), model_override: Some("sonnet".into()) })
         );
+        // 直测剥离函数：判定大小写不敏感，小写 "[1m]" 同样剥离
+        assert_eq!(split_base_and_one_m("x[1m]"), ("x".to_string(), true));
+        assert_eq!(split_base_and_one_m("x[1M]"), ("x".to_string(), true));
+        assert_eq!(split_base_and_one_m("x"), ("x".to_string(), false));
     }
 
     #[test]
