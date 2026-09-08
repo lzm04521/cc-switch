@@ -399,7 +399,11 @@
         "title": "/v1/models モデルリスト",
         "description": "有効にすると、ローカルプロキシの /v1/models レスポンスに data フィールドを追加し、セッションルーティングのグループとマッピング済みモデルの一覧を返します。エントリの id は --model にそのまま使えます（例: G.DS、G.DS:deepseek-v4-pro[1M]）。",
         "modeLabel": "応答タイプ",
-        "mode": { "groups": "グループのみ", "models": "モデル", "both": "グループ+モデル" }
+        "mode": {
+          "groups": "グループのみ",
+          "models": "モデル",
+          "both": "グループ+モデル"
+        }
       },
       "connectivityCheck": {
         "title": "接続チェック設定",

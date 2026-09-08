@@ -399,7 +399,11 @@
         "title": "/v1/models model list",
         "description": "When enabled, the local proxy /v1/models response gains a data field listing session-route groups and their mapped models; entry ids work directly with --model (e.g. G.DS, G.DS:deepseek-v4-pro[1M]).",
         "modeLabel": "Response type",
-        "mode": { "groups": "Groups only", "models": "Models", "both": "Groups + models" }
+        "mode": {
+          "groups": "Groups only",
+          "models": "Models",
+          "both": "Groups + models"
+        }
       },
       "connectivityCheck": {
         "title": "Connectivity Check Settings",

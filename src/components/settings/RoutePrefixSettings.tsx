@@ -69,10 +69,7 @@ export function RoutePrefixSettings({
     if (ok !== false) flashSaved();
   };
 
-  const saveEndpoint = async (next: {
-    enabled: boolean;
-    mode: ModeOption;
-  }) => {
+  const saveEndpoint = async (next: { enabled: boolean; mode: ModeOption }) => {
     const ok = await onAutoSave({ routeModelsEndpoint: next });
     if (ok !== false) flashEndpointSaved();
   };
