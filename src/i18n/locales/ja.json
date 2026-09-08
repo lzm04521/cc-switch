@@ -114,6 +114,7 @@
     "currentlyUsing": "デフォルト",
     "enable": "有効化",
     "inUse": "使用中",
+    "defaultInUse": "デフォルト",
     "needsRouting": "ルーティングが必要",
     "noRoutingSupport": "ルーティング非対応",
     "blockedByProxyHint": "プロキシ引き継ぎモードでは公式プロバイダーに切り替えできません",

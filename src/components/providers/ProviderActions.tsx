@@ -149,7 +149,7 @@ export function ProviderActions({
           className:
             "bg-gray-200 text-muted-foreground hover:bg-gray-200 hover:text-muted-foreground dark:bg-gray-700 dark:hover:bg-gray-700",
           icon: <Check className="h-4 w-4" />,
-          text: t("provider.inUse"),
+          text: t("provider.defaultInUse", { defaultValue: "默认中" }),
         };
       }
       return {
@@ -157,7 +157,7 @@ export function ProviderActions({
         variant: "default" as const,
         className: "",
         icon: <Play className="h-4 w-4" />,
-        text: t("provider.enable"),
+        text: t("provider.isDefault", { defaultValue: "默认" }),
       };
     }
 
@@ -232,7 +232,7 @@ export function ProviderActions({
         className:
           "bg-gray-200 text-muted-foreground hover:bg-gray-200 hover:text-muted-foreground dark:bg-gray-700 dark:hover:bg-gray-700",
         icon: <Check className="h-4 w-4" />,
-        text: t("provider.inUse"),
+        text: t("provider.defaultInUse", { defaultValue: "默认中" }),
       };
     }
 
@@ -242,7 +242,7 @@ export function ProviderActions({
         variant: "default" as const,
         className: "",
         icon: <Play className="h-4 w-4" />,
-        text: t("provider.enable"),
+        text: t("provider.isDefault", { defaultValue: "默认" }),
         title: t("provider.blockedByProxyHint"),
       };
     }
@@ -254,7 +254,7 @@ export function ProviderActions({
         ? "bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700"
         : "",
       icon: <Play className="h-4 w-4" />,
-      text: t("provider.enable"),
+      text: t("provider.isDefault", { defaultValue: "默认" }),
     };
   };
 

@@ -114,6 +114,7 @@
     "currentlyUsing": "預設使用",
     "enable": "啟用",
     "inUse": "使用中",
+    "defaultInUse": "預設中",
     "needsRouting": "需要路由",
     "noRoutingSupport": "不支援路由",
     "blockedByProxyHint": "代理接管模式下無法切換至官方供應商",

@@ -114,6 +114,7 @@
     "currentlyUsing": "Default",
     "enable": "Enable",
     "inUse": "In Use",
+    "defaultInUse": "Default",
     "needsRouting": "Needs Routing",
     "noRoutingSupport": "No Routing Support",
     "blockedByProxyHint": "Can't switch to an official provider while proxy takeover is active",
