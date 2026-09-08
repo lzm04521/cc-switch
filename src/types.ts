@@ -363,6 +363,11 @@ export interface RemoteSnapshotInfo {
 
 // 应用设置类型（用于设置对话框与 Tauri API）
 // 存储在本地 ~/.cc-switch/settings.json，不随数据库同步
+export interface RouteModelsEndpoint {
+  enabled: boolean;
+  mode: "groups" | "models" | "both";
+}
+
 export interface Settings {
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
@@ -395,6 +400,8 @@ export interface Settings {
   usageDashboardRefreshIntervalMs?: number;
   // 会话级路由触发前缀（完整触发串，如 "G."、"@"；仅 Claude / Claude Desktop 代理链路）
   routePrefix?: string;
+  // 会话级路由 /v1/models 模型列表接口（关闭=仅 Codex catalog 现状行为）
+  routeModelsEndpoint?: RouteModelsEndpoint;
   // 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新；非启用 Provider 间隔下限 5 分钟）
   autoRefreshAllProvidersUsage?: boolean;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）

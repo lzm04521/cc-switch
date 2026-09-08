@@ -395,6 +395,12 @@
           "boundary": "前綴須以非字母數字字元結尾（如 G.、@）"
         }
       },
+      "routeModelsEndpoint": {
+        "title": "/v1/models 模型列表",
+        "description": "開啟後，本地代理 /v1/models 回應附加 data 欄位，返回工作階段級路由分組與映射模型清單；條目 id 可直接用於 --model（如 G.DS、G.DS:deepseek-v4-pro[1M]）。",
+        "modeLabel": "返回類型",
+        "mode": { "groups": "僅分組", "models": "模型", "both": "分組+模型" }
+      },
       "connectivityCheck": {
         "title": "連通檢測設定",
         "description": "設定供應商位址探測的逾時、重試與緩慢閾值"

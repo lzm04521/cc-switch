@@ -3,18 +3,34 @@ import { useTranslation } from "react-i18next";
 import { Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   routePrefixLikelyConflicts,
   validateRoutePrefixValue,
 } from "@/lib/routePrefix";
 
+const MODE_OPTIONS = ["groups", "models", "both"] as const;
+type ModeOption = (typeof MODE_OPTIONS)[number];
+
+const MODE_LABELS: Record<ModeOption, string> = {
+  groups: "仅分组",
+  models: "模型",
+  both: "分组+模型",
+};
+
 interface RoutePrefixSettingsProps {
   routePrefix?: string;
-  onAutoSave: (updates: { routePrefix?: string }) => Promise<boolean | void>;
+  routeModelsEndpoint?: { enabled: boolean; mode: ModeOption };
+  onAutoSave: (updates: {
+    routePrefix?: string;
+    routeModelsEndpoint?: { enabled: boolean; mode: ModeOption };
+  }) => Promise<boolean | void>;
 }
 
 export function RoutePrefixSettings({
   routePrefix,
+  routeModelsEndpoint,
   onAutoSave,
 }: RoutePrefixSettingsProps) {
   const { t } = useTranslation();
@@ -25,20 +41,33 @@ export function RoutePrefixSettings({
     setValue(routePrefix ?? "");
   }, [routePrefix]);
 
+  const endpointEnabled = routeModelsEndpoint?.enabled ?? false;
+  const endpointMode: ModeOption = routeModelsEndpoint?.mode ?? "groups";
+
   const validation =
     value.trim() === ""
       ? { ok: true as const }
       : validateRoutePrefixValue(value);
   const conflictHint = value.trim() !== "" && routePrefixLikelyConflicts(value);
 
+  const flashSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
   const handleSave = async () => {
     if (!validation.ok) return;
     const next = value.trim() === "" ? undefined : value.trim();
     const ok = await onAutoSave({ routePrefix: next });
-    if (ok !== false) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-    }
+    if (ok !== false) flashSaved();
+  };
+
+  const saveEndpoint = async (next: {
+    enabled: boolean;
+    mode: ModeOption;
+  }) => {
+    const ok = await onAutoSave({ routeModelsEndpoint: next });
+    if (ok !== false) flashSaved();
   };
 
   return (
@@ -91,6 +120,56 @@ export function RoutePrefixSettings({
           })}
         </p>
       )}
+
+      {/* /v1/models 路由模型列表（设计 §4.5） */}
+      <div className="space-y-2 border-t border-border-default pt-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-sm">
+              {t("settings.advanced.routeModelsEndpoint.title", {
+                defaultValue: "/v1/models 模型列表",
+              })}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.advanced.routeModelsEndpoint.description", {
+                defaultValue:
+                  "开启后，本地代理 /v1/models 响应追加 data 字段，返回会话级路由分组与映射模型清单；条目 id 可直接用于 --model（如 G.DS、G.DS:deepseek-v4-pro[1M]）。",
+              })}
+            </p>
+          </div>
+          <Switch
+            checked={endpointEnabled}
+            onCheckedChange={(checked) =>
+              void saveEndpoint({ enabled: checked, mode: endpointMode })
+            }
+          />
+        </div>
+        {endpointEnabled && (
+          <div className="space-y-1">
+            <Label className="text-xs">
+              {t("settings.advanced.routeModelsEndpoint.modeLabel", {
+                defaultValue: "返回类型",
+              })}
+            </Label>
+            <div className="flex gap-1">
+              {MODE_OPTIONS.map((option) => (
+                <Button
+                  key={option}
+                  size="sm"
+                  variant={option === endpointMode ? "default" : "outline"}
+                  onClick={() =>
+                    void saveEndpoint({ enabled: true, mode: option })
+                  }
+                >
+                  {t(`settings.advanced.routeModelsEndpoint.mode.${option}`, {
+                    defaultValue: MODE_LABELS[option],
+                  })}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
