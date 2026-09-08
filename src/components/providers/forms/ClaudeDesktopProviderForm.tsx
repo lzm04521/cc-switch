@@ -832,12 +832,12 @@ export function ClaudeDesktopProviderForm({
 
     delete meta.endpointAutoSelect;
     delete meta.isFullUrl;
-    // 会话级路由：启用且 key 非空才写入，否则清除（后端 ProviderService 仍 fail-fast 兜底）
-    if (routeEnabled && routeKey.trim()) {
-      meta.route_enabled = true;
+    // 与 Claude 表单对齐：开关开启即提交 route_enabled，key 为空交给后端
+    // fail-fast 校验报错（避免「保存成功但路由静默未生效」）
+    meta.route_enabled = routeEnabled;
+    if (routeEnabled) {
       meta.route_key = routeKey.trim();
     } else {
-      delete meta.route_enabled;
       delete meta.route_key;
     }
 
