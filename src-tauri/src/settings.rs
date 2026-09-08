@@ -402,6 +402,39 @@ impl Default for FloatingBallSettings {
     }
 }
 
+/// /v1/models 路由模型列表返回类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RouteModelsMode {
+    /// 仅分组条目（如 G.DS）
+    #[default]
+    Groups,
+    /// 仅模型条目（如 G.DS:deepseek-v4-pro）
+    Models,
+    /// 分组条目在前、模型条目在后
+    Both,
+}
+
+/// 会话级路由 /v1/models 模型列表接口设置（设计 §4.1）。
+/// 关闭时 /v1/models 行为与现状完全一致（仅 Codex catalog）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteModelsEndpointSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: RouteModelsMode,
+}
+
+impl Default for RouteModelsEndpointSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: RouteModelsMode::default(),
+        }
+    }
+}
+
 /// 应用设置结构
 ///
 /// 存储设备级别设置，保存在本地 `~/.cc-switch/settings.json`，不随数据库同步。
@@ -446,6 +479,10 @@ pub struct AppSettings {
     /// 仅 Claude / ClaudeDesktop 代理链路读取（设计 §3.9）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route_prefix: Option<String>,
+    /// 会话级路由 /v1/models 模型列表接口（None = 默认关闭）。
+    /// 仅 Claude 代理链路的 handle_models 读取（设计 §4.2）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_models_endpoint: Option<RouteModelsEndpointSettings>,
     /// 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新）。
     /// 开启后非启用 Provider 也定时查询，实际间隔钳制为至少 5 分钟（前端控制）。
     #[serde(default)]
@@ -610,6 +647,7 @@ impl Default for AppSettings {
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
             route_prefix: None,
+            route_models_endpoint: None,
             auto_refresh_all_providers_usage: false,
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
@@ -910,6 +948,12 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
 /// 设计 §3.9 运行时兜底）
 pub fn get_route_prefix() -> String {
     crate::proxy::route_prefix::normalize_route_prefix(get_settings().route_prefix.as_deref())
+}
+
+/// 读取 /v1/models 路由模型列表设置（None = 默认关闭；DB 值由 serde
+/// 反序列化保证合法，无非法态回退需求）
+pub fn get_route_models_endpoint() -> RouteModelsEndpointSettings {
+    get_settings().route_models_endpoint.unwrap_or_default()
 }
 
 fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
@@ -1402,6 +1446,42 @@ mod tests {
         assert_eq!(json["routePrefix"], "@");
         let back: AppSettings = serde_json::from_value(json).unwrap();
         assert_eq!(back.route_prefix.as_deref(), Some("@"));
+    }
+
+    #[test]
+    fn route_models_endpoint_defaults_disabled_groups() {
+        let mut s = AppSettings::default();
+        assert!(s.route_models_endpoint.is_none());
+
+        s.route_models_endpoint = Some(RouteModelsEndpointSettings {
+            enabled: true,
+            mode: RouteModelsMode::Both,
+        });
+        let json = serde_json::to_value(&s).expect("serialize");
+        // AppSettings 是 rename_all = "camelCase"
+        assert_eq!(
+            json["routeModelsEndpoint"]["enabled"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            json["routeModelsEndpoint"]["mode"],
+            serde_json::json!("both")
+        );
+
+        let parsed: AppSettings = serde_json::from_value(json).expect("roundtrip");
+        assert_eq!(
+            parsed.route_models_endpoint.map(|e| (e.enabled, e.mode)),
+            Some((true, RouteModelsMode::Both))
+        );
+    }
+
+    #[test]
+    fn route_models_endpoint_rejects_unknown_mode() {
+        let raw = serde_json::json!({
+            "routeModelsEndpoint": { "enabled": true, "mode": "everything" }
+        });
+        // AppSettings 其余字段均有 serde(default)，可从部分 JSON 反序列化
+        assert!(serde_json::from_value::<AppSettings>(raw).is_err());
     }
 
     #[test]
