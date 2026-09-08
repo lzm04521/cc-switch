@@ -468,6 +468,12 @@ pub struct ProviderMeta {
     /// 用量查询脚本配置
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_script: Option<UsageScript>,
+    /// 是否加入会话级模型路由（仅 Claude / ClaudeDesktop 生效）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_enabled: Option<bool>,
+    /// 路由 key（route_enabled 时必填；同 app 内唯一；保留字 default 禁用）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_key: Option<String>,
     /// 请求地址管理：测速后自动选择最佳端点
     #[serde(rename = "endpointAutoSelect", skip_serializing_if = "Option::is_none")]
     pub endpoint_auto_select: Option<bool>,

@@ -3555,3 +3555,79 @@ fn recover_from_crash_without_backup_cleans_placeholder_instead_of_writing_it_ba
         "recovery must drop the local proxy base URL"
     );
 }
+
+#[test]
+fn route_key_validation_rejects_reserved_duplicate_and_invalid_charset() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+
+    let provider_with_route = |id: &str, key: &str| {
+        let mut p = Provider::with_id(
+            id.to_string(),
+            format!("Provider {id}"),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://example.com",
+                    "ANTHROPIC_AUTH_TOKEN": "test-key"
+                }
+            }),
+            None,
+        );
+        p.meta = Some(ProviderMeta {
+            route_enabled: Some(true),
+            route_key: Some(key.to_string()),
+            ..Default::default()
+        });
+        p
+    };
+
+    // 合法 key 通过
+    ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-a", "ds"),
+        false,
+    )
+    .expect("first routed provider should be accepted");
+
+    // 保留 key「default」拒绝
+    let err = ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-b", "default"),
+        false,
+    )
+    .expect_err("reserved key must be rejected");
+    assert!(err.to_string().contains("保留字"), "unexpected: {err}");
+
+    // 同 app 重复 key 拒绝（大小写不敏感，与「route-a」的 ds 冲突）
+    let err = ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-c", "DS"),
+        false,
+    )
+    .expect_err("duplicate key must be rejected");
+    assert!(err.to_string().contains("占用"), "unexpected: {err}");
+
+    // 非法字符拒绝
+    let err = ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-d", "bad key!"),
+        false,
+    )
+    .expect_err("invalid charset must be rejected");
+    assert!(err.to_string().contains("只能包含"), "unexpected: {err}");
+
+    // 更新自身改 key 合法（唯一性比对排除自身）
+    ProviderService::update(
+        &state,
+        AppType::Claude,
+        Some("route-a"),
+        provider_with_route("route-a", "ds2"),
+    )
+    .expect("self key change should be accepted");
+}

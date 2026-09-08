@@ -183,6 +183,10 @@ export interface ProviderMeta {
   claudeDesktopModelRoutes?: Record<string, ClaudeDesktopModelRoute>;
   // 用量查询脚本配置
   usage_script?: UsageScript;
+  // 会话级模型路由：是否加入 G. 前缀路由（仅 Claude / Claude Desktop 生效）
+  route_enabled?: boolean;
+  // 路由 key（route_enabled 时必填；同 app 内唯一；保留字 default 禁用）
+  route_key?: string;
   // 请求地址管理：测速后自动选择最佳端点
   endpointAutoSelect?: boolean;
   // 是否为官方合作伙伴

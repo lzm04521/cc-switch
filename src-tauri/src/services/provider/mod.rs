@@ -4474,6 +4474,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
+        Self::validate_route_settings(state, &app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
         if app_type.is_additive_mode() {
@@ -4610,6 +4611,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
+        Self::validate_route_settings(state, &app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         if matches!(app_type, AppType::Codex) && provider.category.as_deref() == Some("official") {
             crate::codex_config::strip_codex_unified_session_bucket_from_settings(
@@ -6351,6 +6353,73 @@ impl ProviderService {
 
     pub(crate) fn write_gemini_live(provider: &Provider) -> Result<(), AppError> {
         write_gemini_live(provider)
+    }
+
+    /// 校验会话级路由设置（仅 Claude / ClaudeDesktop 生效，fail-fast，设计 §3.2）
+    fn validate_route_settings(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Result<(), AppError> {
+        if !matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
+            return Ok(()); // 其他 app 不显示也不生效
+        }
+        let Some(meta) = provider.meta.as_ref() else {
+            return Ok(());
+        };
+        if meta.route_enabled != Some(true) {
+            return Ok(()); // 未开启路由：key 允许留空（前端仅在开启时提交 key）
+        }
+        let Some(key) = meta
+            .route_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+        else {
+            return Err(AppError::Message(
+                "已加入路由的供应商必须填写路由 key".to_string(),
+            ));
+        };
+        let len = key.chars().count();
+        if !(1..=32).contains(&len) {
+            return Err(AppError::Message(format!("路由 key 长度须为 1–32 个字符: {key}")));
+        }
+        if !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        {
+            return Err(AppError::Message(format!(
+                "路由 key 只能包含字母、数字与 . _ - : {key}"
+            )));
+        }
+        if key.eq_ignore_ascii_case(crate::proxy::route_prefix::RESERVED_ROUTE_KEY) {
+            return Err(AppError::Message(
+                "路由 key「default」为保留字（<前缀>default 恒为解绑语义），请换一个 key"
+                    .to_string(),
+            ));
+        }
+        // 同 app 内唯一（与所有已启用路由的分组比对，排除自身；
+        // 直接改库绕过校验时，运行时由 resolve_route_provider 兜底取
+        // sort_index 最小者并 warn）
+        let all = state.db.get_all_providers(app_type.as_str())?;
+        for (id, other) in &all {
+            if id == &provider.id {
+                continue;
+            }
+            if let Some(other_meta) = other.meta.as_ref() {
+                if other_meta.route_enabled == Some(true) {
+                    if let Some(other_key) = other_meta.route_key.as_deref() {
+                        if other_key.trim().eq_ignore_ascii_case(key) {
+                            return Err(AppError::Message(format!(
+                                "路由 key「{key}」已被供应商「{}」占用，同应用内必须唯一",
+                                other.name
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_provider_settings(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
