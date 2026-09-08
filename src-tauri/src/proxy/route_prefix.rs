@@ -7,6 +7,10 @@
 //!
 //! 设计文档：doc/20260908-会话级模型路由.md
 
+use std::collections::HashMap;
+use std::sync::RwLock;
+use std::time::{Duration, Instant};
+
 use crate::proxy::model_mapper::strip_one_m_suffix_for_upstream;
 
 /// 默认路由触发前缀（完整触发串，含边界符）
@@ -23,6 +27,99 @@ pub const RESERVED_ROUTE_KEY: &str = "default";
 pub struct ParsedRoute {
     pub key: String,
     pub model_override: Option<String>,
+}
+
+/// session 粘性路由绑定表（进程内，不落库，设计 §3.8）
+///
+/// 首个带路由前缀的请求绑定 session → route_key；同 session 的无前缀请求
+/// （subagent / classifier / 后台 haiku，模型名来自 CLAUDE_CODE_SUBAGENT_MODEL
+/// 与档位默认值）复用该分组。滚动续期：命中即刷新 last_used；容量上限时
+/// 淘汰最久未用（防长期泄漏）。进程重启 = 全部解绑回落默认分组
+/// （内存态，无持久化损坏风险）。std 同步锁足够：操作均为 O(1) 纯内存
+/// 读写，持锁时间极短且不跨 await。
+#[derive(Debug)]
+pub struct RouteBindingStore {
+    inner: RwLock<HashMap<String, RouteBindingEntry>>,
+    capacity: usize,
+    ttl: Duration,
+}
+
+#[derive(Debug, Clone)]
+struct RouteBindingEntry {
+    route_key: String,
+    last_used: Instant,
+}
+
+impl RouteBindingStore {
+    pub fn new(capacity: usize, ttl: Duration) -> Self {
+        Self {
+            inner: RwLock::new(HashMap::new()),
+            capacity,
+            ttl,
+        }
+    }
+
+    /// 绑定（新 key 覆盖旧绑定 = 会话中途换分组）
+    pub fn bind(&self, session_id: &str, route_key: &str) {
+        if let Ok(mut map) = self.inner.write() {
+            map.insert(
+                session_id.to_string(),
+                RouteBindingEntry {
+                    route_key: route_key.to_string(),
+                    last_used: Instant::now(),
+                },
+            );
+            Self::evict_if_over_capacity(&mut map, self.capacity);
+        }
+    }
+
+    /// 查询绑定（命中即续期；过期返回 None 并移除）
+    pub fn lookup(&self, session_id: &str) -> Option<String> {
+        let mut map = self.inner.write().ok()?;
+        match map.get_mut(session_id) {
+            Some(entry) => {
+                if entry.last_used.elapsed() > self.ttl {
+                    map.remove(session_id);
+                    None
+                } else {
+                    entry.last_used = Instant::now();
+                    Some(entry.route_key.clone())
+                }
+            }
+            None => None,
+        }
+    }
+
+    /// 解绑（`<前缀>default` 与分组失效时调用）
+    pub fn unbind(&self, session_id: &str) {
+        if let Ok(mut map) = self.inner.write() {
+            map.remove(session_id);
+        }
+    }
+
+    /// 容量超限淘汰最久未用条目。绑定操作 O(1)，淘汰 O(n) 但 n ≤ 容量上限
+    /// （默认 1000）且仅在插入超限时触发，无性能热点。
+    fn evict_if_over_capacity(
+        map: &mut HashMap<String, RouteBindingEntry>,
+        capacity: usize,
+    ) {
+        while map.len() > capacity {
+            let Some(oldest) = map
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(k, _)| k.clone())
+            else {
+                return;
+            };
+            map.remove(&oldest);
+        }
+    }
+}
+
+impl Default for RouteBindingStore {
+    fn default() -> Self {
+        Self::new(1000, Duration::from_secs(3600))
+    }
 }
 
 /// 校验路由触发前缀（保存设置时 fail-fast，设计 §3.9）：
@@ -215,5 +312,50 @@ mod tests {
         assert_eq!(normalize_route_prefix(Some("  ")), "G.");
         assert_eq!(normalize_route_prefix(Some("G")), "G."); // 裸字母结尾（改库绕过校验）
         assert_eq!(normalize_route_prefix(Some("@")), "@");
+    }
+
+    use std::time::Duration;
+
+    #[test]
+    fn bind_lookup_and_rebind_override() {
+        let store = super::RouteBindingStore::new(10, Duration::from_secs(60));
+        assert_eq!(store.lookup("s1"), None);
+        store.bind("s1", "ds");
+        assert_eq!(store.lookup("s1"), Some("ds".to_string()));
+        // 新 key 覆盖旧绑定（会话中途换分组）
+        store.bind("s1", "glm");
+        assert_eq!(store.lookup("s1"), Some("glm".to_string()));
+    }
+
+    #[test]
+    fn lookup_expires_after_ttl() {
+        let store = super::RouteBindingStore::new(10, Duration::from_millis(50));
+        store.bind("s1", "ds");
+        assert_eq!(store.lookup("s1"), Some("ds".to_string())); // 命中即续期
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(store.lookup("s1"), None); // 过期移除
+        assert_eq!(store.lookup("s1"), None); // 移除后不再复活
+    }
+
+    #[test]
+    fn unbind_removes_binding() {
+        let store = super::RouteBindingStore::default();
+        store.bind("s1", "ds");
+        store.unbind("s1");
+        assert_eq!(store.lookup("s1"), None);
+        store.unbind("s1"); // 幂等
+    }
+
+    #[test]
+    fn capacity_evicts_least_recently_used() {
+        let store = super::RouteBindingStore::new(2, Duration::from_secs(60));
+        store.bind("s1", "a");
+        store.bind("s2", "b");
+        std::thread::sleep(Duration::from_millis(10));
+        store.lookup("s1"); // s1 续期 → s2 成为最旧
+        store.bind("s3", "c"); // 超容量，淘汰 s2
+        assert_eq!(store.lookup("s1"), Some("a".to_string()));
+        assert_eq!(store.lookup("s2"), None);
+        assert_eq!(store.lookup("s3"), Some("c".to_string()));
     }
 }
