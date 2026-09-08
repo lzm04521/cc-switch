@@ -67,6 +67,17 @@ impl ModelMapping {
 
     /// 根据原始模型名称获取映射后的模型
     pub fn map_model(&self, original_model: &str) -> String {
+        self.map_model_inner(original_model, false)
+    }
+
+    /// map_model 的「跳过默认兜底」变体：未命中档位与 subagent 保护时
+    /// 原样返回，不落 default_model（ANTHROPIC_MODEL）。
+    /// 会话级路由的显式模型透传使用（`G.<key>:<model>`）。
+    pub fn map_model_skip_default(&self, original_model: &str) -> String {
+        self.map_model_inner(original_model, true)
+    }
+
+    fn map_model_inner(&self, original_model: &str, skip_default: bool) -> String {
         let model_lower = original_model.to_lowercase();
 
         // 1. 按模型类型匹配
@@ -103,9 +114,11 @@ impl ModelMapping {
             }
         }
 
-        // 2. 默认模型
-        if let Some(ref m) = self.default_model {
-            return m.clone();
+        // 2. 默认模型（路由透传请求跳过：显式模型名不落兜底）
+        if !skip_default {
+            if let Some(ref m) = self.default_model {
+                return m.clone();
+            }
         }
 
         // 3. 无映射，保持原样
@@ -117,8 +130,18 @@ impl ModelMapping {
 ///
 /// 返回 (映射后的请求体, 原始模型名, 映射后模型名)
 pub fn apply_model_mapping(
+    body: Value,
+    provider: &Provider,
+) -> (Value, Option<String>, Option<String>) {
+    apply_model_mapping_with_options(body, provider, false)
+}
+
+/// apply_model_mapping 的参数化变体：skip_default_fallback = true 时
+/// 跳过 ANTHROPIC_MODEL 默认兜底（会话级路由显式模型透传，设计 §3.3）
+pub fn apply_model_mapping_with_options(
     mut body: Value,
     provider: &Provider,
+    skip_default_fallback: bool,
 ) -> (Value, Option<String>, Option<String>) {
     let mapping = ModelMapping::from_provider(provider);
 
@@ -132,7 +155,11 @@ pub fn apply_model_mapping(
     let original_model = body.get("model").and_then(|m| m.as_str()).map(String::from);
 
     if let Some(ref original) = original_model {
-        let mapped = mapping.map_model(original);
+        let mapped = if skip_default_fallback {
+            mapping.map_model_skip_default(original)
+        } else {
+            mapping.map_model(original)
+        };
 
         if mapped != *original {
             log::debug!("[ModelMapper] 模型映射: {original} → {mapped}");
@@ -424,5 +451,41 @@ mod tests {
         let body = json!({"model": "deepseek-v4-pro"});
         let result = strip_one_m_suffix_for_upstream_from_body(body);
         assert_eq!(result["model"], "deepseek-v4-pro");
+    }
+
+    #[test]
+    fn skip_default_fallback_passthrough_unknown_model() {
+        let provider = create_provider_with_mapping();
+        let (result, _, _) = apply_model_mapping_with_options(
+            json!({"model": "deepseek-reasoner"}),
+            &provider,
+            true,
+        );
+        // 透传：不落 default-model 兜底
+        assert_eq!(result["model"], "deepseek-reasoner");
+    }
+
+    #[test]
+    fn skip_default_fallback_keeps_tier_mapping() {
+        let provider = create_provider_with_mapping();
+        let (result, _, _) = apply_model_mapping_with_options(
+            json!({"model": "claude-sonnet-4-5"}),
+            &provider,
+            true,
+        );
+        // 档位映射照常生效（不受 skip 影响）
+        assert_eq!(result["model"], "sonnet-mapped");
+    }
+
+    #[test]
+    fn default_path_still_falls_back_to_default_model() {
+        let provider = create_provider_with_mapping();
+        let (result, _, _) = apply_model_mapping_with_options(
+            json!({"model": "deepseek-reasoner"}),
+            &provider,
+            false,
+        );
+        // 原行为回归：未知模型落 ANTHROPIC_MODEL
+        assert_eq!(result["model"], "default-model");
     }
 }

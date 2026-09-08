@@ -1253,8 +1253,16 @@ impl RequestForwarder {
             crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
                 .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
         } else {
+            // 会话级路由显式模型透传：跳过目标分组 ANTHROPIC_MODEL 兜底
+            let skip_default_fallback = extensions
+                .get::<super::route_prefix::RoutePassthrough>()
+                .is_some();
             let (mapped_body, _original_model, _mapped_model) =
-                super::model_mapper::apply_model_mapping(body.clone(), provider);
+                super::model_mapper::apply_model_mapping_with_options(
+                    body.clone(),
+                    provider,
+                    skip_default_fallback,
+                );
             mapped_body
         };
 
