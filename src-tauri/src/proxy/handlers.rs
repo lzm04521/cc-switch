@@ -75,8 +75,6 @@ pub async fn get_status(State(state): State<ProxyState>) -> Result<Json<ProxySta
     Ok(Json(status))
 }
 
-/// GET /v1/models — Codex model list (reachability check)
-///
 /// Codex CLI probes this endpoint at startup and deserializes the response as a
 /// catalog with a top-level `models` field.  Return the cc-switch–managed model
 /// catalog file directly so the format always matches what the current version
@@ -85,7 +83,12 @@ pub async fn get_status(State(state): State<ProxyState>) -> Result<Json<ProxySta
 /// Only serves the catalog when the live config.toml still references the
 /// cc-switch–owned `model_catalog_json`, using the same path ownership rules as
 /// Codex live-setting import.
-pub async fn handle_models() -> Result<Json<Value>, ProxyError> {
+///
+/// 会话级路由 /v1/models 模型列表（设计 §4.2）：开关打开时在同一响应追加
+/// Anthropic 风格 `data`/`has_more`/`first_id`/`last_id` 字段（路由分组与映射
+/// 模型清单）；Codex 只读顶层 `models`，两类客户端互不干扰。开关关闭时
+/// 响应与现状完全一致。
+pub async fn handle_models(State(state): State<ProxyState>) -> Result<Json<Value>, ProxyError> {
     let config_dir = crate::codex_config::get_codex_config_dir();
     let active_catalog_path = match crate::codex_config::read_codex_config_text() {
         Ok(config_text) => {
@@ -94,7 +97,7 @@ pub async fn handle_models() -> Result<Json<Value>, ProxyError> {
         Err(_) => None,
     };
 
-    let catalog = if let Some(catalog_path) =
+    let mut catalog = if let Some(catalog_path) =
         active_catalog_path.as_ref().filter(|path| path.exists())
     {
         match crate::codex_config::read_codex_model_catalog_text(catalog_path) {
@@ -112,6 +115,40 @@ pub async fn handle_models() -> Result<Json<Value>, ProxyError> {
         }
         json!({"models": []})
     };
+
+    let endpoint = crate::settings::get_route_models_endpoint();
+    if endpoint.enabled {
+        let all = state
+            .db
+            .get_all_providers("claude")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        let prefix = crate::settings::get_route_prefix();
+        let data = super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode);
+        if let Some(obj) = catalog.as_object_mut() {
+            // 先提取 owned 首尾 id 再 move data 进 Value::Array（避免借用冲突）
+            let ids: Vec<String> = data
+                .iter()
+                .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            obj.insert("data".to_string(), Value::Array(data));
+            obj.insert("has_more".to_string(), Value::Bool(false));
+            obj.insert(
+                "first_id".to_string(),
+                ids.first()
+                    .cloned()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "last_id".to_string(),
+                ids.last()
+                    .cloned()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+        }
+    }
     Ok(Json(catalog))
 }
 
@@ -147,6 +184,16 @@ pub async fn handle_claude_desktop_messages(
     .await
 }
 
+/// Claude Desktop 本地 gateway 的模型菜单（`/claude-desktop/v1/models`）。
+///
+/// 现状行为保持为主体：gateway 鉴权 + 当前分组 routes 的 Anthropic 风格
+/// 模型菜单（`claude_desktop_config::model_list_response`）。
+///
+/// 会话级路由分组条目（设计 §4.2 / 决策 #6）：开关打开且返回类型含分组
+/// （groups / both）时，在 `data` 尾部追加 claude-desktop app 的路由分组
+/// 条目（`G.<key>[1M]`）。固定 Groups 模式构建——Desktop 的 map 层
+/// （`map_proxy_request_model`）只认本分组 `claudeDesktopModelRoutes` 的
+/// route_id，`G.<key>:<model>` 形态不可用，故不追加模型条目。
 pub async fn handle_claude_desktop_models(
     State(state): State<ProxyState>,
     headers: axum::http::HeaderMap,
@@ -158,8 +205,49 @@ pub async fn handle_claude_desktop_models(
         .await
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
     let provider = providers.first().ok_or(ProxyError::NoAvailableProvider)?;
-    let response = crate::claude_desktop_config::model_list_response(provider)
+    let mut response = crate::claude_desktop_config::model_list_response(provider)
         .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
+
+    let endpoint = crate::settings::get_route_models_endpoint();
+    if endpoint.enabled
+        && matches!(
+            endpoint.mode,
+            crate::settings::RouteModelsMode::Groups | crate::settings::RouteModelsMode::Both
+        )
+    {
+        let all = state
+            .db
+            .get_all_providers("claude-desktop")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        let prefix = crate::settings::get_route_prefix();
+        let group_entries = super::route_prefix::build_route_models_list(
+            &all,
+            &prefix,
+            crate::settings::RouteModelsMode::Groups,
+        );
+        if let Some(obj) = response.as_object_mut() {
+            if let Some(data) = obj.get_mut("data").and_then(|d| d.as_array_mut()) {
+                data.extend(group_entries);
+                // 追加后重算首尾 id；data 为空时保留 model_list_response 原值
+                let first_id = data
+                    .first()
+                    .and_then(|e| e.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let last_id = data
+                    .last()
+                    .and_then(|e| e.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(id) = first_id {
+                    obj.insert("first_id".to_string(), Value::String(id));
+                }
+                if let Some(id) = last_id {
+                    obj.insert("last_id".to_string(), Value::String(id));
+                }
+            }
+        }
+    }
     Ok(Json(response))
 }
 
