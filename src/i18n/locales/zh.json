@@ -9,6 +9,7 @@
     "delete": "删除",
     "save": "保存",
     "saving": "保存中...",
+    "saved": "已保存",
     "cancel": "取消",
     "confirm": "确定",
     "close": "关闭",
@@ -110,7 +111,7 @@
     "importCurrent": "导入当前配置",
     "importFromClaude": "将 Claude Code 中已有的供应商导入",
     "importCurrentDescription": "将当前正在使用的配置导入为默认供应商",
-    "currentlyUsing": "当前使用",
+    "currentlyUsing": "默认使用",
     "enable": "启用",
     "inUse": "使用中",
     "needsRouting": "需要路由",
@@ -128,7 +129,7 @@
     "addToConfig": "添加",
     "removeFromConfig": "移除",
     "setAsDefault": "设为默认",
-    "isDefault": "当前默认",
+    "isDefault": "默认",
     "inConfig": "已添加",
     "addProviderHint": "填写信息后即可在列表中快速切换供应商。",
     "editClaudeProvider": "编辑 Claude Code 供应商",
@@ -179,6 +180,19 @@
       }
     },
     "duplicateLiveIdsLoadFailed": "读取配置中的供应商标识失败，请先修复配置后再试"
+  },
+  "providers": {
+    "form": {
+      "route": {
+        "title": "加入会话级路由",
+        "description": "开启后可用 --model \"<前缀><key>\" 把请求路由到该分组（默认前缀 G.）",
+        "keyLabel": "路由 key",
+        "keyPlaceholder": "如 ds（字母/数字/._-，1–32 位）",
+        "keyInvalid": "路由 key 不合法：仅字母、数字与 . _ -，长度 1–32",
+        "keyReserved": "default 为保留 key（恒为解绑语义），请换一个",
+        "keyDuplicate": "该路由 key 已被同应用内其他分组占用"
+      }
+    }
   },
   "claudeCode": {
     "needsRouting": "需要路由",
@@ -368,6 +382,18 @@
         "enableFailoverToggleDescription": "开启后，主页面顶部将独立显示故障转移开关",
         "running": "运行中",
         "stopped": "已停止"
+      },
+      "routePrefix": {
+        "title": "会话级路由前缀",
+        "description": "供应商开启「加入会话级路由」后，用 --model \"<前缀><key>\" 将请求路由到该分组；<前缀>default 解绑当前会话。留空恢复默认 G.",
+        "conflictHint": "提示：该前缀与常见模型名相近，可能产生误匹配；建议更换（如 G.、@）",
+        "invalid": {
+          "empty": "前缀不能为空",
+          "length": "前缀长度须为 1–8 个字符",
+          "charset": "前缀仅可包含可打印 ASCII 字符（不含空白）",
+          "colon": "前缀不能包含冒号（: 用于分隔 key 与模型）",
+          "boundary": "前缀须以非字母数字字符结尾（如 G.、@）"
+        }
       },
       "connectivityCheck": {
         "title": "连通检测配置",

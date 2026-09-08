@@ -9,6 +9,7 @@
     "delete": "Delete",
     "save": "Save",
     "saving": "Saving...",
+    "saved": "Saved",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "close": "Close",
@@ -110,7 +111,7 @@
     "importCurrent": "Import Current Config",
     "importFromClaude": "Import existing providers from Claude Code",
     "importCurrentDescription": "Import current live config as default provider",
-    "currentlyUsing": "Currently Using",
+    "currentlyUsing": "Default",
     "enable": "Enable",
     "inUse": "In Use",
     "needsRouting": "Needs Routing",
@@ -128,7 +129,7 @@
     "addToConfig": "Add",
     "removeFromConfig": "Remove",
     "setAsDefault": "Set Default",
-    "isDefault": "Current Default",
+    "isDefault": "Default",
     "inConfig": "Added",
     "addProviderHint": "Fill in the information to quickly switch providers in the list.",
     "editClaudeProvider": "Edit Claude Code Provider",
@@ -179,6 +180,19 @@
       }
     },
     "duplicateLiveIdsLoadFailed": "Failed to read provider identifiers from config, please fix the config and try again"
+  },
+  "providers": {
+    "form": {
+      "route": {
+        "title": "Join session routing",
+        "description": "Route requests to this provider with --model \"<prefix><key>\" (default prefix G.)",
+        "keyLabel": "Route key",
+        "keyPlaceholder": "e.g. ds (letters/digits/._-, 1–32 chars)",
+        "keyInvalid": "Invalid route key: letters, digits and . _ - only, 1–32 chars",
+        "keyReserved": "\"default\" is reserved (always unbinds), pick another",
+        "keyDuplicate": "Route key already used by another provider in this app"
+      }
+    }
   },
   "claudeCode": {
     "needsRouting": "Needs Routing",
@@ -368,6 +382,18 @@
         "enableFailoverToggleDescription": "When enabled, the failover toggle will appear independently at the top of the main page",
         "running": "Running",
         "stopped": "Stopped"
+      },
+      "routePrefix": {
+        "title": "Session route prefix",
+        "description": "Route requests with --model \"<prefix><key>\" to routed providers; <prefix>default unbinds the session. Empty restores default G.",
+        "conflictHint": "Hint: this prefix resembles common model names and may mis-trigger; consider another (e.g. G., @)",
+        "invalid": {
+          "empty": "Prefix cannot be empty",
+          "length": "Prefix must be 1–8 characters",
+          "charset": "Prefix may only contain printable ASCII characters (no whitespace)",
+          "colon": "Prefix cannot contain a colon (: separates key from model)",
+          "boundary": "Prefix must end with a non-alphanumeric character (e.g. G., @)"
+        }
       },
       "connectivityCheck": {
         "title": "Connectivity Check Settings",

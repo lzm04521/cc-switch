@@ -9,6 +9,7 @@
     "delete": "削除",
     "save": "保存",
     "saving": "保存中...",
+    "saved": "保存済み",
     "cancel": "キャンセル",
     "confirm": "確認",
     "close": "閉じる",
@@ -110,7 +111,7 @@
     "importCurrent": "現在の設定をインポート",
     "importFromClaude": "Claude Code の既存プロバイダーをインポート",
     "importCurrentDescription": "現在使用中の設定をデフォルトプロバイダーとしてインポート",
-    "currentlyUsing": "現在使用中",
+    "currentlyUsing": "デフォルト",
     "enable": "有効化",
     "inUse": "使用中",
     "needsRouting": "ルーティングが必要",
@@ -128,7 +129,7 @@
     "addToConfig": "追加",
     "removeFromConfig": "削除",
     "setAsDefault": "デフォルトに設定",
-    "isDefault": "現在のデフォルト",
+    "isDefault": "デフォルト",
     "inConfig": "追加済み",
     "addProviderHint": "一覧にすばやく切り替えられるよう、ここに情報を入力してください。",
     "editClaudeProvider": "Claude Code プロバイダーを編集",
@@ -179,6 +180,19 @@
       }
     },
     "duplicateLiveIdsLoadFailed": "設定内のプロバイダー識別子を読み込めませんでした。設定を修正してから再度お試しください"
+  },
+  "providers": {
+    "form": {
+      "route": {
+        "title": "セッションルーティングに参加",
+        "description": "オンにすると --model \"<プレフィックス><key>\" でこのプロバイダーへリクエストをルーティングできます（デフォルトのプレフィックスは G.）",
+        "keyLabel": "ルーティングキー",
+        "keyPlaceholder": "例: ds（英数字/._-、1～32 文字）",
+        "keyInvalid": "ルーティングキーが不正です：英字・数字・. _ - のみ、長さ 1～32",
+        "keyReserved": "default は予約キー（常にバインド解除の扱い）のため、別のキーを指定してください",
+        "keyDuplicate": "このルーティングキーは同じアプリ内の他のプロバイダーで既に使われています"
+      }
+    }
   },
   "claudeCode": {
     "needsRouting": "ルーティングが必要",
@@ -368,6 +382,18 @@
         "enableFailoverToggleDescription": "有効にすると、メインページ上部にフェイルオーバー切り替えが独立して表示されます",
         "running": "実行中",
         "stopped": "停止中"
+      },
+      "routePrefix": {
+        "title": "セッションルーティングプレフィックス",
+        "description": "プロバイダーで「セッションルーティングに参加」をオンにすると、--model \"<プレフィックス><key>\" でリクエストをそのプロバイダーへルーティングします。<プレフィックス>default でセッションのバインドを解除します。空欄にするとデフォルトの G. に戻ります。",
+        "conflictHint": "ヒント：このプレフィックスは一般的なモデル名と似ているため、誤ってマッチする可能性があります。別のもの（例: G.、@）を検討してください",
+        "invalid": {
+          "empty": "プレフィックスは空にできません",
+          "length": "プレフィックスは 1～8 文字にする必要があります",
+          "charset": "プレフィックスには印刷可能な ASCII 文字のみ使用できます（空白は不可）",
+          "colon": "プレフィックスにコロンは使用できません（: は key とモデルの区切りです）",
+          "boundary": "プレフィックスは英数字以外の文字で終わる必要があります（例: G.、@）"
+        }
       },
       "connectivityCheck": {
         "title": "接続チェック設定",
