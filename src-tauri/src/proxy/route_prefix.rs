@@ -260,10 +260,59 @@ pub fn resolve_route_provider(
     }
 }
 
+/// session 粘性路由（设计 §3.8）：同 session 的无前缀请求
+/// （subagent / classifier / 后台 haiku，模型名来自
+/// CLAUDE_CODE_SUBAGENT_MODEL 与档位默认值，不带前缀）复用首个
+/// `G.<key>` 请求绑定的分组，避免「主对话在锁定分组、子代理在默认分组」
+/// 的会话内分裂。
+///
+/// 绑定命中 ≠ 显式路由：不改写 body.model、不插透传标记——模型名照常
+/// 走目标分组常规 map_model（档位 → subagent 保护 → ANTHROPIC_MODEL 兜底）。
+/// 目标分组配了 ANTHROPIC_MODEL 时可把 CLAUDE_CODE_SUBAGENT_MODEL 的值
+/// （如 deepseek-xxx）兜底替换，避免发给不认识它的上游报错；未配兜底则
+/// 原样发出（与无前缀请求行为一致）。
+async fn sticky_route_lookup(
+    state: &ProxyState,
+    ctx: &mut RequestContext,
+) -> Result<(), ProxyError> {
+    if !ctx.session_client_provided {
+        return Ok(()); // 生成型 session id 每请求都变，绑定无意义
+    }
+    let Some(key) = state.route_bindings.lookup(&ctx.session_id) else {
+        return Ok(()); // 无绑定：默认分组原路径
+    };
+    let all = state
+        .db
+        .get_all_providers(ctx.app_type_str)
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    match resolve_route_provider(&all, &key) {
+        Ok(target) => {
+            // 守卫与显式路由一致（A1）：仅置换 provider 链，不动模型名
+            let target_name = target.name.clone();
+            lock_context_to_provider(ctx, target);
+            log::debug!(
+                "[RoutePrefix] session {} 粘性跟随分组「{target_name}」（key: {key}）",
+                ctx.session_id
+            );
+            Ok(())
+        }
+        Err(_) => {
+            // 绑定失效（key 对应分组被删 / 路由开关关闭）：
+            // 清绑定、回落默认分组并记日志（设计 §3.8 绑定失效）
+            state.route_bindings.unbind(&ctx.session_id);
+            log::warn!(
+                "[RoutePrefix] session {} 绑定的路由 key「{key}」已失效（分组删除或路由关闭），回落默认分组",
+                ctx.session_id
+            );
+            Ok(())
+        }
+    }
+}
+
 /// 会话级路由应用点（仅 Claude / ClaudeDesktop 链路调用，设计 §3.3/§3.4）：
 /// 1. model 带路由前缀 → 解析 key、锁定分组、改写 body.model、绑定 session
 /// 2. `<前缀>default` → 解绑 session，回落默认分组
-/// 3. model 无前缀 → 不做任何事（session 粘性查询由 Task 7 接入）
+/// 3. model 无前缀 → session 粘性查询（sticky_route_lookup，跟随绑定分组）
 ///
 /// 审计保真：调用点在 api_log record_received 之后（received 报文保留
 /// `G.` 原文，forward 报文为改写后内容）；request_model（ctx）保留原值，
@@ -282,7 +331,7 @@ pub async fn apply_route(
     };
     let prefix = crate::settings::get_route_prefix();
     let Some(parsed) = parse_route_target(&model, &prefix) else {
-        return Ok(()); // 无前缀：默认分组原路径，行为零变化
+        return sticky_route_lookup(state, ctx).await;
     };
     if parsed.key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) {
         state.route_bindings.unbind(&ctx.session_id);
