@@ -11,7 +11,13 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
+use crate::app_config::AppType;
+use crate::provider::Provider;
+use crate::proxy::error::ProxyError;
+use crate::proxy::handler_context::RequestContext;
 use crate::proxy::model_mapper::strip_one_m_suffix_for_upstream;
+use crate::proxy::server::ProxyState;
+use serde_json::Value;
 
 /// 默认路由触发前缀（完整触发串，含边界符）
 pub const DEFAULT_ROUTE_PREFIX: &str = "G.";
@@ -197,6 +203,154 @@ pub fn parse_route_target(model: &str, prefix: &str) -> Option<ParsedRoute> {
     }
 }
 
+/// per-request 透传标记：`G.<key>:<model>` 显式模型透传。
+/// apply_model_mapping 据此跳过目标分组 ANTHROPIC_MODEL 默认兜底
+///（模型名是用户点名的真值，静默换成默认模型比上游报错更难排查）
+#[derive(Debug, Clone, Copy)]
+pub struct RoutePassthrough;
+
+/// 在同 app 全部分组中按路由 key 解析锁定分组（设计 §3.2/§3.4）：
+/// - 仅认 route_enabled = true 且 key 匹配（大小写不敏感）的分组
+/// - key 重复（改库绕过保存校验）时取 sort_index 最小者并 warn（运行时兜底）
+/// - 未命中 fail-closed：报错含当前可用 key 列表，不回落默认分组
+pub fn resolve_route_provider(
+    all: &indexmap::IndexMap<String, Provider>,
+    key: &str,
+) -> Result<Provider, ProxyError> {
+    let mut candidates: Vec<&Provider> = all
+        .values()
+        .filter(|p| p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true))
+        .filter(|p| {
+            p.meta
+                .as_ref()
+                .and_then(|m| m.route_key.as_deref())
+                .map(|k| k.trim().eq_ignore_ascii_case(key.trim()))
+                .unwrap_or(false)
+        })
+        .collect();
+
+    match candidates.len() {
+        0 => {
+            let available: Vec<String> = all
+                .values()
+                .filter(|p| {
+                    p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true)
+                })
+                .filter_map(|p| p.meta.as_ref().and_then(|m| m.route_key.clone()))
+                .collect();
+            Err(ProxyError::ConfigError(format!(
+                "路由 key「{key}」未匹配到已加入路由的分组（当前可用: {}）",
+                if available.is_empty() {
+                    "无".to_string()
+                } else {
+                    available.join(", ")
+                }
+            )))
+        }
+        1 => Ok(candidates.remove(0).clone()),
+        _ => {
+            candidates.sort_by_key(|p| p.sort_index.unwrap_or(usize::MAX));
+            let chosen = candidates[0].clone();
+            log::warn!(
+                "[RoutePrefix] 路由 key「{key}」命中多个分组，兜底取 sort_index 最小者: {}",
+                chosen.name
+            );
+            Ok(chosen)
+        }
+    }
+}
+
+/// 会话级路由应用点（仅 Claude / ClaudeDesktop 链路调用，设计 §3.3/§3.4）：
+/// 1. model 带路由前缀 → 解析 key、锁定分组、改写 body.model、绑定 session
+/// 2. `<前缀>default` → 解绑 session，回落默认分组
+/// 3. model 无前缀 → 不做任何事（session 粘性查询由 Task 7 接入）
+///
+/// 审计保真：调用点在 api_log record_received 之后（received 报文保留
+/// `G.` 原文，forward 报文为改写后内容）；request_model（ctx）保留原值，
+/// 用量归因随 ctx.provider 落到锁定分组。
+pub async fn apply_route(
+    state: &ProxyState,
+    ctx: &mut RequestContext,
+    body: &mut Value,
+    extensions: &mut axum::http::Extensions,
+) -> Result<(), ProxyError> {
+    if !matches!(ctx.app_type, AppType::Claude | AppType::ClaudeDesktop) {
+        return Ok(()); // 生效范围守卫（设计 §3.7，双保险）
+    }
+    let Some(model) = body.get("model").and_then(Value::as_str).map(str::to_string) else {
+        return Ok(());
+    };
+    let prefix = crate::settings::get_route_prefix();
+    let Some(parsed) = parse_route_target(&model, &prefix) else {
+        return Ok(()); // 无前缀：默认分组原路径，行为零变化
+    };
+    if parsed.key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) {
+        state.route_bindings.unbind(&ctx.session_id);
+        log::info!(
+            "[RoutePrefix] session {} 请求解绑路由，回落默认分组",
+            ctx.session_id
+        );
+        return Ok(());
+    }
+    let all = state
+        .db
+        .get_all_providers(ctx.app_type_str)
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    let target = resolve_route_provider(&all, &parsed.key)?;
+    // 仅客户端提供的 session id 才绑定（生成的 UUID 每请求都变，绑了也白绑）
+    if ctx.session_client_provided {
+        state.route_bindings.bind(&ctx.session_id, &parsed.key);
+    }
+    match parsed.model_override.as_deref() {
+        Some(model_override) => {
+            // 显式模型透传：写入原始值 + 标记跳过 ANTHROPIC_MODEL 兜底
+            body["model"] = Value::String(model_override.to_string());
+            extensions.insert(RoutePassthrough);
+        }
+        None => {
+            let default_model = target
+                .settings_config
+                .pointer("/env/ANTHROPIC_MODEL")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .filter(|m| !m.is_empty());
+            let Some(default_model) = default_model else {
+                return Err(ProxyError::ConfigError(format!(
+                    "路由分组「{}」未配置默认模型（env.ANTHROPIC_MODEL），无法处理无显式模型的路由请求",
+                    target.name
+                )));
+            };
+            // 不插 RoutePassthrough：置换值照常走目标分组 map_model——
+            // 若值命中档位子串（如 claude-sonnet-4-6）且分组另配档位模型，
+            // 会被再替换一次；结果仍属该分组的已配置模型，接受（设计 §3.3 备注）
+            body["model"] = Value::String(default_model);
+        }
+    }
+    let target_name = target.name.clone();
+    lock_context_to_provider(ctx, target);
+    log::info!(
+        "[RoutePrefix] session {} 路由 key「{}」→ 分组「{target_name}」",
+        ctx.session_id,
+        parsed.key
+    );
+    Ok(())
+}
+
+/// A1 守卫（设计 §3.4）：把 ctx 锁定到目标分组——provider / providers
+///（单元素）/ current_provider_id 全部指向锁定分组，使 forwarder 4 处
+/// `should_switch`（forwarder.rs:565/668/814/978）恒为 false：不偷换默认
+/// 分组、不污染 failover_count、不触发 try_switch。
+/// 单元素 Vec 同时天然绕过熔断放行检查（forwarder.rs:465），显式点名
+/// 不应被全局健康度拦截；record_failure 健康统计仍照常累计（A2）。
+/// 已知可接受残留：状态栏「当前分组」展示字段（forwarder.rs:554
+/// current_providers.insert）无守卫，路由期间临时显示路由目标，
+/// 下个普通请求即刷回（设计 §3.4）。
+fn lock_context_to_provider(ctx: &mut RequestContext, target: Provider) {
+    ctx.current_provider_id = target.id.clone();
+    ctx.provider = target.clone();
+    ctx.set_providers(vec![target]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,5 +511,79 @@ mod tests {
         assert_eq!(store.lookup("s1"), Some("a".to_string()));
         assert_eq!(store.lookup("s2"), None);
         assert_eq!(store.lookup("s3"), Some("c".to_string()));
+    }
+
+    use crate::provider::{Provider, ProviderMeta};
+    use indexmap::IndexMap;
+
+    fn routed_provider(id: &str, key: &str, sort_index: Option<usize>) -> Provider {
+        let mut p = Provider::with_id(
+            id.to_string(),
+            format!("P-{id}"),
+            serde_json::json!({"env": {"ANTHROPIC_BASE_URL": "https://example.com"}}),
+            None,
+        );
+        p.sort_index = sort_index;
+        p.meta = Some(ProviderMeta {
+            route_enabled: Some(true),
+            route_key: Some(key.to_string()),
+            ..Default::default()
+        });
+        p
+    }
+
+    fn all_providers(entries: Vec<Provider>) -> IndexMap<String, Provider> {
+        entries
+            .into_iter()
+            .map(|p| (p.id.clone(), p))
+            .collect()
+    }
+
+    #[test]
+    fn resolve_matches_key_case_insensitively() {
+        let all = all_providers(vec![routed_provider("a", "ds", None)]);
+        let hit = resolve_route_provider(&all, "DS").expect("case-insensitive hit");
+        assert_eq!(hit.id, "a");
+    }
+
+    #[test]
+    fn resolve_ignores_disabled_and_keyless_providers() {
+        let mut disabled = routed_provider("a", "ds", None);
+        disabled.meta = Some(ProviderMeta {
+            route_enabled: Some(false),
+            route_key: Some("ds".into()),
+            ..Default::default()
+        });
+        let mut keyless = routed_provider("b", "", None);
+        keyless.meta = Some(ProviderMeta {
+            route_enabled: Some(true),
+            route_key: None,
+            ..Default::default()
+        });
+        let all = all_providers(vec![disabled, keyless]);
+        assert!(resolve_route_provider(&all, "ds").is_err());
+    }
+
+    #[test]
+    fn resolve_duplicate_key_falls_back_to_smallest_sort_index() {
+        // 直接改库绕过保存校验的场景：运行时兜底取 sort_index 最小者
+        let all = all_providers(vec![
+            routed_provider("later", "ds", Some(5)),
+            routed_provider("first", "ds", Some(1)),
+        ]);
+        let hit = resolve_route_provider(&all, "ds").expect("fallback hit");
+        assert_eq!(hit.id, "first");
+    }
+
+    #[test]
+    fn resolve_missing_key_fails_closed_with_available_list() {
+        let all = all_providers(vec![
+            routed_provider("a", "ds", None),
+            routed_provider("b", "glm", None),
+        ]);
+        let err = resolve_route_provider(&all, "notexist").expect_err("fail-closed");
+        let msg = err.to_string();
+        assert!(msg.contains("notexist"), "msg: {msg}");
+        assert!(msg.contains("ds") && msg.contains("glm"), "可用 key 列表缺失: {msg}");
     }
 }

@@ -57,8 +57,7 @@ pub struct RequestContext {
     pub tag: &'static str,
     /// 应用类型字符串（如 "claude"、"codex"、"gemini"）
     pub app_type_str: &'static str,
-    /// 应用类型（预留，目前通过 app_type_str 使用）
-    #[allow(dead_code)]
+    /// 应用类型
     pub app_type: AppType,
     /// Session ID（从客户端请求提取或新生成）
     pub session_id: String,
@@ -262,6 +261,12 @@ impl RequestContext {
     /// 返回在创建上下文时已选择的 providers，避免重复调用 select_providers()
     pub fn get_providers(&self) -> Vec<Provider> {
         self.providers.clone()
+    }
+
+    /// 置换故障转移 Provider 列表（会话级路由锁定单分组时使用，
+    /// 单元素 Vec 同时天然绕过熔断放行检查，见 forwarder.rs bypass_circuit_breaker）
+    pub fn set_providers(&mut self, providers: Vec<Provider>) {
+        self.providers = providers;
     }
 
     /// 计算请求延迟（毫秒）

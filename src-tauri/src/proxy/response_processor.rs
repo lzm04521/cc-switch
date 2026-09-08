@@ -912,6 +912,7 @@ mod tests {
     use crate::proxy::providers::{
         codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore,
     };
+    use crate::proxy::route_prefix::RouteBindingStore;
     use crate::proxy::types::{ProxyConfig, ProxyStatus};
     use rust_decimal::Decimal;
     use std::collections::HashMap;
@@ -1079,6 +1080,7 @@ mod tests {
             codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
             app_handle: None,
             failover_manager: Arc::new(FailoverSwitchManager::new(db)),
+            route_bindings: Arc::new(RouteBindingStore::default()),
         }
     }
 

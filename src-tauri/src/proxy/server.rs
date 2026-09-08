@@ -14,6 +14,7 @@ use super::{
     log_codes::srv as log_srv,
     provider_router::ProviderRouter,
     providers::{codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore},
+    route_prefix::RouteBindingStore,
     types::*,
     ProxyError,
 };
@@ -48,6 +49,8 @@ pub struct ProxyState {
     pub app_handle: Option<tauri::AppHandle>,
     /// 故障转移切换管理器
     pub failover_manager: Arc<FailoverSwitchManager>,
+    /// 会话级路由的 session 绑定表（进程内，重启即清空回落默认分组）
+    pub route_bindings: Arc<RouteBindingStore>,
 }
 
 /// 代理HTTP服务器
@@ -81,6 +84,7 @@ impl ProxyServer {
             codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
             app_handle,
             failover_manager,
+            route_bindings: Arc::new(RouteBindingStore::default()),
         };
 
         Self {
