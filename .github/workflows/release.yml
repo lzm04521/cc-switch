@@ -473,6 +473,27 @@ jobs:
             Write-Warning 'No Windows MSI installer found'
           }
 
+          # NSIS 安装器 .exe（仅 x64 构建；不参与 Updater，供手动下载安装）
+          if (-not $isArm64) {
+            $nsis = Get-ChildItem -Path (Join-Path $targetRoot 'bundle/nsis') -Recurse -Include *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $nsis) {
+              # x64 构建命令未限定 bundles（targets=all 必产 NSIS），到达此处仍缺失即异常，防静默丢产物
+              throw 'No Windows NSIS installer found'
+            }
+            $nsisDest = "CC-Switch-$VERSION-Windows.exe"
+            Copy-Item $nsis.FullName (Join-Path release-assets $nsisDest)
+            Write-Host "NSIS installer copied: $nsisDest"
+            $nsisSigPath = "$($nsis.FullName).sig"
+            if (Test-Path $nsisSigPath) {
+              Copy-Item $nsisSigPath (Join-Path release-assets ("$nsisDest.sig"))
+              Write-Host "Signature copied: $nsisDest.sig"
+            } else {
+              Write-Warning "Signature not found for $($nsis.Name)"
+            }
+          } else {
+            Write-Host 'Skip NSIS installer collection for ARM64 (built with --bundles msi only)'
+          }
+
           # 绿色版（portable）：仅可执行文件打 zip（不参与 Updater）
           $exeCandidates = if ($isArm64) {
             @('src-tauri/target/aarch64-pc-windows-msvc/release/cc-switch.exe')
@@ -619,7 +640,7 @@ jobs:
             ### 下载
 
             - **macOS**: `CC-Switch-${{ github.ref_name }}-macOS.dmg`（推荐）或 `CC-Switch-${{ github.ref_name }}-macOS.zip`（解压即用）
-            - **Windows (x86_64)**: `CC-Switch-${{ github.ref_name }}-Windows.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
+            - **Windows (x86_64)**: `CC-Switch-${{ github.ref_name }}-Windows.exe`（NSIS 安装版）或 `CC-Switch-${{ github.ref_name }}-Windows.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
             - **Windows (ARM64)**: `CC-Switch-${{ github.ref_name }}-Windows-arm64.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-arm64-Portable.zip`（绿色版）
             - **Linux (x86_64)**: `CC-Switch-${{ github.ref_name }}-Linux-x86_64.AppImage` / `.deb` / `.rpm`
             - **Linux (ARM64)**: `CC-Switch-${{ github.ref_name }}-Linux-arm64.AppImage` / `.deb` / `.rpm`

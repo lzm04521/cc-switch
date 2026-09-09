@@ -1,0 +1,151 @@
+# Backfill NSIS .exe installer for an already-published release tag.
+#
+# Why push-trigger on a dedicated branch instead of workflow_dispatch:
+# GitHub only allows dispatching workflows that exist on the DEFAULT branch
+# (main here), and main is read-only upstream-tracking — fork CI files live
+# on local/* branches. A push to local/ci-backfill-exe triggers this run.
+#
+# Usage: set TAG below, commit, then
+#   git push origin <any-branch-with-this-file>:refs/heads/local/ci-backfill-exe --force
+# The build checks out TAG (not the branch HEAD), so the branch content only
+# carries the workflow definition itself.
+name: Backfill EXE asset
+
+on:
+  push:
+    branches:
+      - local/ci-backfill-exe
+
+permissions:
+  contents: write
+
+env:
+  # 要补产物的 release tag（改这里后重推 local/ci-backfill-exe 分支触发）
+  TAG: v3.20.2-4
+
+jobs:
+  backfill-exe:
+    name: Build NSIS installer and upload
+    runs-on: windows-2022
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify tag matches tauri.conf.json version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VER="${TAG#v}"
+          CONF_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$TAG_VER" != "$CONF_VER" ]; then
+            echo "::error::tag ${TAG} 与 tauri.conf.json version ${CONF_VER} 不一致"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack enable
+          corepack install
+          node --version
+          pnpm --version
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Tauri signing key
+        shell: bash
+        run: |
+          # 调试：检查 Secret 是否存在
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "❌ TAURI_SIGNING_PRIVATE_KEY Secret 为空或不存在" >&2
+            echo "请检查 GitHub 仓库 Settings > Secrets and variables > Actions" >&2
+            exit 1
+          fi
+
+          RAW="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          # 目标：提供正确的私钥“文件路径”给 Tauri CLI，避免内容解码歧义
+          KEY_PATH="$RUNNER_TEMP/tauri_signing.key"
+          # 情况 1：原始两行文本（第一行以 "untrusted comment:" 开头）
+          if echo "$RAW" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$RAW" > "$KEY_PATH"
+            echo "✅ 使用原始两行密钥文件格式"
+          else
+            # 情况 2：整体被 base64 包裹（解包后应当是两行）
+            if DECODED=$(printf '%s' "$RAW" | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
+               && echo "$DECODED" | head -n1 | grep -q '^untrusted comment:'; then
+              printf '%s\n' "$DECODED" > "$KEY_PATH"
+              echo "✅ 成功解码 base64 包裹密钥，已还原为两行文件"
+            else
+              # 情况 3：已是第二行（纯 Base64 一行）→ 构造两行文件
+              if echo "$RAW" | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+                ONE=$(printf '%s' "$RAW" | tr -d '\r\n')
+                printf '%s\n%s\n' "untrusted comment: tauri signing key" "$ONE" > "$KEY_PATH"
+                echo "✅ 使用一行 Base64 私钥，已构造两行文件"
+              else
+                echo "❌ TAURI_SIGNING_PRIVATE_KEY 格式无法识别：既不是两行原文，也不是其 base64，亦非一行 base64" >&2
+                echo "密钥前10个字符: $(echo "$RAW" | head -c 10)..." >&2
+                exit 1
+              fi
+            fi
+          fi
+          # 将“完整两行内容”进行 base64 编码，作为单行内容注入环境变量
+          if command -v base64 >/dev/null 2>&1; then
+            KEY_B64=$(base64 < "$KEY_PATH" | tr -d '\r\n')
+          elif command -v openssl >/dev/null 2>&1; then
+            KEY_B64=$(openssl base64 -A -in "$KEY_PATH")
+          else
+            KEY_B64=$(KEY_PATH="$KEY_PATH" node -e "process.stdout.write(require('fs').readFileSync(process.env.KEY_PATH).toString('base64'))")
+          fi
+          if [ -z "$KEY_B64" ]; then
+            echo "❌ 无法生成私钥 base64 内容" >&2
+            exit 1
+          fi
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_B64" >> "$GITHUB_ENV"
+          if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+          echo "✅ Tauri signing key prepared"
+
+      - name: Build Tauri App (NSIS only)
+        shell: pwsh
+        run: pnpm tauri build --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload NSIS installer to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          exe=$(find src-tauri/target/release/bundle/nsis -maxdepth 1 -name '*.exe' -type f | head -1)
+          if [ -z "$exe" ]; then
+            echo "::error::No NSIS .exe found under bundle/nsis"
+            exit 1
+          fi
+          dest="CC-Switch-${TAG}-Windows.exe"
+          cp "$exe" "$dest"
+          if [ -f "$exe.sig" ]; then
+            cp "$exe.sig" "$dest.sig"
+          else
+            echo "::warning::No .sig alongside NSIS installer (exe 不参与 Updater，可接受)"
+          fi
+          ls -la "$dest" "$dest.sig" 2>/dev/null || ls -la "$dest"
+          gh release upload "$TAG" "$dest" --clobber --repo "$GITHUB_REPOSITORY"
+          if [ -f "$dest.sig" ]; then
+            gh release upload "$TAG" "$dest.sig" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
+          echo "✅ Uploaded to release $TAG: $dest"
