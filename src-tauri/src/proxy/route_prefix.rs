@@ -268,6 +268,9 @@ pub fn resolve_route_provider(
 /// models 端点同款口径）
 const MODELS_LIST_EPOCH_ISO: &str = "1970-01-01T00:00:00Z";
 
+/// 回落条目 display_name：选中即解绑会话粘性绑定、回落默认分组
+const ROUTE_FALLBACK_DISPLAY_NAME: &str = "回落默认分组";
+
 /// 剥离并探测 `[1M]` 后缀：返回 (基础模型名, 是否带 1M)。
 /// 判定大小写不敏感（存储端存在 "[1M]" 与 "[1m]" 两种形态）；
 /// 渲染层统一大写 "[1M]"。
@@ -296,7 +299,9 @@ fn models_list_entry(id: &str, display_name: &str) -> Value {
 ///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
 ///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
 /// - Both：分组条目在前、模型条目在后
-/// - 无路由分组 → 空 Vec（fail-open，空列表不是错误）
+/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>default`
+///   （display_name「回落默认分组」）——粘性绑定建立后，/model 选择器里
+///   唯一可见的解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
 pub fn build_route_models_list(
     all: &indexmap::IndexMap<String, Provider>,
     prefix: &str,
@@ -338,6 +343,16 @@ pub fn build_route_models_list(
     }
 
     let mut entries: Vec<Value> = Vec::new();
+
+    // 回落条目：id 恒为 <前缀>default（RESERVED_ROUTE_KEY，apply_route 对其
+    // 解绑粘性绑定）；保存校验已禁止分组占用该 key，无 id 冲突。
+    // Models 模式下用户经 G.<key>:<model> 条目同样会建立绑定，故任意 mode 均输出
+    if !eligible.is_empty() {
+        entries.push(models_list_entry(
+            &format!("{prefix}{RESERVED_ROUTE_KEY}"),
+            ROUTE_FALLBACK_DISPLAY_NAME,
+        ));
+    }
 
     if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
         for (provider, key, mapping) in &eligible {
@@ -421,7 +436,8 @@ async fn sticky_route_lookup(
             // 守卫与显式路由一致（A1）：仅置换 provider 链，不动模型名
             let target_name = target.name.clone();
             lock_context_to_provider(ctx, target);
-            log::debug!(
+            // info 级与显式路由对称：粘性跟随直接影响供应商归属，现场须可查
+            log::info!(
                 "[RoutePrefix] session {} 粘性跟随分组「{target_name}」（key: {key}）",
                 ctx.session_id
             );
@@ -834,9 +850,16 @@ mod tests {
         let all = route_list_map(vec![ds_group(), kc_group(), plain_group()]);
         let entries =
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        assert_eq!(entry_ids(&entries), vec!["G.DS[1M]", "G.KC"]);
-        // display_name = 分组名；未开启路由的 p3 不出现
-        assert_eq!(entries[0]["display_name"], serde_json::json!("DeepSeek"));
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.default", "G.DS[1M]", "G.KC"]
+        );
+        // display_name：回落条目固定文案、分组条目 = 分组名；未开启路由的 p3 不出现
+        assert_eq!(
+            entries[0]["display_name"],
+            serde_json::json!("回落默认分组")
+        );
+        assert_eq!(entries[1]["display_name"], serde_json::json!("DeepSeek"));
     }
 
     #[test]
@@ -848,10 +871,10 @@ mod tests {
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
         assert_eq!(
             entry_ids(&entries),
-            vec!["G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
+            vec!["G.default", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
         );
         assert_eq!(
-            entries[0]["display_name"],
+            entries[1]["display_name"],
             serde_json::json!("deepseek-v4-pro [1M]")
         );
     }
@@ -863,8 +886,35 @@ mod tests {
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Both);
         assert_eq!(
             entry_ids(&entries),
-            vec!["G.DS[1M]", "G.KC", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
+            vec![
+                "G.default",
+                "G.DS[1M]",
+                "G.KC",
+                "G.DS:deepseek-v4-pro[1M]",
+                "G.KC:kimi-k2"
+            ]
         );
+    }
+
+    #[test]
+    fn models_list_fallback_entry_leads_in_every_mode() {
+        // 回落条目不受 mode 影响、置顶，且前缀任意（此处用 "@" 验证拼接）
+        let all = route_list_map(vec![ds_group()]);
+        for mode in [
+            crate::settings::RouteModelsMode::Groups,
+            crate::settings::RouteModelsMode::Models,
+            crate::settings::RouteModelsMode::Both,
+        ] {
+            let entries = build_route_models_list(&all, "@", mode);
+            assert_eq!(
+                entry_ids(&entries).first().map(String::as_str),
+                Some("@default")
+            );
+            assert_eq!(
+                entries[0]["display_name"],
+                serde_json::json!("回落默认分组")
+            );
+        }
     }
 
     #[test]
@@ -875,7 +925,8 @@ mod tests {
         let all = route_list_map(vec![ds_group(), dirty, dup]);
         let entries =
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        assert_eq!(entry_ids(&entries), vec!["G.DS[1M]"]);
+        // 脏/重复分组被跳过，但存在合规分组 → 回落条目仍输出
+        assert_eq!(entry_ids(&entries), vec!["G.default", "G.DS[1M]"]);
     }
 
     #[test]
