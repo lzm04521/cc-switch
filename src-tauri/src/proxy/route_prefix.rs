@@ -278,13 +278,15 @@ fn split_base_and_one_m(raw: &str) -> (String, bool) {
     (stripped.trim().to_string(), has_one_m)
 }
 
-/// 所有条目 display_name 恒等于 id：/model 选择器显示名即发送值，
-/// 按显示名搜索/手打直接可用（设计 §4.4，用户决策 2026-09-09）
-fn models_list_entry(id: &str) -> Value {
+/// 条目 display_name = id 去掉路由触发前缀（模型条目保留 `分组:模型[1M]`
+/// 形态；id 必须带前缀才能被 CLI 发送触发路由，显示名去掉前缀减少视觉
+/// 冗余——用户决策 2026-09-09，取代早前"display_name=id"方案）
+fn models_list_entry(id: &str, prefix: &str) -> Value {
+    let display = id.strip_prefix(prefix).unwrap_or(id);
     serde_json::json!({
         "type": "model",
         "id": id,
-        "display_name": id,
+        "display_name": display,
         "created_at": MODELS_LIST_EPOCH_ISO,
     })
 }
@@ -299,9 +301,9 @@ fn models_list_entry(id: &str) -> Value {
 ///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
 /// - Both：分组条目在前、模型条目在后
 /// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>Default`
-///   （id 与 display_name 一致，/model 选择器显示名即发送值；保留 key
-///   匹配大小写不敏感，手打 G.default 同样解绑）——粘性绑定建立后
-///   /model 选择器里唯一可见的解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
+///   （display_name「Default」；保留 key 匹配大小写不敏感，手打
+///   G.default 同样解绑）——粘性绑定建立后 /model 选择器里唯一可见的
+///   解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
 pub fn build_route_models_list(
     all: &indexmap::IndexMap<String, Provider>,
     prefix: &str,
@@ -350,7 +352,7 @@ pub fn build_route_models_list(
     // 条目同样会建立绑定，故任意 mode 均输出
     if !eligible.is_empty() {
         let fallback_id = format!("{prefix}Default");
-        entries.push(models_list_entry(&fallback_id));
+        entries.push(models_list_entry(&fallback_id, prefix));
     }
 
     if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
@@ -364,7 +366,7 @@ pub fn build_route_models_list(
             if group_one_m {
                 id.push_str("[1M]");
             }
-            entries.push(models_list_entry(&id));
+            entries.push(models_list_entry(&id, prefix));
         }
     }
 
@@ -395,7 +397,7 @@ pub fn build_route_models_list(
                 if has_one_m {
                     id.push_str("[1M]");
                 }
-                entries.push(models_list_entry(&id));
+                entries.push(models_list_entry(&id, prefix));
             }
         }
     }
@@ -851,14 +853,14 @@ mod tests {
             entry_ids(&entries),
             vec!["G.Default", "G.DS[1M]", "G.KC"]
         );
-        // display_name 恒等于 id（所见即所发）；未开启路由的 p3 不出现
+        // display_name = id 去掉触发前缀；未开启路由的 p3 不出现
         assert_eq!(
             entries[0]["display_name"],
-            serde_json::json!("G.Default")
+            serde_json::json!("Default")
         );
         assert_eq!(
             entries[1]["display_name"],
-            serde_json::json!("G.DS[1M]")
+            serde_json::json!("DS[1M]")
         );
     }
 
@@ -875,7 +877,7 @@ mod tests {
         );
         assert_eq!(
             entries[1]["display_name"],
-            serde_json::json!("G.DS:deepseek-v4-pro[1M]")
+            serde_json::json!("DS:deepseek-v4-pro[1M]")
         );
     }
 
@@ -912,7 +914,7 @@ mod tests {
             );
             assert_eq!(
                 entries[0]["display_name"],
-                serde_json::json!("@Default")
+                serde_json::json!("Default")
             );
         }
     }
