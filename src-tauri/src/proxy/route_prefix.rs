@@ -268,9 +268,6 @@ pub fn resolve_route_provider(
 /// models 端点同款口径）
 const MODELS_LIST_EPOCH_ISO: &str = "1970-01-01T00:00:00Z";
 
-/// 回落条目 display_name：选中即解绑会话粘性绑定、回落默认分组
-const ROUTE_FALLBACK_DISPLAY_NAME: &str = "回落默认分组";
-
 /// 剥离并探测 `[1M]` 后缀：返回 (基础模型名, 是否带 1M)。
 /// 判定大小写不敏感（存储端存在 "[1M]" 与 "[1m]" 两种形态）；
 /// 渲染层统一大写 "[1M]"。
@@ -281,11 +278,13 @@ fn split_base_and_one_m(raw: &str) -> (String, bool) {
     (stripped.trim().to_string(), has_one_m)
 }
 
-fn models_list_entry(id: &str, display_name: &str) -> Value {
+/// 所有条目 display_name 恒等于 id：/model 选择器显示名即发送值，
+/// 按显示名搜索/手打直接可用（设计 §4.4，用户决策 2026-09-09）
+fn models_list_entry(id: &str) -> Value {
     serde_json::json!({
         "type": "model",
         "id": id,
-        "display_name": display_name,
+        "display_name": id,
         "created_at": MODELS_LIST_EPOCH_ISO,
     })
 }
@@ -299,9 +298,10 @@ fn models_list_entry(id: &str, display_name: &str) -> Value {
 ///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
 ///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
 /// - Both：分组条目在前、模型条目在后
-/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>default`
-///   （display_name「回落默认分组」）——粘性绑定建立后，/model 选择器里
-///   唯一可见的解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
+/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>Default`
+///   （id 与 display_name 一致，/model 选择器显示名即发送值；保留 key
+///   匹配大小写不敏感，手打 G.default 同样解绑）——粘性绑定建立后
+///   /model 选择器里唯一可见的解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
 pub fn build_route_models_list(
     all: &indexmap::IndexMap<String, Provider>,
     prefix: &str,
@@ -344,18 +344,17 @@ pub fn build_route_models_list(
 
     let mut entries: Vec<Value> = Vec::new();
 
-    // 回落条目：id 恒为 <前缀>default（RESERVED_ROUTE_KEY，apply_route 对其
-    // 解绑粘性绑定）；保存校验已禁止分组占用该 key，无 id 冲突。
-    // Models 模式下用户经 G.<key>:<model> 条目同样会建立绑定，故任意 mode 均输出
+    // 回落条目：id/display_name 统一为 <前缀>Default（首字母大写与分组 key
+    // 风格一致；apply_route 对保留 key 大小写不敏感解绑，保存校验已禁止
+    // 分组占用该 key，无 id 冲突）。Models 模式下用户经 G.<key>:<model>
+    // 条目同样会建立绑定，故任意 mode 均输出
     if !eligible.is_empty() {
-        entries.push(models_list_entry(
-            &format!("{prefix}{RESERVED_ROUTE_KEY}"),
-            ROUTE_FALLBACK_DISPLAY_NAME,
-        ));
+        let fallback_id = format!("{prefix}Default");
+        entries.push(models_list_entry(&fallback_id));
     }
 
     if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
-        for (provider, key, mapping) in &eligible {
+        for (_provider, key, mapping) in &eligible {
             let group_one_m = mapping
                 .default_model
                 .as_deref()
@@ -365,7 +364,7 @@ pub fn build_route_models_list(
             if group_one_m {
                 id.push_str("[1M]");
             }
-            entries.push(models_list_entry(&id, &provider.name));
+            entries.push(models_list_entry(&id));
         }
     }
 
@@ -393,12 +392,10 @@ pub fn build_route_models_list(
             }
             for (base, has_one_m) in models {
                 let mut id = format!("{prefix}{key}:{base}");
-                let mut display = base.clone();
                 if has_one_m {
                     id.push_str("[1M]");
-                    display.push_str(" [1M]");
                 }
-                entries.push(models_list_entry(&id, &display));
+                entries.push(models_list_entry(&id));
             }
         }
     }
@@ -852,14 +849,17 @@ mod tests {
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
         assert_eq!(
             entry_ids(&entries),
-            vec!["G.default", "G.DS[1M]", "G.KC"]
+            vec!["G.Default", "G.DS[1M]", "G.KC"]
         );
-        // display_name：回落条目固定文案、分组条目 = 分组名；未开启路由的 p3 不出现
+        // display_name 恒等于 id（所见即所发）；未开启路由的 p3 不出现
         assert_eq!(
             entries[0]["display_name"],
-            serde_json::json!("回落默认分组")
+            serde_json::json!("G.Default")
         );
-        assert_eq!(entries[1]["display_name"], serde_json::json!("DeepSeek"));
+        assert_eq!(
+            entries[1]["display_name"],
+            serde_json::json!("G.DS[1M]")
+        );
     }
 
     #[test]
@@ -871,11 +871,11 @@ mod tests {
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
         assert_eq!(
             entry_ids(&entries),
-            vec!["G.default", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
+            vec!["G.Default", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
         );
         assert_eq!(
             entries[1]["display_name"],
-            serde_json::json!("deepseek-v4-pro [1M]")
+            serde_json::json!("G.DS:deepseek-v4-pro[1M]")
         );
     }
 
@@ -887,7 +887,7 @@ mod tests {
         assert_eq!(
             entry_ids(&entries),
             vec![
-                "G.default",
+                "G.Default",
                 "G.DS[1M]",
                 "G.KC",
                 "G.DS:deepseek-v4-pro[1M]",
@@ -908,11 +908,11 @@ mod tests {
             let entries = build_route_models_list(&all, "@", mode);
             assert_eq!(
                 entry_ids(&entries).first().map(String::as_str),
-                Some("@default")
+                Some("@Default")
             );
             assert_eq!(
                 entries[0]["display_name"],
-                serde_json::json!("回落默认分组")
+                serde_json::json!("@Default")
             );
         }
     }
@@ -926,7 +926,7 @@ mod tests {
         let entries =
             build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
         // 脏/重复分组被跳过，但存在合规分组 → 回落条目仍输出
-        assert_eq!(entry_ids(&entries), vec!["G.default", "G.DS[1M]"]);
+        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS[1M]"]);
     }
 
     #[test]
