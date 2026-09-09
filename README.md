@@ -86,13 +86,14 @@
 
 从本 Fork 的 [Releases](../../releases/latest) 页面下载：
 
-| 平台 | 安装包 |
-|---|---|
-| Windows x64 | `CC-Switch-v<版本>-Windows.msi`（安装版）/ `CC-Switch-v<版本>-Windows-Portable.zip`（绿色版） |
-| Windows ARM64 | `CC-Switch-v<版本>-Windows-arm64.msi`（安装版）/ `CC-Switch-v<版本>-Windows-arm64-Portable.zip`（绿色版） |
+| 平台 | 安装版 | 绿色版 |
+|---|---|---|
+| Windows x64 | `CC-Switch-v<版本>-Windows.exe`（NSIS）或 `CC-Switch-v<版本>-Windows.msi` | `CC-Switch-v<版本>-Windows-Portable.zip` |
+| Windows ARM64 | `CC-Switch-v<版本>-Windows-arm64.msi` | `CC-Switch-v<版本>-Windows-arm64-Portable.zip` |
 
 - 系统要求：Windows 10 及以上。
-- 安装后，应用内自动更新持续指向本 Fork，可就地升级后续版本。
+- x64 的 `.exe`（NSIS）与 `.msi` 均为安装版，二选一即可（`.exe` 自 v3.20.2-4 起提供）；ARM64 仅提供 `.msi` 安装版。
+- 应用内自动更新统一通过 `.msi` 分发，持续指向本 Fork，可就地升级后续版本。
 - 从上游正式版切换到本 Fork 需手动安装一次：版本号语义上 `-N` 后缀（如 `3.20.0-5`）低于同号正式版 `3.20.0`，不会被当作自动升级推送。
 
 ## 如何跟随上游
