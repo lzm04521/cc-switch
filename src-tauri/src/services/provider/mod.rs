@@ -6381,8 +6381,8 @@ impl ProviderService {
             ));
         };
         let len = key.chars().count();
-        if !(1..=32).contains(&len) {
-            return Err(AppError::Message(format!("路由 key 长度须为 1–32 个字符: {key}")));
+        if !(1..=100).contains(&len) {
+            return Err(AppError::Message(format!("路由 key 长度须为 1–100 个字符: {key}")));
         }
         if !key
             .chars()

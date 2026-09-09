@@ -10,6 +10,7 @@ describe("validateRouteKey", () => {
   it("接受合法 key", () => {
     expect(validateRouteKey("opus", existing)).toBeNull();
     expect(validateRouteKey("my-key.v2", existing)).toBeNull();
+    expect(validateRouteKey("a".repeat(100), existing)).toBeNull(); // 上限边界
     expect(validateRouteKey("  ds3  ", existing)).toBeNull(); // trim 后合法
   });
 
@@ -20,7 +21,7 @@ describe("validateRouteKey", () => {
     expect(validateRouteKey("bad key!", existing)).toBe(
       "providers.form.route.keyInvalid",
     );
-    expect(validateRouteKey("a".repeat(33), existing)).toBe(
+    expect(validateRouteKey("a".repeat(101), existing)).toBe(
       "providers.form.route.keyInvalid",
     );
   });

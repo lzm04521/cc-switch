@@ -188,8 +188,8 @@
         "title": "加入会话级路由",
         "description": "开启后可用 --model \"<前缀><key>\" 把请求路由到该分组（默认前缀 G.）",
         "keyLabel": "路由 key",
-        "keyPlaceholder": "如 ds（字母/数字/._-，1–32 位）",
-        "keyInvalid": "路由 key 不合法：仅字母、数字与 . _ -，长度 1–32",
+        "keyPlaceholder": "如 ds（字母/数字/._-，1–100 位）",
+        "keyInvalid": "路由 key 不合法：仅字母、数字与 . _ -，长度 1–100",
         "keyReserved": "default 为保留 key（恒为解绑语义），请换一个",
         "keyDuplicate": "该路由 key 已被同应用内其他分组占用"
       }

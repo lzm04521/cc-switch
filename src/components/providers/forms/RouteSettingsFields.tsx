@@ -3,7 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const ROUTE_KEY_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
+const ROUTE_KEY_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 
 export interface RouteKeyOwner {
   key: string;
@@ -91,7 +91,7 @@ export function RouteSettingsFields({
             id="provider-route-key"
             value={routeKey}
             placeholder={t("providers.form.route.keyPlaceholder", {
-              defaultValue: "如 ds（字母/数字/._-，1–32 位）",
+              defaultValue: "如 ds（字母/数字/._-，1–100 位）",
             })}
             onChange={(e) =>
               onChange({ routeEnabled, routeKey: e.target.value })
@@ -101,7 +101,7 @@ export function RouteSettingsFields({
             <p className="text-xs text-red-500">
               {t(errorKey, {
                 defaultValue:
-                  "路由 key 不合法（字母/数字/._-，1–32 位，同应用内唯一，default 为保留字）",
+                  "路由 key 不合法（字母/数字/._-，1–100 位，同应用内唯一，default 为保留字）",
               })}
             </p>
           )}

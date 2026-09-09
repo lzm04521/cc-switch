@@ -3622,6 +3622,23 @@ fn route_key_validation_rejects_reserved_duplicate_and_invalid_charset() {
     .expect_err("invalid charset must be rejected");
     assert!(err.to_string().contains("只能包含"), "unexpected: {err}");
 
+    // 长度边界：100 通过、101 拒绝（与前端 ROUTE_KEY_PATTERN 同步）
+    ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-len-ok", &"a".repeat(100)),
+        false,
+    )
+    .expect("100-char key should be accepted");
+    let err = ProviderService::add(
+        &state,
+        AppType::Claude,
+        provider_with_route("route-len-bad", &"a".repeat(101)),
+        false,
+    )
+    .expect_err("101-char key must be rejected");
+    assert!(err.to_string().contains("长度"), "unexpected: {err}");
+
     // 更新自身改 key 合法（唯一性比对排除自身）
     ProviderService::update(
         &state,

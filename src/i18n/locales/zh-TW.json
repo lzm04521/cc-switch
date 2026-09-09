@@ -188,8 +188,8 @@
         "title": "加入會話級路由",
         "description": "開啟後可用 --model \"<前綴><key>\" 把請求路由到該分組（預設前綴 G.）",
         "keyLabel": "路由 key",
-        "keyPlaceholder": "如 ds（字母/數字/._-，1–32 位）",
-        "keyInvalid": "路由 key 不合法：僅字母、數字與 . _ -，長度 1–32",
+        "keyPlaceholder": "如 ds（字母/數字/._-，1–100 位）",
+        "keyInvalid": "路由 key 不合法：僅字母、數字與 . _ -，長度 1–100",
         "keyReserved": "default 為保留 key（恆為解綁語義），請換一個",
         "keyDuplicate": "該路由 key 已被同應用內其他分組佔用"
       }

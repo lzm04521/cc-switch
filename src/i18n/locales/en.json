@@ -188,8 +188,8 @@
         "title": "Join session routing",
         "description": "Route requests to this provider with --model \"<prefix><key>\" (default prefix G.)",
         "keyLabel": "Route key",
-        "keyPlaceholder": "e.g. ds (letters/digits/._-, 1–32 chars)",
-        "keyInvalid": "Invalid route key: letters, digits and . _ - only, 1–32 chars",
+        "keyPlaceholder": "e.g. ds (letters/digits/._-, 1–100 chars)",
+        "keyInvalid": "Invalid route key: letters, digits and . _ - only, 1–100 chars",
         "keyReserved": "\"default\" is reserved (always unbinds), pick another",
         "keyDuplicate": "Route key already used by another provider in this app"
       }
