@@ -649,6 +649,101 @@ fn enabling_codex_mcp_skips_when_codex_dir_missing() {
 }
 
 #[test]
+fn workbuddy_toggle_writes_live_mcp_json() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    // WorkBuddy 与 codex 不同：live 目录缺失时不跳过写入，
+    // workbuddy_config::set_mcp_server 会自建父目录，无需预置 ~/.workbuddy。
+    // reset_test_fs 不清理 .workbuddy（同二进制内 sync_all_enabled_* 用例会
+    // 投影创建该目录），这里显式删除以保持"目录缺失"前置条件。
+    let workbuddy_dir = home.join(".workbuddy");
+    if workbuddy_dir.exists() {
+        fs::remove_dir_all(&workbuddy_dir).expect("clean leftover .workbuddy");
+    }
+    assert!(
+        !workbuddy_dir.exists(),
+        "~/.workbuddy should not exist after explicit cleanup"
+    );
+
+    let mut config = MultiAppConfig::default();
+    config.ensure_app(&AppType::Workbuddy);
+
+    config.mcp.servers = Some(HashMap::new());
+    config.mcp.servers.as_mut().unwrap().insert(
+        "workbuddy-server".into(),
+        McpServer {
+            id: "workbuddy-server".to_string(),
+            name: "WorkBuddy Server".to_string(),
+            server: json!({
+                "type": "stdio",
+                "command": "echo"
+            }),
+            apps: McpApps {
+                claude: false,
+                codex: false,
+                gemini: false,
+                grokbuild: false,
+                opencode: false,
+                hermes: false,
+                zcode: false,
+                dsh: false,
+                workbuddy: false, // 初始未启用
+            },
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: Vec::new(),
+        },
+    );
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    McpService::toggle_app(&state, "workbuddy-server", AppType::Workbuddy, true)
+        .expect("toggle_app should succeed");
+
+    let servers = state.db.get_all_mcp_servers().expect("get all mcp servers");
+    let entry = servers
+        .get("workbuddy-server")
+        .expect("workbuddy server exists");
+    assert!(
+        entry.apps.workbuddy,
+        "server should have WorkBuddy app enabled after toggle"
+    );
+
+    // 启用必须写顶层 mcpServers 到 ~/.workbuddy/mcp.json（含自建父目录）
+    let mcp_json = home.join(".workbuddy").join("mcp.json");
+    assert!(
+        mcp_json.exists(),
+        "enabling server should write ~/.workbuddy/mcp.json even when the dir was missing"
+    );
+    let live: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&mcp_json).expect("read workbuddy mcp.json"))
+            .expect("parse workbuddy mcp.json");
+    let live_servers = live
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .expect("mcpServers should be an object in workbuddy mcp.json");
+    assert!(
+        live_servers.get("workbuddy-server").is_some(),
+        "workbuddy mcp.json should include the enabled server entry"
+    );
+
+    // 关闭：条目应从 live mcp.json 移除
+    McpService::toggle_app(&state, "workbuddy-server", AppType::Workbuddy, false)
+        .expect("toggle off should succeed");
+    let live: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&mcp_json).expect("read workbuddy mcp.json after disable"),
+    )
+    .expect("parse workbuddy mcp.json after disable");
+    assert!(
+        live.pointer("/mcpServers/workbuddy-server").is_none(),
+        "disabling WorkBuddy should remove the entry from ~/.workbuddy/mcp.json"
+    );
+}
+
+#[test]
 fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

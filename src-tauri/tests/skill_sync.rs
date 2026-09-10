@@ -474,3 +474,56 @@ fn dsh_skill_toggle_syncs_dsh_skills_dir() {
     SkillService::toggle_app(&state.db, &skill.id, &AppType::Dsh, true).expect("enable dsh");
     assert!(dsh_link.exists());
 }
+
+#[test]
+fn workbuddy_skill_toggle_syncs_workbuddy_skills_dir() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    // 在 ~/.claude/skills 预置一个技能，导入时仅启用 WorkBuddy
+    write_skill(
+        &home.join(".claude").join("skills").join("workbuddy-skill"),
+        "WorkBuddy Skill",
+    );
+
+    let state = create_test_state().expect("create test state");
+    let imported = SkillService::import_from_apps(
+        &state.db,
+        vec![ImportSkillSelection {
+            directory: "workbuddy-skill".to_string(),
+            apps: SkillApps {
+                workbuddy: true,
+                ..Default::default()
+            },
+        }],
+    )
+    .expect("import skills");
+    let skill = imported.first().expect("imported skill");
+
+    // import 只入库不落盘，toggle 才同步到部署目录
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, true)
+        .expect("enable workbuddy");
+
+    let deployed = home
+        .join(".workbuddy")
+        .join("skills")
+        .join("workbuddy-skill");
+    assert!(
+        deployed.exists(),
+        "enabling WorkBuddy must materialize ~/.workbuddy/skills/workbuddy-skill"
+    );
+
+    // 关闭 WorkBuddy：部署目录中的条目必须移除
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, false)
+        .expect("disable workbuddy");
+    assert!(
+        !deployed.exists(),
+        "disabling WorkBuddy must remove the entry from ~/.workbuddy/skills"
+    );
+
+    // 重新开启：恢复
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, true)
+        .expect("enable workbuddy");
+    assert!(deployed.exists());
+}
