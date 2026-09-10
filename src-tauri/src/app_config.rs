@@ -23,6 +23,8 @@ pub struct McpApps {
     pub zcode: bool,
     #[serde(default)]
     pub dsh: bool,
+    #[serde(default)]
+    pub workbuddy: bool,
 }
 
 impl McpApps {
@@ -124,6 +126,8 @@ pub struct SkillApps {
     pub zcode: bool,
     #[serde(default)]
     pub dsh: bool,
+    #[serde(default)]
+    pub workbuddy: bool,
 }
 
 impl SkillApps {

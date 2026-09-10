@@ -69,7 +69,8 @@ impl Database {
             enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
             enabled_zcode BOOLEAN NOT NULL DEFAULT 0,
-            enabled_dsh BOOLEAN NOT NULL DEFAULT 0
+            enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+            enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0
         )",
             [],
         )
@@ -101,6 +102,7 @@ impl Database {
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
             enabled_zcode BOOLEAN NOT NULL DEFAULT 0,
             enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+            enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0,
             installed_at INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0
@@ -569,6 +571,11 @@ impl Database {
                         log::info!("迁移数据库从 v20 到 v21（用量日聚合 t/s 速度列）");
                         Self::migrate_v20_to_v21(conn)?;
                         Self::set_user_version(conn, 21)?;
+                    }
+                    21 => {
+                        log::info!("迁移数据库从 v21 到 v22（Skills/MCP 添加 WorkBuddy 支持）");
+                        Self::migrate_v21_to_v22(conn)?;
+                        Self::set_user_version(conn, 22)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1641,6 +1648,27 @@ impl Database {
                 "usage_daily_rollups",
                 "stream_gen_ms",
                 "INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// v21 -> v22: 为 mcp_servers 和 skills 表添加 enabled_workbuddy 列（fork 的 WorkBuddy 接入）。
+    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+        if Self::table_exists(conn, "mcp_servers")? {
+            Self::add_column_if_missing(
+                conn,
+                "mcp_servers",
+                "enabled_workbuddy",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )?;
+        }
+        if Self::table_exists(conn, "skills")? {
+            Self::add_column_if_missing(
+                conn,
+                "skills",
+                "enabled_workbuddy",
+                "BOOLEAN NOT NULL DEFAULT 0",
             )?;
         }
         Ok(())
@@ -3843,6 +3871,59 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         assert_eq!((sout, sgen), (0, 0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v21_to_v22_adds_workbuddy_skill_and_mcp_flags() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        // 建一个 v21 形态的库（无 enabled_workbuddy 列）：直接建旧结构表
+        conn.execute_batch(
+            "CREATE TABLE mcp_servers (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, server_config TEXT NOT NULL,
+                description TEXT, homepage TEXT, docs TEXT, tags TEXT NOT NULL DEFAULT '[]',
+                enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0
+            );
+            CREATE TABLE skills (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+                directory TEXT NOT NULL, repo_owner TEXT, repo_name TEXT, repo_branch TEXT DEFAULT 'main',
+                readme_url TEXT, enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+                installed_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT, updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO mcp_servers (id, name, server_config, enabled_dsh) VALUES ('mcp-1', 'm', '{}', 1);
+            INSERT INTO skills (id, name, directory, enabled_dsh) VALUES ('skill-1', 's', 'dir', 1);",
+        )?;
+        Database::set_user_version(&conn, 21)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(
+            &conn,
+            "mcp_servers",
+            "enabled_workbuddy"
+        )?);
+        assert!(Database::has_column(&conn, "skills", "enabled_workbuddy")?);
+        let mcp_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_dsh, enabled_workbuddy FROM mcp_servers WHERE id = 'mcp-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let skill_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_dsh, enabled_workbuddy FROM skills WHERE id = 'skill-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        // 旧行默认 false，保留既有 enabled_dsh 值
+        assert_eq!(mcp_values, (1, 0));
+        assert_eq!(skill_values, (1, 0));
 
         Ok(())
     }

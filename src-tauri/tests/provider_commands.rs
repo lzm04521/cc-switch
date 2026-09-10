@@ -380,6 +380,7 @@ command = "say"
                 hermes: false,
                 zcode: false,
                 dsh: false,
+                workbuddy: false,
             },
             description: None,
             homepage: None,

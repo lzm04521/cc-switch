@@ -263,6 +263,7 @@ pub fn import_from_opencode(config: &mut MultiAppConfig) -> Result<usize, AppErr
                         hermes: false,
                         zcode: false,
                         dsh: false,
+                        workbuddy: false,
                     },
                     description: None,
                     homepage: None,

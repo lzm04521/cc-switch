@@ -173,6 +173,7 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
                         hermes: false,
                         zcode: false,
                         dsh: true,
+                        workbuddy: false,
                     },
                     description: None,
                     homepage: None,
