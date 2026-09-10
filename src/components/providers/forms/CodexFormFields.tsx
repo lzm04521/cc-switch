@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FormLabel } from "@/components/ui/form";
@@ -71,6 +72,8 @@ interface EndpointCandidate {
 interface CodexFormFieldsProps {
   appId?: AppId;
   providerId?: string;
+  /** 渲染在「高级选项」折叠区之前的插槽（会话级路由等） */
+  contentBeforeAdvanced?: ReactNode;
   // xAI OAuth 托管预设（Grok 订阅）：隐藏 API Key / 端点输入，挂账号选择区块
   isXaiOauthPreset?: boolean;
   isXaiOauthAuthenticated?: boolean;
@@ -367,6 +370,7 @@ function ReasoningLevelsEditor({
 export function CodexFormFields({
   appId = "codex",
   providerId,
+  contentBeforeAdvanced,
   isXaiOauthPreset,
   isXaiOauthAuthenticated,
   selectedXaiAccountId,
@@ -868,6 +872,8 @@ export function CodexFormFields({
           )}
         </div>
       )}
+
+      {contentBeforeAdvanced}
 
       {/* 高级选项 —— 上游格式/模型映射/思考能力/自定义 UA；预设供应商通常无需展开 */}
       {category !== "official" && (

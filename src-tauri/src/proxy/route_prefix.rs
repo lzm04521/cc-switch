@@ -291,29 +291,15 @@ fn models_list_entry(id: &str, prefix: &str) -> Value {
     })
 }
 
-/// 构建会话级路由分组在 /v1/models 暴露的条目列表（设计 §4.4，纯函数）。
-///
+/// 筛选合规路由分组（`build_route_models_list` 与 codex 变体共用）：
 /// - 仅 `route_enabled = true` 且 `route_key` trim 非空的分组；
 ///   key 重复（改库绕过保存校验）取首现（IndexMap 已按 sort_index 排序）并 warn
-/// - Groups：分组条目 `<前缀><key>`；分组 `ANTHROPIC_MODEL` 带 `[1M]` → 尾拼 `[1M]`
-/// - Models：组内 env 六档位（sonnet→opus→fable→haiku→subagent→default，
-///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
-///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
-/// - Both：分组条目在前、模型条目在后
-/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>Default`
-///   （display_name「Default」；保留 key 匹配大小写不敏感，手打
-///   G.default 同样解绑）——粘性绑定建立后 /model 选择器里唯一可见的
-///   解绑出口；无路由分组 → 空 Vec（fail-open，空列表不是错误）
-pub fn build_route_models_list(
-    all: &indexmap::IndexMap<String, Provider>,
-    prefix: &str,
-    mode: crate::settings::RouteModelsMode,
-) -> Vec<Value> {
-    use crate::settings::RouteModelsMode;
+/// - 返回顺序即 IndexMap（sort_index）顺序，key 已去重
+fn eligible_route_groups<'a>(
+    all: &'a indexmap::IndexMap<String, Provider>,
+) -> Vec<(&'a Provider, &'a str, ModelMapping)> {
     use std::collections::HashSet;
 
-    // 先按 IndexMap（sort_index）顺序筛出合规分组并做 key 去重，
-    // 再按 mode 分两阶段输出：Both 时分组条目统一在前、模型条目在后
     let mut seen_keys: HashSet<String> = HashSet::new();
     let mut eligible: Vec<(&Provider, &str, ModelMapping)> = Vec::new();
 
@@ -344,19 +330,30 @@ pub fn build_route_models_list(
         eligible.push((provider, key, ModelMapping::from_provider(provider)));
     }
 
-    let mut entries: Vec<Value> = Vec::new();
+    eligible
+}
 
-    // 回落条目：id/display_name 统一为 <前缀>Default（首字母大写与分组 key
-    // 风格一致；apply_route 对保留 key 大小写不敏感解绑，保存校验已禁止
-    // 分组占用该 key，无 id 冲突）。Models 模式下用户经 G.<key>:<model>
-    // 条目同样会建立绑定，故任意 mode 均输出
+/// 输出回落条目与分组条目（两种构建函数共用）：
+/// - 存在合规分组时置顶一条 `<前缀>Default`（display_name「Default」；
+///   保留 key 匹配大小写不敏感，手打 G.default 同样解绑）——粘性绑定建立后
+///   /model 选择器里唯一可见的解绑出口；任何 mode 均输出，无合规分组则无
+/// - mode 含 Groups 时逐组输出 `<前缀><key>`；分组默认模型带 `[1M]` 尾拼
+///   `[1M]`（仅 claude 系分组会命中，codex 分组无 env.ANTHROPIC_MODEL）
+fn push_route_group_entries(
+    entries: &mut Vec<Value>,
+    eligible: &[(&Provider, &str, ModelMapping)],
+    prefix: &str,
+    mode: crate::settings::RouteModelsMode,
+) {
+    use crate::settings::RouteModelsMode;
+
     if !eligible.is_empty() {
         let fallback_id = format!("{prefix}Default");
         entries.push(models_list_entry(&fallback_id, prefix));
     }
 
     if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
-        for (_provider, key, mapping) in &eligible {
+        for (_provider, key, mapping) in eligible {
             let group_one_m = mapping
                 .default_model
                 .as_deref()
@@ -369,6 +366,32 @@ pub fn build_route_models_list(
             entries.push(models_list_entry(&id, prefix));
         }
     }
+}
+
+/// 构建会话级路由分组在 /v1/models 暴露的条目列表（设计 §4.4，纯函数）。
+///
+/// - 仅 `route_enabled = true` 且 `route_key` trim 非空的分组；
+///   key 重复（改库绕过保存校验）取首现（IndexMap 已按 sort_index 排序）并 warn
+/// - Groups：分组条目 `<前缀><key>`；分组 `ANTHROPIC_MODEL` 带 `[1M]` → 尾拼 `[1M]`
+/// - Models：组内 env 六档位（sonnet→opus→fable→haiku→subagent→default，
+///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
+///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
+/// - Both：分组条目在前、模型条目在后
+/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>Default`
+///   （详见 push_route_group_entries）；无路由分组 → 空 Vec
+///   （fail-open，空列表不是错误）
+pub fn build_route_models_list(
+    all: &indexmap::IndexMap<String, Provider>,
+    prefix: &str,
+    mode: crate::settings::RouteModelsMode,
+) -> Vec<Value> {
+    use crate::settings::RouteModelsMode;
+
+    // 先筛合规分组（sort_index 顺序、key 去重），再按 mode 分两阶段输出：
+    // Both 时分组条目统一在前、模型条目在后
+    let eligible = eligible_route_groups(all);
+    let mut entries: Vec<Value> = Vec::new();
+    push_route_group_entries(&mut entries, &eligible, prefix, mode);
 
     if matches!(mode, RouteModelsMode::Models | RouteModelsMode::Both) {
         for (_provider, key, mapping) in &eligible {
@@ -398,6 +421,63 @@ pub fn build_route_models_list(
                     id.push_str("[1M]");
                 }
                 entries.push(models_list_entry(&id, prefix));
+            }
+        }
+    }
+
+    entries
+}
+
+/// codex 分组 `settings_config.modelCatalog.models[].model` 的有序清单
+/// （trim 非空、保序、不去重）。与 `providers::codex` 的私有
+/// `codex_provider_catalog_model_ids`（HashSet，仅成员判定）不同：此处必须
+/// 保序输出，且串形态要与该全集完全一致才能命中 catalog 匹配。
+fn codex_catalog_model_ids(provider: &Provider) -> Vec<String> {
+    provider
+        .settings_config
+        .get("modelCatalog")
+        .and_then(|catalog| catalog.get("models"))
+        .and_then(|models| models.as_array())
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| model.get("model").and_then(|value| value.as_str()))
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 构建 codex 分组在 `/codex/v1/models` 暴露的路由条目（纯函数，Task 3b，
+/// 2026-09-10）。与 claude 变体的差异仅在 Models 部分：
+/// - Groups / Both：`<前缀><key>` 分组条目与 `<前缀>Default` 回落条目同
+///   claude 规则（复用 eligible 筛选与 push_route_group_entries）
+/// - Models / Both：逐条输出 `<前缀><key>:<model>`，来源是分组
+///   `modelCatalog.models[].model`（模型映射的"实际请求模型"列）——claude 的
+///   env 六档位提取对 codex 分组天然全空，不参与
+/// - **原样输出：不去重、不剥 `[1M]`**。透传串必须与 codex catalog 匹配串
+///   完全一致，任何归一化都会让 `apply_codex_upstream_model` 判定为
+///   catalog 外模型、把它替换成分组默认模型，静默吞掉显式透传
+/// - 映射为空 → 零条模型条目，**不加上游模型兜底**
+/// - 硬性要求：仅 route_enabled == true 的合规分组出现条目，未开路由的分组
+///   零条目（复用公共筛选）
+pub fn build_route_models_list_for_codex(
+    all: &indexmap::IndexMap<String, Provider>,
+    prefix: &str,
+    mode: crate::settings::RouteModelsMode,
+) -> Vec<Value> {
+    use crate::settings::RouteModelsMode;
+
+    let eligible = eligible_route_groups(all);
+    let mut entries: Vec<Value> = Vec::new();
+    push_route_group_entries(&mut entries, &eligible, prefix, mode);
+
+    if matches!(mode, RouteModelsMode::Models | RouteModelsMode::Both) {
+        for (provider, key, _mapping) in &eligible {
+            for model in codex_catalog_model_ids(provider) {
+                entries.push(models_list_entry(&format!("{prefix}{key}:{model}"), prefix));
             }
         }
     }
@@ -455,7 +535,33 @@ async fn sticky_route_lookup(
     }
 }
 
-/// 会话级路由应用点（仅 Claude / ClaudeDesktop 链路调用，设计 §3.3/§3.4）：
+/// 解析路由分组的默认模型（纯函数，按 app 分流，Codex 适配 2026-09-10）：
+/// - Claude 系：读 `settings_config.env.ANTHROPIC_MODEL`（Claude Code 的
+///   默认模型载体是 live 环境变量）
+/// - Codex：读 `settings_config.model` 或 `settings_config.config` TOML 的
+///   `model =`（Codex 无 ANTHROPIC_MODEL 语义；复用
+///   `providers::codex_provider_upstream_model` 的两种形态，含 trim 与空值过滤）
+///
+/// 返回 None 时调用方 fail-closed 报错，**不回落默认分组**——静默切到默认
+/// 分组会让请求发往用户没点名的供应商，比报错更难排查（设计 §3.3）。
+/// 独立纯函数以便直接单测（apply_route 本体 async 且依赖 ProxyState）。
+pub(crate) fn resolve_route_default_model(
+    app_type: &AppType,
+    provider: &Provider,
+) -> Option<String> {
+    match app_type {
+        AppType::Codex => super::providers::codex_provider_upstream_model(provider),
+        _ => provider
+            .settings_config
+            .pointer("/env/ANTHROPIC_MODEL")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|m| !m.is_empty()),
+    }
+}
+
+/// 会话级路由应用点（Claude / ClaudeDesktop / Codex 链路调用，设计
+/// §3.3/§3.4；Codex 适配 2026-09-10）：
 /// 1. model 带路由前缀 → 解析 key、锁定分组、改写 body.model、绑定 session
 /// 2. `<前缀>default` → 解绑 session，回落默认分组
 /// 3. model 无前缀 → session 粘性查询（sticky_route_lookup，跟随绑定分组）
@@ -469,8 +575,11 @@ pub async fn apply_route(
     body: &mut Value,
     extensions: &mut axum::http::Extensions,
 ) -> Result<(), ProxyError> {
-    if !matches!(ctx.app_type, AppType::Claude | AppType::ClaudeDesktop) {
-        return Ok(()); // 生效范围守卫（设计 §3.7，双保险）
+    if !matches!(
+        ctx.app_type,
+        AppType::Claude | AppType::ClaudeDesktop | AppType::Codex
+    ) {
+        return Ok(()); // 生效范围守卫（设计 §3.7，双保险；Codex 适配 2026-09-10）
     }
     let Some(model) = body.get("model").and_then(Value::as_str).map(str::to_string) else {
         return Ok(());
@@ -503,15 +612,16 @@ pub async fn apply_route(
             extensions.insert(RoutePassthrough);
         }
         None => {
-            let default_model = target
-                .settings_config
-                .pointer("/env/ANTHROPIC_MODEL")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .filter(|m| !m.is_empty());
+            let default_model = resolve_route_default_model(&ctx.app_type, &target);
             let Some(default_model) = default_model else {
+                // 错误文案按 app 语境区分：两类 CLI 的默认模型载体不同
+                // （Claude 读 live env，Codex 读 form 字段 / config.toml）
+                let hint = match ctx.app_type {
+                    AppType::Codex => "settings_config.model 或 config.toml 的 model =",
+                    _ => "env.ANTHROPIC_MODEL",
+                };
                 return Err(ProxyError::ConfigError(format!(
-                    "路由分组「{}」未配置默认模型（env.ANTHROPIC_MODEL），无法处理无显式模型的路由请求",
+                    "路由分组「{}」未配置默认模型（{hint}），无法处理无显式模型的路由请求",
                     target.name
                 )));
             };
@@ -941,5 +1051,194 @@ mod tests {
         ] {
             assert!(build_route_models_list(&all, "G.", mode).is_empty());
         }
+    }
+
+    // ---- Codex 适配（2026-09-10）：默认模型分流 + codex 路由条目 ----
+
+    /// codex 型分组：settings_config 直接承载 codex 的 `model` / `config` TOML /
+    /// `modelCatalog` 字段（与 Claude 的 env 形态不同）
+    fn codex_group(id: &str, key: &str, settings: serde_json::Value) -> Provider {
+        let mut p = Provider::with_id(id.to_string(), format!("P-{id}"), settings, None);
+        p.meta = Some(crate::provider::ProviderMeta {
+            route_enabled: Some(true),
+            route_key: Some(key.to_string()),
+            ..Default::default()
+        });
+        p
+    }
+
+    #[test]
+    fn resolve_route_default_model_codex_reads_settings_model_field() {
+        let p = codex_group("c1", "DS", serde_json::json!({"model": "gpt-5.2"}));
+        assert_eq!(
+            resolve_route_default_model(&AppType::Codex, &p),
+            Some("gpt-5.2".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_route_default_model_codex_reads_config_toml_model() {
+        // settings_config.model 缺失时回落 config TOML 的 `model =`
+        let p = codex_group(
+            "c2",
+            "DS",
+            serde_json::json!({
+                "config": "model = \"gpt-5.1-codex\"\nmodel_provider = \"relay\"\n"
+            }),
+        );
+        assert_eq!(
+            resolve_route_default_model(&AppType::Codex, &p),
+            Some("gpt-5.1-codex".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_route_default_model_codex_none_when_unset() {
+        // 两处都无 → None（调用方 fail-closed，不回落默认分组）
+        let p = codex_group("c3", "DS", serde_json::json!({"env": {}}));
+        assert_eq!(resolve_route_default_model(&AppType::Codex, &p), None);
+        // 空串同样视为未配置
+        let blank = codex_group("c4", "DS", serde_json::json!({"model": "  "}));
+        assert_eq!(resolve_route_default_model(&AppType::Codex, &blank), None);
+    }
+
+    #[test]
+    fn resolve_route_default_model_claude_reads_env_anthropic_model() {
+        // claude 型 provider 行为不变：读 env.ANTHROPIC_MODEL
+        let p = route_list_provider(
+            "p9",
+            "DeepSeek",
+            Some("ds"),
+            serde_json::json!({"env": {"ANTHROPIC_MODEL": "deepseek-v4-pro"}}),
+        );
+        assert_eq!(
+            resolve_route_default_model(&AppType::Claude, &p),
+            Some("deepseek-v4-pro".to_string())
+        );
+        // 无 ANTHROPIC_MODEL → None（沿用原行为）
+        let no_model = routed_provider("a", "ds", None);
+        assert_eq!(resolve_route_default_model(&AppType::Claude, &no_model), None);
+    }
+
+    fn codex_catalog_group(id: &str, key: &str, catalog_models: &[&str]) -> Provider {
+        let models: Vec<serde_json::Value> = catalog_models
+            .iter()
+            .map(|m| serde_json::json!({"model": m}))
+            .collect();
+        codex_group(
+            id,
+            key,
+            serde_json::json!({
+                "model": "gpt-5.2",
+                "modelCatalog": {"models": models},
+            }),
+        )
+    }
+
+    #[test]
+    fn codex_models_list_both_mode_groups_then_mapped_models_in_order() {
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
+        let entries =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
+        // Default 回落 + 分组条目 + 逐条模型映射，顺序保持
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.Default", "G.DS", "G.DS:m1", "G.DS:m2"]
+        );
+    }
+
+    #[test]
+    fn codex_models_list_groups_mode_has_no_model_entries() {
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
+        let entries = build_route_models_list_for_codex(
+            &all,
+            "G.",
+            crate::settings::RouteModelsMode::Groups,
+        );
+        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS"]);
+    }
+
+    #[test]
+    fn codex_models_list_models_mode_emits_only_mapped_models() {
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
+        let entries = build_route_models_list_for_codex(
+            &all,
+            "G.",
+            crate::settings::RouteModelsMode::Models,
+        );
+        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS:m1", "G.DS:m2"]);
+    }
+
+    #[test]
+    fn codex_models_list_empty_mapping_has_no_model_entries() {
+        // 映射为空 → 零条模型条目（不加上游模型兜底）；分组与 Default 仍出
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &[])]);
+        let both =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
+        assert_eq!(entry_ids(&both), vec!["G.Default", "G.DS"]);
+        let models =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
+        assert_eq!(entry_ids(&models), vec!["G.Default"]);
+    }
+
+    #[test]
+    fn codex_models_list_outputs_mapping_verbatim() {
+        // 原样输出：不去重、不剥 [1M]——透传串必须与 catalog 匹配串完全一致
+        let all = route_list_map(vec![codex_catalog_group(
+            "c1",
+            "DS",
+            &["m1", "m1", "m2[1M]", "  m3  "],
+        )]);
+        let entries = build_route_models_list_for_codex(
+            &all,
+            "G.",
+            crate::settings::RouteModelsMode::Models,
+        );
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.Default", "G.DS:m1", "G.DS:m1", "G.DS:m2[1M]", "G.DS:m3"]
+        );
+    }
+
+    #[test]
+    fn codex_models_list_excludes_disabled_groups() {
+        // 硬性要求：未开路由的分组零条目（含带 modelCatalog 的普通 codex 分组）
+        let plain = codex_catalog_group("c9", "OFF", &["m1"]);
+        let mut plain = plain;
+        plain.meta = Some(crate::provider::ProviderMeta {
+            route_enabled: Some(false),
+            route_key: Some("OFF".to_string()),
+            ..Default::default()
+        });
+        let all = route_list_map(vec![plain]);
+        for mode in [
+            crate::settings::RouteModelsMode::Groups,
+            crate::settings::RouteModelsMode::Models,
+            crate::settings::RouteModelsMode::Both,
+        ] {
+            assert!(build_route_models_list_for_codex(&all, "G.", mode).is_empty());
+        }
+    }
+
+    #[test]
+    fn codex_models_list_reuses_dedup_and_fallback_rules() {
+        // key 重复取首现（公共筛选逻辑），Default 回落照常置顶；脏 key 跳过
+        let dirty = codex_catalog_group("c8", "  ", &["m1"]);
+        let dup = codex_catalog_group("c7", "ds", &["m2"]);
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1"]), dirty, dup]);
+        let entries =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
+        assert_eq!(
+            entry_ids(&entries),
+            vec!["G.Default", "G.DS", "G.DS:m1"]
+        );
+    }
+
+    #[test]
+    fn codex_models_list_custom_prefix() {
+        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1"])]);
+        let entries =
+            build_route_models_list_for_codex(&all, "@", crate::settings::RouteModelsMode::Both);
+        assert_eq!(entry_ids(&entries), vec!["@Default", "@DS", "@DS:m1"]);
     }
 }

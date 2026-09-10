@@ -399,7 +399,13 @@
       },
       "routeModelsEndpoint": {
         "title": "/v1/models モデルリスト",
-        "description": "有効にすると、ローカルプロキシの /v1/models レスポンスに data フィールドを追加し、セッションルーティングのグループとマッピング済みモデルの一覧を返します。エントリの id は --model にそのまま使えます（例: G.DS、G.DS:deepseek-v4-pro[1M]）。",
+        "description": "有効にすると、ルーティンググループのエントリが /claude/v1/models、/codex/v1/models、/v1/models の 3 つのエンドポイントに表示されます。表示されるのはセッションルーティングに参加しているグループのみで、エントリの id は --model にそのまま使えます（例: G.DS、G.DS:glm-5.3）。",
+        "endpointRules": {
+          "claude": "/claude/v1/models：claude グループのエントリのみを返します",
+          "codex": "/codex/v1/models：Codex のモデルカタログに codex グループのエントリとモデルマッピング一覧を追加します",
+          "v1": "/v1/models：Codex カタログ + claude グループのエントリ",
+          "disabled": "無効にすると 3 つのエンドポイントいずれにもルートエントリは含まれません"
+        },
         "modeLabel": "応答タイプ",
         "mode": {
           "groups": "グループのみ",

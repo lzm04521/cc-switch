@@ -200,13 +200,29 @@ fn build_anthropic_models_response(data: Vec<Value>) -> Value {
     })
 }
 
-/// `/codex/v1/models`：codex 命名空间专属模型列表——仅 Codex 模型目录，
-/// 不合并 claude 路由分组条目（与 `/v1/models` 混合形态的差异点）。
-/// 顶层 `models` 原样保留（Codex CLI 兼容），并附 OpenAI list 风格 `data`
-/// 投影（通用 OpenAI 客户端读 `data[].id`，id 取目录条目的 `slug`）。
-pub async fn handle_codex_models() -> Result<Json<Value>, ProxyError> {
-    let catalog = read_active_codex_catalog();
-    Ok(Json(project_catalog_to_openai_list(catalog)))
+/// `/codex/v1/models`：codex 命名空间专属模型列表——Codex 模型目录
+/// （顶层 `models` 原样保留 + OpenAI list 风格 `data` 投影，通用 OpenAI
+/// 客户端读 `data[].id`，id 取目录条目的 `slug`），跟随
+/// `route_models_endpoint` 开关追加 **codex 分组**的路由条目（Task 3b，
+/// 2026-09-10；与 `/v1/models` 一样只放本 app 的分组，不含 claude 分组）。
+/// 开关关闭时与改动前完全一致（仅目录）。
+pub async fn handle_codex_models(
+    State(state): State<ProxyState>,
+) -> Result<Json<Value>, ProxyError> {
+    let mut catalog = project_catalog_to_openai_list(read_active_codex_catalog());
+
+    let endpoint = crate::settings::get_route_models_endpoint();
+    if endpoint.enabled {
+        let all = state
+            .db
+            .get_all_providers("codex")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        let prefix = crate::settings::get_route_prefix();
+        let data =
+            super::route_prefix::build_route_models_list_for_codex(&all, &prefix, endpoint.mode);
+        merge_codex_route_models_into_openai_list(&mut catalog, data);
+    }
+    Ok(Json(catalog))
 }
 
 /// Codex 目录 → OpenAI list 风格投影（纯函数）：保留顶层 `models` 原样并
@@ -243,6 +259,32 @@ fn project_catalog_to_openai_list(catalog: Value) -> Value {
     obj.insert("object".to_string(), json!("list"));
     obj.insert("data".to_string(), Value::Array(data));
     catalog
+}
+
+/// `/codex/v1/models` 路由条目合并层（纯函数，Task 3b，2026-09-10）：
+/// 把 codex 分组的路由条目追加到 OpenAI list 风格 `data` 尾部（catalog
+/// 投影条目在前、路由条目在后）。每个路由条目补 `object: "model"` /
+/// `created: 0` / `owned_by: "cc-switch"` 三字段，与
+/// `project_catalog_to_openai_list` 的投影条目形态对齐；条目原有的
+/// `display_name` 等字段保留（OpenAI 客户端只读 `id`，多余字段无害）。
+/// 不追加 `has_more`/`first_id`/`last_id`——保持 OpenAI list 形态
+/// （`object` + `data`），区别于 `/v1/models` 的 Anthropic 四件套。
+/// catalog 非 object 或 `data` 非数组时原样返回（投影层已保证数组，防御）。
+fn merge_codex_route_models_into_openai_list(catalog: &mut Value, data: Vec<Value>) {
+    let Some(obj) = catalog.as_object_mut() else {
+        return;
+    };
+    let Some(data_array) = obj.get_mut("data").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for mut entry in data {
+        if let Some(entry_obj) = entry.as_object_mut() {
+            entry_obj.insert("object".to_string(), json!("model"));
+            entry_obj.insert("created".to_string(), json!(0));
+            entry_obj.insert("owned_by".to_string(), json!("cc-switch"));
+        }
+        data_array.push(entry);
+    }
 }
 
 // ============================================================================
@@ -1086,14 +1128,14 @@ async fn handle_responses_for_app(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let extensions = parts.extensions;
+    let mut extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx =
@@ -1103,6 +1145,10 @@ async fn handle_responses_for_app(
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
     }
+
+    // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
+    // （received 报文保留原文，forward 报文为改写后内容；Codex 适配 2026-09-10）
+    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
 
     let is_stream = body
         .get("stream")
@@ -1317,14 +1363,14 @@ async fn handle_responses_compact_for_app(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let extensions = parts.extensions;
+    let mut extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx =
@@ -1334,6 +1380,10 @@ async fn handle_responses_compact_for_app(
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
     }
+
+    // 会话级路由：compact 请求带 model 且属同 session，粘性跟随语义正确
+    // （Codex 适配 2026-09-10，与 handle_responses_for_app 同款接线）
+    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
 
     let is_stream = body
         .get("stream")
@@ -3119,7 +3169,8 @@ mod tests {
     use super::{
         append_route_groups_to_models_response, body_looks_like_sse, build_anthropic_models_response,
         chat_sse_to_response_value, classify_body_for_diagnostics, codex_proxy_error_json,
-        merge_route_models_into_catalog, project_catalog_to_openai_list,
+        merge_codex_route_models_into_openai_list, merge_route_models_into_catalog,
+        project_catalog_to_openai_list,
         responses_sse_stream_to_anthropic_message, responses_sse_to_response_value,
         should_use_claude_transform_streaming, transform, upstream_body_parse_error,
     };
@@ -3174,6 +3225,68 @@ mod tests {
         let mut array_catalog = serde_json::json!([{"models": []}]);
         merge_route_models_into_catalog(&mut array_catalog, Vec::new());
         assert_eq!(array_catalog, serde_json::json!([{"models": []}]));
+    }
+
+    #[test]
+    fn codex_route_merge_appends_after_catalog_and_adds_openai_fields() {
+        // 投影条目在前、路由条目在后；路由条目补 OpenAI 三字段；
+        // display_name 等原有字段保留；不追加 Anthropic 四件套
+        let mut catalog = serde_json::json!({
+            "object": "list",
+            "models": [{"slug": "gpt-5"}],
+            "data": [{"id": "gpt-5", "object": "model", "created": 0, "owned_by": "cc-switch"}],
+        });
+        let data = vec![
+            serde_json::json!({"type": "model", "id": "G.DS", "display_name": "DS"}),
+            serde_json::json!({"type": "model", "id": "G.DS:m1", "display_name": "DS:m1"}),
+        ];
+        merge_codex_route_models_into_openai_list(&mut catalog, data);
+
+        let merged = catalog["data"].as_array().unwrap();
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0]["id"], serde_json::json!("gpt-5"));
+        assert_eq!(merged[1]["id"], serde_json::json!("G.DS"));
+        assert_eq!(merged[1]["object"], serde_json::json!("model"));
+        assert_eq!(merged[1]["created"], serde_json::json!(0));
+        assert_eq!(merged[1]["owned_by"], serde_json::json!("cc-switch"));
+        assert_eq!(merged[1]["display_name"], serde_json::json!("DS"));
+        assert_eq!(merged[2]["id"], serde_json::json!("G.DS:m1"));
+        // 保持 OpenAI list 形态：无 Anthropic 包装字段
+        assert!(catalog.get("has_more").is_none());
+        assert!(catalog.get("first_id").is_none());
+        assert!(catalog.get("last_id").is_none());
+        // 顶层 models 与 object 不动
+        assert_eq!(catalog["models"][0]["slug"], serde_json::json!("gpt-5"));
+        assert_eq!(catalog["object"], serde_json::json!("list"));
+    }
+
+    #[test]
+    fn codex_route_merge_empty_entries_keeps_catalog_data() {
+        let mut catalog = serde_json::json!({
+            "object": "list",
+            "data": [{"id": "gpt-5", "object": "model", "created": 0, "owned_by": "cc-switch"}],
+        });
+        merge_codex_route_models_into_openai_list(&mut catalog, Vec::new());
+        assert_eq!(catalog["data"].as_array().unwrap().len(), 1);
+        assert_eq!(catalog["data"][0]["id"], serde_json::json!("gpt-5"));
+    }
+
+    #[test]
+    fn codex_route_merge_non_object_or_missing_data_unchanged() {
+        // 非 object（如 null）：原样返回，不 panic
+        let mut null_catalog = serde_json::Value::Null;
+        merge_codex_route_models_into_openai_list(
+            &mut null_catalog,
+            vec![serde_json::json!({"id": "G.DS"})],
+        );
+        assert_eq!(null_catalog, serde_json::Value::Null);
+        // object 但无 data 数组：原样返回（防御；投影层保证 data 存在）
+        let mut no_data = serde_json::json!({"object": "list"});
+        merge_codex_route_models_into_openai_list(
+            &mut no_data,
+            vec![serde_json::json!({"id": "G.DS"})],
+        );
+        assert_eq!(no_data, serde_json::json!({"object": "list"}));
     }
 
     #[test]

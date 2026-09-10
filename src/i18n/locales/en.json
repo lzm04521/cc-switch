@@ -399,7 +399,13 @@
       },
       "routeModelsEndpoint": {
         "title": "/v1/models model list",
-        "description": "When enabled, the local proxy /v1/models response gains a data field listing session-route groups and their mapped models; entry ids work directly with --model (e.g. G.DS, G.DS:deepseek-v4-pro[1M]).",
+        "description": "When enabled, route group entries appear at three endpoints: /claude/v1/models, /codex/v1/models and /v1/models. Only groups joined to session routing are listed, and entry ids work directly with --model (e.g. G.DS, G.DS:glm-5.3).",
+        "endpointRules": {
+          "claude": "/claude/v1/models: claude group entries only",
+          "codex": "/codex/v1/models: Codex model catalog plus codex group entries and the model mapping list",
+          "v1": "/v1/models: Codex catalog + claude group entries",
+          "disabled": "When disabled, none of the three endpoints includes route entries"
+        },
         "modeLabel": "Response type",
         "mode": {
           "groups": "Groups only",

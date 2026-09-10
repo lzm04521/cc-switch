@@ -361,7 +361,7 @@ function ProviderFormFull({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
-  // 会话级模型路由（仅 claude 提交；claude-desktop 走专用表单）
+  // 会话级模型路由（claude 与 codex 提交；claude-desktop 走专用表单）
   const [routeEnabled, setRouteEnabled] = useState<boolean>(
     () => initialData?.meta?.route_enabled === true,
   );
@@ -1741,10 +1741,13 @@ function ProviderFormFull({
               ? useGeminiCommonConfigFlag
               : undefined,
       endpointAutoSelect,
-      // 会话级路由：仅 claude 提交（claude-desktop 由专用表单处理）；关闭时清除 key
-      route_enabled: appId === "claude" ? routeEnabled : undefined,
+      // 会话级路由：claude 与 codex 提交（claude-desktop 由专用表单处理）；关闭时清除 key
+      route_enabled:
+        appId === "claude" || appId === "codex" ? routeEnabled : undefined,
       route_key:
-        appId === "claude" && routeEnabled ? routeKey.trim() : undefined,
+        (appId === "claude" || appId === "codex") && routeEnabled
+          ? routeKey.trim()
+          : undefined,
       claudeDesktopMode: undefined,
       // 保存 providerType（用于识别 Copilot / Codex OAuth 等特殊供应商）
       providerType,
@@ -2475,6 +2478,18 @@ function ProviderFormFull({
           {appId === "codex" && (
             <CodexFormFields
               providerId={providerId}
+              contentBeforeAdvanced={
+                <RouteSettingsFields
+                  routeEnabled={routeEnabled}
+                  routeKey={routeKey}
+                  onChange={({ routeEnabled: enabled, routeKey: key }) => {
+                    setRouteEnabled(enabled);
+                    setRouteKey(key);
+                  }}
+                  existingKeys={routeExistingKeys}
+                  currentProviderId={providerId}
+                />
+              }
               isXaiOauthPreset={
                 presetProviderType === "xai_oauth" ||
                 initialData?.meta?.providerType === "xai_oauth"

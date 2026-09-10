@@ -6357,13 +6357,17 @@ impl ProviderService {
         write_gemini_live(provider)
     }
 
-    /// 校验会话级路由设置（仅 Claude / ClaudeDesktop 生效，fail-fast，设计 §3.2）
+    /// 校验会话级路由设置（Claude / ClaudeDesktop / Codex 生效，fail-fast，
+    /// 设计 §3.2；Codex 适配 2026-09-10）
     fn validate_route_settings(
         state: &AppState,
         app_type: &AppType,
         provider: &Provider,
     ) -> Result<(), AppError> {
-        if !matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
+        if !matches!(
+            app_type,
+            AppType::Claude | AppType::ClaudeDesktop | AppType::Codex
+        ) {
             return Ok(()); // 其他 app 不显示也不生效
         }
         let Some(meta) = provider.meta.as_ref() else {

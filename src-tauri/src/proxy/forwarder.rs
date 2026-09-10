@@ -1548,7 +1548,15 @@ impl RequestForwarder {
                     "[Codex] Restored or enriched {restored} cached function call item(s) for Chat upstream"
                 );
             }
-            super::providers::apply_codex_chat_upstream_model(provider, &mut mapped_body);
+            // 会话级路由显式模型透传（G.<key>:<model>）：跳过该分组的
+            // 上游模型改写，否则 catalog 外的显式模型会被分组默认模型
+            // 静默吞掉（Codex 适配 2026-09-10；同 Claude 链路 L1256 模式）
+            if extensions
+                .get::<super::route_prefix::RoutePassthrough>()
+                .is_none()
+            {
+                super::providers::apply_codex_chat_upstream_model(provider, &mut mapped_body);
+            }
             let reasoning_config =
                 super::providers::resolve_codex_chat_reasoning_config(provider, &mapped_body);
             let mut chat_body = super::providers::transform_codex_chat::responses_to_chat_completions_with_reasoning(
@@ -1565,7 +1573,13 @@ impl RequestForwarder {
             chat_body
         } else if codex_responses_to_anthropic {
             let mut mapped_body = mapped_body;
-            super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+            // 透传标记存在时跳过分组上游模型兜底（同 chat 桥，2026-09-10）
+            if extensions
+                .get::<super::route_prefix::RoutePassthrough>()
+                .is_none()
+            {
+                super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+            }
             // Per-provider output ceiling override. Codex does not forward its
             // `model_max_output_tokens` in the request body, so honor the value
             // configured on the provider here — it takes precedence over any
@@ -1656,10 +1670,21 @@ impl RequestForwarder {
                     provider.id
                 );
             }
+            // unknown-model 兜底改写源：透传场景传 None，否则 catalog 外的
+            // 显式模型会被改写成分组上游模型（该函数内部 `if let Some` 分支；
+            // 其余 sanitize 逻辑不受影响，2026-09-10）
+            let xai_upstream_model = if extensions
+                .get::<super::route_prefix::RoutePassthrough>()
+                .is_some()
+            {
+                None
+            } else {
+                super::providers::codex_provider_upstream_model(provider)
+            };
             super::providers::transform_codex_responses_xai_sanitize::apply_xai_native_responses_request_compat(
                 &mut request_body,
                 &provider.id,
-                super::providers::codex_provider_upstream_model(provider).as_deref(),
+                xai_upstream_model.as_deref(),
                 &provider.settings_config,
             );
         }

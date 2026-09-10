@@ -19,6 +19,27 @@ const MODE_LABELS: Record<ModeOption, string> = {
   both: "分组+模型",
 };
 
+// 三个 models 端点各自的返回规则 + 关闭时的行为（面板列表式小字）
+const ENDPOINT_RULES: ReadonlyArray<{ key: string; defaultValue: string }> = [
+  {
+    key: "settings.advanced.routeModelsEndpoint.endpointRules.claude",
+    defaultValue: "/claude/v1/models：仅返回 claude 分组条目",
+  },
+  {
+    key: "settings.advanced.routeModelsEndpoint.endpointRules.codex",
+    defaultValue:
+      "/codex/v1/models：在 Codex 模型目录基础上追加 codex 分组条目与模型映射清单",
+  },
+  {
+    key: "settings.advanced.routeModelsEndpoint.endpointRules.v1",
+    defaultValue: "/v1/models：Codex 目录 + claude 分组条目",
+  },
+  {
+    key: "settings.advanced.routeModelsEndpoint.endpointRules.disabled",
+    defaultValue: "关闭时三个端点均不含路由条目",
+  },
+];
+
 interface RoutePrefixSettingsProps {
   routePrefix?: string;
   routeModelsEndpoint?: { enabled: boolean; mode: ModeOption };
@@ -137,7 +158,7 @@ export function RoutePrefixSettings({
             <p className="text-xs text-muted-foreground">
               {t("settings.advanced.routeModelsEndpoint.description", {
                 defaultValue:
-                  "开启后，本地代理 /v1/models 响应追加 data 字段，返回会话级路由分组与映射模型清单；条目 id 可直接用于 --model（如 G.DS、G.DS:deepseek-v4-pro[1M]）。",
+                  "开启后，路由分组条目会出现在 /claude/v1/models、/codex/v1/models、/v1/models 三个端点；仅显示已加入会话级路由的分组，条目 id 可直接用于 --model（如 G.DS、G.DS:glm-5.3）。",
               })}
             </p>
           </div>
@@ -155,6 +176,13 @@ export function RoutePrefixSettings({
             />
           </div>
         </div>
+        <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+          {ENDPOINT_RULES.map((rule) => (
+            <li key={rule.key}>
+              {t(rule.key, { defaultValue: rule.defaultValue })}
+            </li>
+          ))}
+        </ul>
         {endpointEnabled && (
           <div className="space-y-1">
             <Label className="text-xs">

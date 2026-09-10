@@ -399,7 +399,13 @@
       },
       "routeModelsEndpoint": {
         "title": "/v1/models 模型列表",
-        "description": "开启后，本地代理 /v1/models 响应追加 data 字段，返回会话级路由分组与映射模型清单；条目 id 可直接用于 --model（如 G.DS、G.DS:deepseek-v4-pro[1M]）。",
+        "description": "开启后，路由分组条目会出现在 /claude/v1/models、/codex/v1/models、/v1/models 三个端点；仅显示已加入会话级路由的分组，条目 id 可直接用于 --model（如 G.DS、G.DS:glm-5.3）。",
+        "endpointRules": {
+          "claude": "/claude/v1/models：仅返回 claude 分组条目",
+          "codex": "/codex/v1/models：在 Codex 模型目录基础上追加 codex 分组条目与模型映射清单",
+          "v1": "/v1/models：Codex 目录 + claude 分组条目",
+          "disabled": "关闭时三个端点均不含路由条目"
+        },
         "modeLabel": "返回类型",
         "mode": { "groups": "仅分组", "models": "模型", "both": "分组+模型" }
       },
