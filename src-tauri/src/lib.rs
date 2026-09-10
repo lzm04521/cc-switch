@@ -33,6 +33,7 @@ mod prompt_files;
 mod provider;
 mod proxy;
 mod services;
+mod workbuddy_config;
 mod zcode_config;
 mod session_manager;
 mod settings;
