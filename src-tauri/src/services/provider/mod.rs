@@ -5685,7 +5685,8 @@ impl ProviderService {
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
             AppType::Pi => Ok(String::new()),
             AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
-            AppType::Dsh => Ok(String::new()),  // dsh 的 provider 由 dsh 应用内自管
+            AppType::Dsh => Ok(String::new()),   // dsh 的 provider 由 dsh 应用内自管
+            AppType::Workbuddy => Ok(String::new()), // workbuddy 的 provider 由 workbuddy 应用内自管
         }
     }
 
@@ -5705,7 +5706,8 @@ impl ProviderService {
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
             AppType::Pi => Ok(String::new()),
             AppType::Zcode => Ok(String::new()), // zcode doesn't use common config snippets
-            AppType::Dsh => Ok(String::new()),  // dsh 的 provider 由 dsh 应用内自管
+            AppType::Dsh => Ok(String::new()),   // dsh 的 provider 由 dsh 应用内自管
+            AppType::Workbuddy => Ok(String::new()), // workbuddy 的 provider 由 workbuddy 应用内自管
         }
     }
 
@@ -6382,7 +6384,9 @@ impl ProviderService {
         };
         let len = key.chars().count();
         if !(1..=100).contains(&len) {
-            return Err(AppError::Message(format!("路由 key 长度须为 1–100 个字符: {key}")));
+            return Err(AppError::Message(format!(
+                "路由 key 长度须为 1–100 个字符: {key}"
+            )));
         }
         if !key
             .chars()
@@ -6546,6 +6550,9 @@ impl ProviderService {
             }
             AppType::Dsh => {
                 // dsh 的 provider 由 dsh 应用内自管，cc-switch 不做校验
+            }
+            AppType::Workbuddy => {
+                // workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不做校验
             }
         }
 
@@ -6784,6 +6791,11 @@ impl ProviderService {
                 "dsh.provider.managed_externally",
                 "dsh 的 provider 由 dsh 应用内自管，无凭据可提取",
                 "DSH providers are managed inside the dsh app; no credentials to extract",
+            )),
+            AppType::Workbuddy => Err(AppError::localized(
+                "workbuddy.provider.managed_externally",
+                "workbuddy 的 provider 由 workbuddy 应用内自管，无凭据可提取",
+                "WorkBuddy providers are managed inside the WorkBuddy app; no credentials to extract",
             )),
         }
     }

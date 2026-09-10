@@ -251,6 +251,8 @@ impl Provider {
             AppType::Zcode => (String::new(), String::new()),
             // dsh 的 provider 由 dsh 应用内自管，settings 中无可用凭据
             AppType::Dsh => (String::new(), String::new()),
+            // workbuddy 的 provider 由 workbuddy 应用内自管，settings 中无可用凭据
+            AppType::Workbuddy => (String::new(), String::new()),
         };
 
         // Normalize like the JS-script path (extract_base_url_from_provider) so a

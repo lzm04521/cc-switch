@@ -148,6 +148,9 @@ impl ConfigService {
             AppType::Dsh => {
                 // dsh 的 provider 由 dsh 应用内自管，无 live 同步
             }
+            AppType::Workbuddy => {
+                // workbuddy 的 provider 由 workbuddy 应用内自管，无 live 同步
+            }
         }
 
         Ok(())

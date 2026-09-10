@@ -98,6 +98,7 @@ impl Database {
             AppType::Hermes => Some("enabled_hermes"),
             AppType::Zcode => Some("enabled_zcode"),
             AppType::Dsh => Some("enabled_dsh"),
+            AppType::Workbuddy => Some("enabled_workbuddy"),
             // These applications intentionally have no MCP flag in the SSOT.
             AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Pi => None,
         };

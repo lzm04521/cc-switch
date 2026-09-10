@@ -213,6 +213,8 @@ impl ProviderType {
             AppType::Zcode => ProviderType::Codex,
             // dsh 不接管本地代理（provider 由 dsh 应用内自管）
             AppType::Dsh => return None,
+            // workbuddy 不接管本地代理（provider 由 workbuddy 应用内自管）
+            AppType::Workbuddy => return None,
         };
         Some(provider_type)
     }
@@ -272,6 +274,8 @@ pub fn get_adapter(app_type: &AppType) -> Option<Box<dyn ProviderAdapter>> {
         AppType::Zcode => Box::new(CodexAdapter::new()),
         // dsh 不接管本地代理（provider 由 dsh 应用内自管）
         AppType::Dsh => return None,
+        // workbuddy 不接管本地代理（provider 由 workbuddy 应用内自管）
+        AppType::Workbuddy => return None,
     })
 }
 

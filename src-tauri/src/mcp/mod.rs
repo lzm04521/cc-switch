@@ -14,13 +14,14 @@
 
 mod claude;
 mod codex;
+mod dsh;
 mod gemini;
 mod grokbuild;
 mod hermes;
 mod opencode;
 mod validation;
+mod workbuddy;
 mod zcode;
-mod dsh;
 
 // 重新导出公共 API
 pub use claude::{
@@ -30,6 +31,7 @@ pub use claude::{
 pub use codex::{
     import_from_codex, remove_server_from_codex, sync_enabled_to_codex, sync_single_server_to_codex,
 };
+pub use dsh::{import_from_dsh, remove_server_from_dsh, sync_single_server_to_dsh};
 pub use gemini::{
     import_from_gemini, remove_server_from_gemini, sync_enabled_to_gemini,
     sync_single_server_to_gemini,
@@ -41,5 +43,7 @@ pub use hermes::{import_from_hermes, remove_server_from_hermes, sync_single_serv
 pub use opencode::{
     import_from_opencode, remove_server_from_opencode, sync_single_server_to_opencode,
 };
+pub use workbuddy::{
+    import_from_workbuddy, remove_server_from_workbuddy, sync_single_server_to_workbuddy,
+};
 pub use zcode::{import_from_zcode, remove_server_from_zcode, sync_single_server_to_zcode};
-pub use dsh::{import_from_dsh, remove_server_from_dsh, sync_single_server_to_dsh};

@@ -52,6 +52,8 @@ pub struct VisibleApps {
     pub pi: bool,
     #[serde(default)]
     pub zcode: bool,
+    #[serde(default)]
+    pub workbuddy: bool,
 }
 
 impl Default for VisibleApps {
@@ -67,7 +69,8 @@ impl Default for VisibleApps {
             hermes: false, // 默认不显示，需用户手动启用
             dsh: true,
             pi: true,
-            zcode: false,  // 默认不显示，需用户手动启用
+            zcode: false,     // 默认不显示，需用户手动启用
+            workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
         }
     }
 }
@@ -87,6 +90,7 @@ impl VisibleApps {
             AppType::Pi => self.pi,
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
+            AppType::Workbuddy => self.workbuddy,
         }
     }
 }
@@ -1198,6 +1202,8 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::Zcode => None,
         // dsh 的 provider 由 dsh 应用内自管，cc-switch 不记录 current provider
         AppType::Dsh => None,
+        // workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不记录 current provider
+        AppType::Workbuddy => None,
     }
 }
 
@@ -1221,6 +1227,8 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::Zcode => {}
         // dsh 的 provider 由 dsh 应用内自管，忽略设置
         AppType::Dsh => {}
+        // workbuddy 的 provider 由 workbuddy 应用内自管，忽略设置
+        AppType::Workbuddy => {}
     })
 }
 
@@ -1547,10 +1555,9 @@ mod floating_ball_settings_tests {
 
     #[test]
     fn floating_ball_settings_explicit_panel_size() {
-        let s: FloatingBallSettings = serde_json::from_str(
-            r#"{"enabled":true,"panelWidth":360.0,"panelHeight":560.0}"#,
-        )
-        .expect("解析失败");
+        let s: FloatingBallSettings =
+            serde_json::from_str(r#"{"enabled":true,"panelWidth":360.0,"panelHeight":560.0}"#)
+                .expect("解析失败");
         assert_eq!(s.panel_width, 360.0);
         assert_eq!(s.panel_height, 560.0);
     }

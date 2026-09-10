@@ -171,6 +171,13 @@ pub(crate) fn build_provider_from_request(
                 "DSH providers are managed inside the dsh app; deep link import is not supported",
             ))
         }
+        AppType::Workbuddy => {
+            return Err(AppError::localized(
+                "workbuddy.deeplink.provider_unsupported",
+                "workbuddy 的 provider 由 workbuddy 应用内自管，不支持通过深链接导入",
+                "WorkBuddy providers are managed inside the WorkBuddy app; deep link import is not supported",
+            ))
+        }
     };
 
     // Build usage script configuration if provided

@@ -11,7 +11,10 @@ use crate::zcode_config::get_zcode_dir;
 
 /// 返回指定应用所使用的提示词文件路径。
 pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
-    if matches!(app, AppType::ClaudeDesktop | AppType::Dsh) {
+    if matches!(
+        app,
+        AppType::ClaudeDesktop | AppType::Dsh | AppType::Workbuddy
+    ) {
         return Err(AppError::localized(
             "app.prompts_unsupported",
             "当前应用暂不支持 Prompts",
@@ -29,7 +32,7 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir()?,
         AppType::Zcode => get_zcode_dir(),
-        AppType::ClaudeDesktop | AppType::Dsh => unreachable!("handled above"),
+        AppType::ClaudeDesktop | AppType::Dsh | AppType::Workbuddy => unreachable!("handled above"),
     };
 
     let filename = match app {
@@ -40,7 +43,7 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Hermes => "SOUL.md",
         AppType::Pi => "AGENTS.md",
         AppType::Zcode => "AGENTS.md",
-        AppType::ClaudeDesktop | AppType::Dsh => unreachable!("handled above"),
+        AppType::ClaudeDesktop | AppType::Dsh | AppType::Workbuddy => unreachable!("handled above"),
     };
 
     Ok(base_dir.join(filename))

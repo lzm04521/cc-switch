@@ -616,6 +616,8 @@ impl SkillService {
             // dsh 的覆盖解析在默认段的 dsh_config::get_home() 里统一处理
             // （dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh）
             AppType::Dsh => {}
+            // workbuddy 目录固定 ~/.workbuddy（无覆盖机制），默认段直接解析
+            AppType::Workbuddy => {}
         }
 
         // 默认路径：回退到用户主目录下的标准位置。
@@ -637,6 +639,8 @@ impl SkillService {
             // dsh skills 与 live 配置同根：`<dsh home>/skills`（home 三级解析
             // 见 dsh_config::get_home，即 dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh）
             AppType::Dsh => crate::dsh_config::get_home().join("skills"),
+            // workbuddy skills 与 live 配置同根：`~/.workbuddy/skills`
+            AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir().join("skills"),
         })
     }
 

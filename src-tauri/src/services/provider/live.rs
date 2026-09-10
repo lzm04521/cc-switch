@@ -533,7 +533,8 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Pi
         | AppType::ClaudeDesktop
         | AppType::Zcode
-        | AppType::Dsh => false,
+        | AppType::Dsh
+        | AppType::Workbuddy => false,
     }
 }
 
@@ -610,7 +611,8 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::Pi
         | AppType::ClaudeDesktop
         | AppType::Zcode
-        | AppType::Dsh => Ok(settings.clone()),
+        | AppType::Dsh
+        | AppType::Workbuddy => Ok(settings.clone()),
     }
 }
 
@@ -672,7 +674,8 @@ fn apply_common_config_to_settings(
         | AppType::Pi
         | AppType::ClaudeDesktop
         | AppType::Zcode
-        | AppType::Dsh => Ok(settings.clone()),
+        | AppType::Dsh
+        | AppType::Workbuddy => Ok(settings.clone()),
     }
 }
 
@@ -1455,6 +1458,13 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 "DSH providers are managed inside the dsh app; CC Switch does not write live config",
             ));
         }
+        AppType::Workbuddy => {
+            return Err(AppError::localized(
+                "workbuddy.provider.managed_externally",
+                "workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不写入 live 配置",
+                "WorkBuddy providers are managed inside the WorkBuddy app; CC Switch does not write live config",
+            ));
+        }
     }
     Ok(())
 }
@@ -1848,6 +1858,11 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
             "dsh 的 provider 由 dsh 应用内自管，cc-switch 不读取 live 配置",
             "DSH providers are managed inside the dsh app; CC Switch does not read live config",
         )),
+        AppType::Workbuddy => Err(AppError::localized(
+            "workbuddy.provider.managed_externally",
+            "workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不读取 live 配置",
+            "WorkBuddy providers are managed inside the WorkBuddy app; CC Switch does not read live config",
+        )),
     }
 }
 
@@ -1966,6 +1981,10 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         }
         // dsh 的 provider 由 dsh 应用内自管，没有可导入的 live 配置
         AppType::Dsh => {
+            return Ok(false);
+        }
+        // workbuddy 的 provider 由 workbuddy 应用内自管，没有可导入的 live 配置
+        AppType::Workbuddy => {
             return Ok(false);
         }
     };

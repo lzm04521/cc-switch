@@ -42,6 +42,7 @@ impl McpApps {
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
+            AppType::Workbuddy => self.workbuddy,
         }
     }
 
@@ -59,6 +60,7 @@ impl McpApps {
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
             AppType::Zcode => self.zcode = enabled,
             AppType::Dsh => self.dsh = enabled,
+            AppType::Workbuddy => self.workbuddy = enabled,
         }
     }
 
@@ -89,6 +91,9 @@ impl McpApps {
         if self.dsh {
             apps.push(AppType::Dsh);
         }
+        if self.workbuddy {
+            apps.push(AppType::Workbuddy);
+        }
         apps
     }
 
@@ -102,6 +107,7 @@ impl McpApps {
             && !self.hermes
             && !self.zcode
             && !self.dsh
+            && !self.workbuddy
     }
 }
 
@@ -145,6 +151,7 @@ impl SkillApps {
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
+            AppType::Workbuddy => self.workbuddy,
         }
     }
 
@@ -162,6 +169,7 @@ impl SkillApps {
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
             AppType::Zcode => self.zcode = enabled,
             AppType::Dsh => self.dsh = enabled,
+            AppType::Workbuddy => self.workbuddy = enabled,
         }
     }
 
@@ -195,6 +203,9 @@ impl SkillApps {
         if self.dsh {
             apps.push(AppType::Dsh);
         }
+        if self.workbuddy {
+            apps.push(AppType::Workbuddy);
+        }
         apps
     }
 
@@ -209,6 +220,7 @@ impl SkillApps {
             && !self.pi
             && !self.zcode
             && !self.dsh
+            && !self.workbuddy
     }
 
     /// 仅启用指定应用（其他应用设为禁用）
@@ -442,6 +454,7 @@ pub enum AppType {
     Pi,
     Zcode,
     Dsh,
+    Workbuddy,
 }
 
 impl AppType {
@@ -458,6 +471,7 @@ impl AppType {
             AppType::Pi => "pi",
             AppType::Zcode => "zcode",
             AppType::Dsh => "dsh",
+            AppType::Workbuddy => "workbuddy",
         }
     }
 
@@ -494,6 +508,7 @@ impl AppType {
             AppType::Pi,
             AppType::Zcode,
             AppType::Dsh,
+            AppType::Workbuddy,
         ]
         .into_iter()
     }
@@ -516,10 +531,11 @@ impl FromStr for AppType {
             "pi" => Ok(AppType::Pi),
             "zcode" => Ok(AppType::Zcode),
             "dsh" => Ok(AppType::Dsh),
+            "workbuddy" => Ok(AppType::Workbuddy),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh, workbuddy。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, zcode, dsh, workbuddy."),
             )),
         }
     }
@@ -566,6 +582,8 @@ impl CommonConfigSnippets {
             AppType::Zcode => self.zcode.as_ref(),
             // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
             AppType::Dsh => None,
+            // workbuddy 的 provider 由 workbuddy 应用内自管，不使用通用配置片段
+            AppType::Workbuddy => None,
         }
     }
 
@@ -584,6 +602,8 @@ impl CommonConfigSnippets {
             AppType::Zcode => self.zcode = snippet,
             // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
             AppType::Dsh => {}
+            // workbuddy 的 provider 由 workbuddy 应用内自管，不使用通用配置片段
+            AppType::Workbuddy => {}
         }
     }
 }
@@ -917,6 +937,8 @@ impl MultiAppConfig {
             AppType::Zcode => &mut config.prompts.zcode.prompts,
             // dsh 不支持 prompts
             AppType::Dsh => return Ok(false),
+            // workbuddy 不支持 prompts
+            AppType::Workbuddy => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -960,9 +982,10 @@ impl MultiAppConfig {
                 AppType::OpenCode => &self.mcp.opencode.servers,
                 AppType::Dsh => continue, // dsh 走 cordis.patch.yml 插件条目，无旧结构可迁移
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
-                AppType::Hermes => continue,   // Hermes didn't exist in v3.6.x, skip
-                AppType::Pi => continue,       // Pi didn't exist in v3.6.x, skip
-                AppType::Zcode => continue,    // ZCode didn't exist in v3.6.x, skip
+                AppType::Hermes => continue, // Hermes didn't exist in v3.6.x, skip
+                AppType::Pi => continue,  // Pi didn't exist in v3.6.x, skip
+                AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip
+                AppType::Workbuddy => continue, // WorkBuddy didn't exist in v3.6.x, skip
             };
 
             for (id, entry) in old_servers {
