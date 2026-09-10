@@ -180,7 +180,8 @@
         "apiKeyPlaceholder": "請輸入 Gemini API Key"
       }
     },
-    "duplicateLiveIdsLoadFailed": "讀取設定中的供應商識別碼失敗，請先修復設定後再試"
+    "duplicateLiveIdsLoadFailed": "讀取設定中的供應商識別碼失敗，請先修復設定後再試",
+    "duplicateRouteDisabled": "副本已預設關閉會話路由，如需啟用請重新設定路由 key"
   },
   "providers": {
     "form": {

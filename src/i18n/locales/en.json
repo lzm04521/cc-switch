@@ -180,7 +180,8 @@
         "apiKeyPlaceholder": "Enter Gemini API Key"
       }
     },
-    "duplicateLiveIdsLoadFailed": "Failed to read provider identifiers from config, please fix the config and try again"
+    "duplicateLiveIdsLoadFailed": "Failed to read provider identifiers from config, please fix the config and try again",
+    "duplicateRouteDisabled": "Session routing is disabled on the copy. Reconfigure the route key in edit if needed."
   },
   "providers": {
     "form": {
