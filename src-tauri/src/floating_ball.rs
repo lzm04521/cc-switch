@@ -985,11 +985,13 @@ pub fn build_sections(
     let mut sections = Vec::new();
 
     for app_type in crate::app_config::AppType::all() {
-        // zcode / dsh 的 provider 均由应用内自管，cc-switch 不写入/不切换，
-        // 悬浮球（快速切换入口）不展示这两类分组
+        // zcode / dsh / workbuddy 的 provider 均由应用内自管，cc-switch 不写入/不切换，
+        // 悬浮球（快速切换入口）不展示这几类分组
         if matches!(
             app_type,
-            crate::app_config::AppType::Zcode | crate::app_config::AppType::Dsh
+            crate::app_config::AppType::Zcode
+                | crate::app_config::AppType::Dsh
+                | crate::app_config::AppType::Workbuddy
         ) {
             continue;
         }
@@ -1239,5 +1241,80 @@ mod tests {
         let tiny = rect(0.0, 0.0, 40.0, 40.0);
         let big = rect(-100.0, -100.0, 70.0, 70.0);
         assert_eq!(clamp_into_work_area(&big, &tiny, 8.0), (-15.0, -15.0));
+    }
+
+    // ==== build_sections 测试支撑（隔离 home + 全局 settings 存取，见
+    // workbuddy_config.rs / database/backup.rs 的同类 TestHomeGuard 惯例）====
+
+    struct TestHomeGuard(Option<std::ffi::OsString>);
+    impl TestHomeGuard {
+        fn set(home: &std::path::Path) -> Self {
+            let guard = Self(std::env::var_os("CC_SWITCH_TEST_HOME"));
+            std::env::set_var("CC_SWITCH_TEST_HOME", home);
+            guard
+        }
+    }
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+                None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+            }
+        }
+    }
+
+    /// build_sections 读取全局 settings store（update_settings 会落盘），
+    /// 先快照原值、改为全量已知 visible_apps，测试结束恢复。
+    struct VisibleAppsGuard {
+        previous: crate::settings::AppSettings,
+    }
+
+    impl VisibleAppsGuard {
+        fn with_self_managed_apps_visible() -> Self {
+            let previous = crate::settings::get_settings();
+            let mut next = previous.clone();
+            // 全量已知可见性（Default：常规应用可见，hermes 隐藏），
+            // 并显式打开 zcode / workbuddy，验证"可见也不进悬浮球"
+            next.visible_apps = Some(crate::settings::VisibleApps {
+                zcode: true,
+                workbuddy: true,
+                ..Default::default()
+            });
+            crate::settings::update_settings(next).expect("set visible apps for test");
+            Self { previous }
+        }
+    }
+
+    impl Drop for VisibleAppsGuard {
+        fn drop(&mut self) {
+            let _ = crate::settings::update_settings(self.previous.clone());
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn build_sections_skips_self_managed_apps_even_when_visible() {
+        // zcode / dsh / workbuddy 的 provider 由应用内自管：即使用户在设置里
+        // 打开可见性，悬浮球快速切换面板也不得出现这些分组（设计 §5.5）
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _home = TestHomeGuard::set(temp.path());
+        let _settings = VisibleAppsGuard::with_self_managed_apps_visible();
+
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().expect("create in-memory database"),
+        ));
+        let sections = build_sections(&state).expect("build ball sections");
+
+        for app in ["zcode", "dsh", "workbuddy"] {
+            assert!(
+                sections.iter().all(|s| s.app_type != app),
+                "self-managed app '{app}' must not appear in ball sections"
+            );
+        }
+        // 不过度过滤：常规 provider 管理应用的分组仍在
+        assert!(
+            sections.iter().any(|s| s.app_type == "claude"),
+            "claude section should remain in ball sections"
+        );
     }
 }
