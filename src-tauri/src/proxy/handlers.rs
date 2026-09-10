@@ -203,9 +203,12 @@ fn build_anthropic_models_response(data: Vec<Value>) -> Value {
 /// `/codex/v1/models`：codex 命名空间专属模型列表——Codex 模型目录
 /// （顶层 `models` 原样保留 + OpenAI list 风格 `data` 投影，通用 OpenAI
 /// 客户端读 `data[].id`，id 取目录条目的 `slug`），跟随
-/// `route_models_endpoint` 开关追加 **codex 分组**的路由条目（Task 3b，
+/// `route_models_endpoint` 开关控制 **codex 分组**的路由条目（Task 3b，
 /// 2026-09-10；与 `/v1/models` 一样只放本 app 的分组，不含 claude 分组）。
-/// 开关关闭时与改动前完全一致（仅目录）。
+/// 存在合规分组时 `data` 整体替换为路由条目（目录投影条目被丢弃——纯
+/// 模型名条目在 session 粘性绑定建立后跟随绑定分组，语义不稳定且误导，
+/// 用户决策 2026-09-10）；开关关闭或无合规分组时与改动前完全一致（仅
+/// 目录投影——此时绑定不会建立，纯名条目语义清晰）。
 pub async fn handle_codex_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
@@ -220,7 +223,7 @@ pub async fn handle_codex_models(
         let prefix = crate::settings::get_route_prefix();
         let data =
             super::route_prefix::build_route_models_list_for_codex(&all, &prefix, endpoint.mode);
-        merge_codex_route_models_into_openai_list(&mut catalog, data);
+        apply_codex_route_models_to_openai_list(&mut catalog, data);
     }
     Ok(Json(catalog))
 }
@@ -261,22 +264,25 @@ fn project_catalog_to_openai_list(catalog: Value) -> Value {
     catalog
 }
 
-/// `/codex/v1/models` 路由条目合并层（纯函数，Task 3b，2026-09-10）：
-/// 把 codex 分组的路由条目追加到 OpenAI list 风格 `data` 尾部（catalog
-/// 投影条目在前、路由条目在后）。每个路由条目补 `object: "model"` /
+/// `/codex/v1/models` 路由条目应用层（纯函数；Task 3b 2026-09-10，替换
+/// 语义 2026-09-10）：路由条目非空时**整体替换** OpenAI list 风格 `data`
+/// （目录投影条目被丢弃——纯模型名条目在 session 粘性绑定建立后跟随
+/// 绑定分组，语义不稳定且误导，用户决策 2026-09-10）；条目为空（无合规
+/// 分组）时 `data` 原样保留投影条目。每个路由条目补 `object: "model"` /
 /// `created: 0` / `owned_by: "cc-switch"` 三字段，与
 /// `project_catalog_to_openai_list` 的投影条目形态对齐；条目原有的
 /// `display_name` 等字段保留（OpenAI 客户端只读 `id`，多余字段无害）。
 /// 不追加 `has_more`/`first_id`/`last_id`——保持 OpenAI list 形态
 /// （`object` + `data`），区别于 `/v1/models` 的 Anthropic 四件套。
-/// catalog 非 object 或 `data` 非数组时原样返回（投影层已保证数组，防御）。
-fn merge_codex_route_models_into_openai_list(catalog: &mut Value, data: Vec<Value>) {
+/// catalog 非 object 时原样返回（投影层保证 object，防御）。
+fn apply_codex_route_models_to_openai_list(catalog: &mut Value, data: Vec<Value>) {
     let Some(obj) = catalog.as_object_mut() else {
         return;
     };
-    let Some(data_array) = obj.get_mut("data").and_then(Value::as_array_mut) else {
+    if data.is_empty() {
         return;
-    };
+    }
+    let mut data_array: Vec<Value> = Vec::with_capacity(data.len());
     for mut entry in data {
         if let Some(entry_obj) = entry.as_object_mut() {
             entry_obj.insert("object".to_string(), json!("model"));
@@ -285,6 +291,7 @@ fn merge_codex_route_models_into_openai_list(catalog: &mut Value, data: Vec<Valu
         }
         data_array.push(entry);
     }
+    obj.insert("data".to_string(), Value::Array(data_array));
 }
 
 // ============================================================================
@@ -3167,9 +3174,9 @@ async fn log_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_route_groups_to_models_response, body_looks_like_sse, build_anthropic_models_response,
-        chat_sse_to_response_value, classify_body_for_diagnostics, codex_proxy_error_json,
-        merge_codex_route_models_into_openai_list, merge_route_models_into_catalog,
+        append_route_groups_to_models_response, apply_codex_route_models_to_openai_list,
+        body_looks_like_sse, build_anthropic_models_response, chat_sse_to_response_value,
+        classify_body_for_diagnostics, codex_proxy_error_json, merge_route_models_into_catalog,
         project_catalog_to_openai_list,
         responses_sse_stream_to_anthropic_message, responses_sse_to_response_value,
         should_use_claude_transform_streaming, transform, upstream_body_parse_error,
@@ -3228,9 +3235,10 @@ mod tests {
     }
 
     #[test]
-    fn codex_route_merge_appends_after_catalog_and_adds_openai_fields() {
-        // 投影条目在前、路由条目在后；路由条目补 OpenAI 三字段；
-        // display_name 等原有字段保留；不追加 Anthropic 四件套
+    fn codex_route_apply_replaces_catalog_data_with_route_entries() {
+        // 路由条目非空：data 整体替换为路由条目，目录投影条目丢弃
+        // （纯模型名在粘性绑定语境下误导，用户决策 2026-09-10）；
+        // 路由条目补 OpenAI 三字段；display_name 等原有字段保留
         let mut catalog = serde_json::json!({
             "object": "list",
             "models": [{"slug": "gpt-5"}],
@@ -3240,17 +3248,20 @@ mod tests {
             serde_json::json!({"type": "model", "id": "G.DS", "display_name": "DS"}),
             serde_json::json!({"type": "model", "id": "G.DS:m1", "display_name": "DS:m1"}),
         ];
-        merge_codex_route_models_into_openai_list(&mut catalog, data);
+        apply_codex_route_models_to_openai_list(&mut catalog, data);
 
         let merged = catalog["data"].as_array().unwrap();
-        assert_eq!(merged.len(), 3);
-        assert_eq!(merged[0]["id"], serde_json::json!("gpt-5"));
-        assert_eq!(merged[1]["id"], serde_json::json!("G.DS"));
-        assert_eq!(merged[1]["object"], serde_json::json!("model"));
-        assert_eq!(merged[1]["created"], serde_json::json!(0));
-        assert_eq!(merged[1]["owned_by"], serde_json::json!("cc-switch"));
-        assert_eq!(merged[1]["display_name"], serde_json::json!("DS"));
-        assert_eq!(merged[2]["id"], serde_json::json!("G.DS:m1"));
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0]["id"], serde_json::json!("G.DS"));
+        assert_eq!(merged[0]["object"], serde_json::json!("model"));
+        assert_eq!(merged[0]["created"], serde_json::json!(0));
+        assert_eq!(merged[0]["owned_by"], serde_json::json!("cc-switch"));
+        assert_eq!(merged[0]["display_name"], serde_json::json!("DS"));
+        assert_eq!(merged[1]["id"], serde_json::json!("G.DS:m1"));
+        // 投影条目被替换掉，data 只剩 G. 前缀条目
+        assert!(merged
+            .iter()
+            .all(|e| e["id"].as_str().unwrap().starts_with("G.")));
         // 保持 OpenAI list 形态：无 Anthropic 包装字段
         assert!(catalog.get("has_more").is_none());
         assert!(catalog.get("first_id").is_none());
@@ -3261,32 +3272,36 @@ mod tests {
     }
 
     #[test]
-    fn codex_route_merge_empty_entries_keeps_catalog_data() {
+    fn codex_route_apply_empty_entries_keeps_catalog_data() {
+        // 路由条目为空（无合规分组）：保留目录投影条目——此时粘性绑定
+        // 不会建立，纯名条目语义清晰，端点不返回空列表
         let mut catalog = serde_json::json!({
             "object": "list",
             "data": [{"id": "gpt-5", "object": "model", "created": 0, "owned_by": "cc-switch"}],
         });
-        merge_codex_route_models_into_openai_list(&mut catalog, Vec::new());
+        apply_codex_route_models_to_openai_list(&mut catalog, Vec::new());
         assert_eq!(catalog["data"].as_array().unwrap().len(), 1);
         assert_eq!(catalog["data"][0]["id"], serde_json::json!("gpt-5"));
     }
 
     #[test]
-    fn codex_route_merge_non_object_or_missing_data_unchanged() {
+    fn codex_route_apply_non_object_unchanged_and_missing_data_inserted() {
         // 非 object（如 null）：原样返回，不 panic
         let mut null_catalog = serde_json::Value::Null;
-        merge_codex_route_models_into_openai_list(
+        apply_codex_route_models_to_openai_list(
             &mut null_catalog,
             vec![serde_json::json!({"id": "G.DS"})],
         );
         assert_eq!(null_catalog, serde_json::Value::Null);
-        // object 但无 data 数组：原样返回（防御；投影层保证 data 存在）
+        // object 但无 data 字段（防御；投影层保证存在）：直接插入路由条目
         let mut no_data = serde_json::json!({"object": "list"});
-        merge_codex_route_models_into_openai_list(
+        apply_codex_route_models_to_openai_list(
             &mut no_data,
             vec![serde_json::json!({"id": "G.DS"})],
         );
-        assert_eq!(no_data, serde_json::json!({"object": "list"}));
+        assert_eq!(no_data["data"].as_array().unwrap().len(), 1);
+        assert_eq!(no_data["data"][0]["id"], serde_json::json!("G.DS"));
+        assert_eq!(no_data["object"], serde_json::json!("list"));
     }
 
     #[test]
