@@ -299,7 +299,12 @@ impl ProxyServer {
             .route("/status", get(handlers::get_status))
             // Claude API (支持带前缀和不带前缀两种格式)
             .route("/v1/messages", post(handlers::handle_messages))
-            .route("/claude/v1/messages", post(handlers::handle_messages))
+            .route(
+                "/claude/v1/messages",
+                post(handlers::handle_claude_prefixed_messages),
+            )
+            // claude 命名空间专属模型列表（base_url 配 .../claude 的客户端拉取）
+            .route("/claude/v1/models", get(handlers::handle_claude_models))
             // Claude Desktop 3P 本地 gateway（独立 provider namespace）
             .route(
                 "/claude-desktop/v1/models",
@@ -326,6 +331,8 @@ impl ProxyServer {
             // OpenAI Models API (Codex CLI reachability check)
             .route("/models", get(handlers::handle_models))
             .route("/v1/models", get(handlers::handle_models))
+            // codex 命名空间专属模型列表（base_url 配 .../codex 的客户端拉取）
+            .route("/codex/v1/models", get(handlers::handle_codex_models))
             // OpenAI Responses API (Codex CLI，支持带前缀和不带前缀)
             .route("/responses", post(handlers::handle_responses))
             .route("/v1/responses", post(handlers::handle_responses))

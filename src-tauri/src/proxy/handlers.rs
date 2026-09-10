@@ -89,6 +89,25 @@ pub async fn get_status(State(state): State<ProxyState>) -> Result<Json<ProxySta
 /// 模型清单）；Codex 只读顶层 `models`，两类客户端互不干扰。开关关闭时
 /// 响应与现状完全一致。
 pub async fn handle_models(State(state): State<ProxyState>) -> Result<Json<Value>, ProxyError> {
+    let mut catalog = read_active_codex_catalog();
+
+    let endpoint = crate::settings::get_route_models_endpoint();
+    if endpoint.enabled {
+        let all = state
+            .db
+            .get_all_providers("claude")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        let prefix = crate::settings::get_route_prefix();
+        let data = super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode);
+        merge_route_models_into_catalog(&mut catalog, data);
+    }
+    Ok(Json(catalog))
+}
+
+/// 读取当前 Codex 模型目录：仅当 live config.toml 的 `model_catalog_json`
+/// 仍指向 cc-switch 目录文件时才服务（stale guard），读取失败回退空目录。
+/// `/v1/models` 与 `/codex/v1/models` 共用。
+fn read_active_codex_catalog() -> Value {
     let config_dir = crate::codex_config::get_codex_config_dir();
     let active_catalog_path = match crate::codex_config::read_codex_config_text() {
         Ok(config_text) => {
@@ -97,9 +116,7 @@ pub async fn handle_models(State(state): State<ProxyState>) -> Result<Json<Value
         Err(_) => None,
     };
 
-    let mut catalog = if let Some(catalog_path) =
-        active_catalog_path.as_ref().filter(|path| path.exists())
-    {
+    if let Some(catalog_path) = active_catalog_path.as_ref().filter(|path| path.exists()) {
         match crate::codex_config::read_codex_model_catalog_text(catalog_path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or(json!({"models": []})),
             Err(error) => {
@@ -114,19 +131,7 @@ pub async fn handle_models(State(state): State<ProxyState>) -> Result<Json<Value
             );
         }
         json!({"models": []})
-    };
-
-    let endpoint = crate::settings::get_route_models_endpoint();
-    if endpoint.enabled {
-        let all = state
-            .db
-            .get_all_providers("claude")
-            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let prefix = crate::settings::get_route_prefix();
-        let data = super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode);
-        merge_route_models_into_catalog(&mut catalog, data);
     }
-    Ok(Json(catalog))
 }
 
 /// 会话级路由 /v1/models 合并层（纯函数）：把路由条目合并进 catalog JSON
@@ -159,6 +164,87 @@ fn merge_route_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
     }
 }
 
+/// `/claude/v1/models`：claude 命名空间专属模型列表——仅会话级路由分组
+/// 条目（`G.<key>` / `G.<key>:<model>`，与 `/v1/models` 的 `data` 部分同源
+/// 同规则），不含 Codex 目录（那是 `/v1/models` 与 `/codex/v1/models` 的
+/// 职责）。跟随 `route_models_endpoint` 开关，关闭时 `data` 为空。
+pub async fn handle_claude_models(State(state): State<ProxyState>) -> Result<Json<Value>, ProxyError> {
+    let endpoint = crate::settings::get_route_models_endpoint();
+    let data = if endpoint.enabled {
+        let all = state
+            .db
+            .get_all_providers("claude")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        let prefix = crate::settings::get_route_prefix();
+        super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode)
+    } else {
+        Vec::new()
+    };
+    Ok(Json(build_anthropic_models_response(data)))
+}
+
+/// 把路由分组条目包装成 Anthropic 风格 models 响应。包装字段与
+/// `merge_route_models_into_catalog` 保持一致（data/has_more/first_id/last_id），
+/// 但独立构造（无 catalog 合并、无顶层 `models`）。
+fn build_anthropic_models_response(data: Vec<Value>) -> Value {
+    let ids: Vec<String> = data
+        .iter()
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    json!({
+        "data": data,
+        "has_more": false,
+        "first_id": ids.first().cloned(),
+        "last_id": ids.last().cloned(),
+    })
+}
+
+/// `/codex/v1/models`：codex 命名空间专属模型列表——仅 Codex 模型目录，
+/// 不合并 claude 路由分组条目（与 `/v1/models` 混合形态的差异点）。
+/// 顶层 `models` 原样保留（Codex CLI 兼容），并附 OpenAI list 风格 `data`
+/// 投影（通用 OpenAI 客户端读 `data[].id`，id 取目录条目的 `slug`）。
+pub async fn handle_codex_models() -> Result<Json<Value>, ProxyError> {
+    let catalog = read_active_codex_catalog();
+    Ok(Json(project_catalog_to_openai_list(catalog)))
+}
+
+/// Codex 目录 → OpenAI list 风格投影（纯函数）：保留顶层 `models` 原样并
+/// 生成 `object: "list"` + `data` 数组；`data` 条目取标准四字段，`id` 优先
+/// 取 `slug`（目录条目的模型标识，`codex_catalog_model_entry` 写入）。
+/// catalog 非 object 或无 `models` 数组时补空 `data`，不报错。
+fn project_catalog_to_openai_list(catalog: Value) -> Value {
+    let mut catalog = catalog;
+    let Some(obj) = catalog.as_object_mut() else {
+        return catalog;
+    };
+    let data: Vec<Value> = obj
+        .get("models")
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .map(|entry| {
+                    let id = entry
+                        .get("slug")
+                        .or_else(|| entry.get("id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    json!({
+                        "id": id,
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": "cc-switch",
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    obj.insert("object".to_string(), json!("list"));
+    obj.insert("data".to_string(), Value::Array(data));
+    catalog
+}
+
 // ============================================================================
 // Claude API 处理器（包含格式转换逻辑）
 // ============================================================================
@@ -173,6 +259,17 @@ pub async fn handle_messages(
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
     handle_messages_for_app(state, request, AppType::Claude, "Claude", "claude", None).await
+}
+
+/// `/claude/v1/messages` 前缀入口：剥掉 `/claude` 前缀后走 claude 主链路
+/// （与 `/claude-desktop` 同款 strip_prefix 机制）。endpoint 从请求 URI
+/// 原样派生，前缀不剥会被拼进上游 URL 导致 404。
+pub async fn handle_claude_prefixed_messages(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_messages_for_app(state, request, AppType::Claude, "Claude", "claude", Some("/claude"))
+        .await
 }
 
 pub async fn handle_claude_desktop_messages(
@@ -3020,8 +3117,9 @@ async fn log_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_route_groups_to_models_response, body_looks_like_sse, chat_sse_to_response_value,
-        classify_body_for_diagnostics, codex_proxy_error_json, merge_route_models_into_catalog,
+        append_route_groups_to_models_response, body_looks_like_sse, build_anthropic_models_response,
+        chat_sse_to_response_value, classify_body_for_diagnostics, codex_proxy_error_json,
+        merge_route_models_into_catalog, project_catalog_to_openai_list,
         responses_sse_stream_to_anthropic_message, responses_sse_to_response_value,
         should_use_claude_transform_streaming, transform, upstream_body_parse_error,
     };
@@ -3848,5 +3946,70 @@ data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\"}}\n
         assert_eq!(body["error"]["provider"], "HCAI");
         assert_eq!(body["error"]["model"], "gpt-5.5");
         assert_eq!(body["error"]["endpoint"], "/responses");
+    }
+
+    #[test]
+    fn anthropic_models_response_wraps_entries_with_first_last_ids() {
+        let data = vec![
+            serde_json::json!({"id": "G.Default", "display_name": "Default"}),
+            serde_json::json!({"id": "G.DS[1M]", "display_name": "DS"}),
+        ];
+        let resp = build_anthropic_models_response(data);
+        assert_eq!(resp["has_more"], serde_json::json!(false));
+        assert_eq!(resp["first_id"], serde_json::json!("G.Default"));
+        assert_eq!(resp["last_id"], serde_json::json!("G.DS[1M]"));
+        let ids: Vec<&str> = resp["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["G.Default", "G.DS[1M]"]);
+        // 独立构造：不携带 codex 目录顶层 models 字段
+        assert!(resp.get("models").is_none());
+    }
+
+    #[test]
+    fn anthropic_models_response_empty_data_has_null_ids() {
+        let resp = build_anthropic_models_response(Vec::new());
+        assert_eq!(resp["data"], serde_json::json!([]));
+        assert_eq!(resp["first_id"], serde_json::Value::Null);
+        assert_eq!(resp["last_id"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn codex_catalog_projection_maps_slug_to_openai_entries() {
+        let catalog = serde_json::json!({
+            "models": [
+                {"slug": "glm-4.6", "display_name": "GLM 4.6"},
+                {"slug": "deepseek-v4-pro", "display_name": "DeepSeek V4 Pro"}
+            ]
+        });
+        let resp = project_catalog_to_openai_list(catalog);
+        assert_eq!(resp["object"], serde_json::json!("list"));
+        // 顶层 models 原样保留（Codex CLI 兼容）
+        assert_eq!(resp["models"][0]["slug"], serde_json::json!("glm-4.6"));
+        // data 投影：id 取 slug（目录条目的模型标识），标准四字段
+        assert_eq!(resp["data"].as_array().unwrap().len(), 2);
+        assert_eq!(resp["data"][0]["id"], serde_json::json!("glm-4.6"));
+        assert_eq!(resp["data"][0]["object"], serde_json::json!("model"));
+        assert_eq!(
+            resp["data"][1]["id"],
+            serde_json::json!("deepseek-v4-pro")
+        );
+    }
+
+    #[test]
+    fn codex_catalog_projection_handles_missing_models_and_non_object() {
+        // 无 models 数组：补空 data，不报错
+        let resp = project_catalog_to_openai_list(serde_json::json!({"foo": 1}));
+        assert_eq!(resp["data"], serde_json::json!([]));
+        assert_eq!(resp["object"], serde_json::json!("list"));
+        // 非 object（如 null）：原样返回
+        let null_catalog = serde_json::Value::Null;
+        assert_eq!(
+            project_catalog_to_openai_list(null_catalog),
+            serde_json::Value::Null
+        );
     }
 }
