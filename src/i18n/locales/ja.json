@@ -966,6 +966,7 @@
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
     "dsh": "Deepseek",
+    "workbuddy": "WorkBuddy",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -2090,6 +2091,7 @@
         "openclaw": "OpenClaw",
         "hermes": "Hermes",
         "dsh": "Deepseek",
+        "workbuddy": "WorkBuddy",
         "zcode": "ZCode"
       }
     },
@@ -3317,6 +3319,9 @@
   },
   "dsh": {
     "providerManagedExternally": "DSH のプロバイダーは Deepseek アプリ内で自己管理されます。追加・切替・設定はアプリ内で行ってください。"
+  },
+  "workbuddy": {
+    "providerManagedExternally": "WorkBuddy のプロバイダーは WorkBuddy アプリ内で自己管理されます。WorkBuddy アプリ内で追加・切り替え・設定してください。"
   },
   "subscription": {
     "title": "サブスクリプションクォータ",

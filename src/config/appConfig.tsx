@@ -28,6 +28,7 @@ export const APP_IDS: AppId[] = [
   "pi",
   "zcode",
   "dsh",
+  "workbuddy",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -42,6 +43,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   dsh: true,
   pi: true,
   zcode: false, // 默认不显示，需用户手动启用
+  workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
 };
 
 /** App IDs shown in Skills panels. */
@@ -55,6 +57,7 @@ export const SKILLS_APP_IDS: AppId[] = [
   "pi",
   "zcode",
   "dsh",
+  "workbuddy",
 ];
 
 export type ProxyAppId = Extract<
@@ -101,6 +104,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "hermes",
   "zcode",
   "dsh",
+  "workbuddy",
 ];
 
 export function isMcpAppId(appId: string): appId is McpAppId {
@@ -225,6 +229,14 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-sky-500/10 ring-1 ring-sky-500/20 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400",
     badgeClass:
       "bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 border-0 gap-1.5",
+  },
+  workbuddy: {
+    label: "WorkBuddy",
+    icon: <ProviderIcon name="WorkBuddy" size={14} />,
+    activeClass:
+      "bg-teal-500/10 ring-1 ring-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400",
+    badgeClass:
+      "bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 border-0 gap-1.5",
   },
 };
 

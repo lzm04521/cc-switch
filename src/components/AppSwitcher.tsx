@@ -39,6 +39,7 @@ const APP_ICON_NAME: Record<AppId, string> = {
   dsh: "deepseek",
   pi: "pi",
   zcode: "zcode",
+  workbuddy: "workbuddy",
 };
 
 const APP_DISPLAY_NAME: Record<AppId, string> = {
@@ -53,6 +54,7 @@ const APP_DISPLAY_NAME: Record<AppId, string> = {
   dsh: "Deepseek",
   pi: "Pi",
   zcode: "ZCode",
+  workbuddy: "WorkBuddy",
 };
 
 /** 应用图标 + 角标（Claude Code / Desktop 用角标区分终端与桌面） */

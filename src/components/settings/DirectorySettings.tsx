@@ -6,7 +6,8 @@ import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
 import type { ResolvedDirectories } from "@/hooks/useSettings";
 
-type DirectoryAppId = Exclude<AppId, "claude-desktop">;
+// WorkBuddy 无用户可配的目录设置（home 由后端自动解析），不纳入目录管理。
+type DirectoryAppId = Exclude<AppId, "claude-desktop" | "workbuddy">;
 
 interface DirectorySettingsProps {
   appConfigDir?: string;

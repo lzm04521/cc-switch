@@ -963,6 +963,7 @@
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
     "dsh": "Deepseek",
+    "workbuddy": "WorkBuddy",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -2087,6 +2088,7 @@
         "openclaw": "OpenClaw",
         "hermes": "Hermes",
         "dsh": "Deepseek",
+        "workbuddy": "WorkBuddy",
         "zcode": "ZCode"
       }
     },
@@ -3314,6 +3316,9 @@
   },
   "dsh": {
     "providerManagedExternally": "DSH 的 provider 由 Deepseek 應用程式自行管理，請前往 DSH 應用程式內新增、切換或設定 provider。"
+  },
+  "workbuddy": {
+    "providerManagedExternally": "WorkBuddy 的 provider 由 WorkBuddy 應用程式內自管，請前往 WorkBuddy 應用程式內新增、切換或設定 provider。"
   },
   "subscription": {
     "title": "訂閱額度",

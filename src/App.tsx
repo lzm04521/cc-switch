@@ -244,6 +244,19 @@ function App() {
       }
       return;
     }
+    if (activeApp === "workbuddy") {
+      const workbuddyViews: View[] = [
+        "providers",
+        "skills",
+        "skillsDiscovery",
+        "mcp",
+        "settings",
+      ];
+      if (!workbuddyViews.includes(currentView)) {
+        setCurrentView("skills");
+      }
+      return;
+    }
     if (activeApp !== "zcode") return;
     const allowedViews: View[] = [
       "providers",
@@ -1133,8 +1146,10 @@ function App() {
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
-              {activeApp === "zcode" || activeApp === "dsh" ? (
-                // zcode / dsh 的 provider 由应用内自管，cc-switch 不提供
+              {activeApp === "zcode" ||
+              activeApp === "dsh" ||
+              activeApp === "workbuddy" ? (
+                // zcode / dsh / workbuddy 的 provider 由应用内自管，cc-switch 不提供
                 // 新增/路由/统计等管理功能，仅展示一条提示。
                 <div className="flex flex-1 flex-col items-center justify-center text-center">
                   <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-sky-500/10">
@@ -1143,7 +1158,9 @@ function App() {
                   <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
                     {activeApp === "dsh"
                       ? t("dsh.providerManagedExternally")
-                      : t("zcode.providerManagedExternally")}
+                      : activeApp === "workbuddy"
+                        ? t("workbuddy.providerManagedExternally")
+                        : t("zcode.providerManagedExternally")}
                   </p>
                 </div>
               ) : (
@@ -1805,17 +1822,19 @@ function App() {
                       </AnimatePresence>
                     </div>
 
-                    {activeApp !== "zcode" && activeApp !== "dsh" && (
-                      <Button
-                        onClick={() => setIsAddOpen(true)}
-                        size="icon"
-                        className={`ml-2 ${addActionButtonClass}`}
-                        aria-label={t("provider.addNewProvider")}
-                        title={t("provider.addNewProvider")}
-                      >
-                        <Plus className="w-5 h-5" />
-                      </Button>
-                    )}
+                    {activeApp !== "zcode" &&
+                      activeApp !== "dsh" &&
+                      activeApp !== "workbuddy" && (
+                        <Button
+                          onClick={() => setIsAddOpen(true)}
+                          size="icon"
+                          className={`ml-2 ${addActionButtonClass}`}
+                          aria-label={t("provider.addNewProvider")}
+                          title={t("provider.addNewProvider")}
+                        >
+                          <Plus className="w-5 h-5" />
+                        </Button>
+                      )}
                   </>
                 )}
               </div>

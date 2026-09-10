@@ -44,4 +44,26 @@ describe("DeepSeek Harness app capabilities", () => {
     expect(supportsAppView("dsh", "sessions")).toBe(false);
     expect(supportsAppView("dsh", "universal")).toBe(false);
   });
+
+  it("keeps WorkBuddy providers app-managed with only skills/MCP surfaces", () => {
+    const capabilities = getAppCapabilities("workbuddy");
+    // fork 定制：WorkBuddy 仅接入统一 Skills/MCP 管理，provider 由应用内自管
+    expect(capabilities.mcp).toBe(true);
+    expect(capabilities.skills).toBe(true);
+    expect(capabilities.prompts).toBe(false);
+    expect(capabilities.proxy).toBe(false);
+    expect(capabilities.failover).toBe(false);
+    expect(capabilities.sessions).toBe(false);
+    expect(capabilities.universal).toBe(false);
+    expect(capabilities.usage).toBe(false);
+    expect(capabilities.tray).toBe(false);
+    expect(capabilities.defaultModel).toBe(false);
+    expect(supportsAppView("workbuddy", "providers")).toBe(true);
+    expect(supportsAppView("workbuddy", "settings")).toBe(true);
+    expect(supportsAppView("workbuddy", "skills")).toBe(true);
+    expect(supportsAppView("workbuddy", "skillsDiscovery")).toBe(true);
+    expect(supportsAppView("workbuddy", "mcp")).toBe(true);
+    expect(supportsAppView("workbuddy", "sessions")).toBe(false);
+    expect(supportsAppView("workbuddy", "prompts")).toBe(false);
+  });
 });

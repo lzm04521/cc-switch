@@ -76,6 +76,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
   dsh: {},
   pi: {},
   zcode: {},
+  workbuddy: {},
 });
 
 const createDefaultCurrent = (): CurrentProviderState => ({
@@ -90,6 +91,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
   dsh: "",
   pi: "",
   zcode: "",
+  workbuddy: "",
 });
 
 let providers = createDefaultProviders();
@@ -175,6 +177,7 @@ let mcpConfigs: McpConfigState = {
         hermes: false,
         zcode: false,
         dsh: false,
+        workbuddy: false,
       },
       server: {
         type: "stdio",
@@ -197,6 +200,7 @@ let mcpConfigs: McpConfigState = {
         hermes: false,
         zcode: false,
         dsh: false,
+        workbuddy: false,
       },
       server: {
         type: "http",
@@ -212,6 +216,7 @@ let mcpConfigs: McpConfigState = {
   dsh: {},
   pi: {},
   zcode: {},
+  workbuddy: {},
 };
 
 const cloneProviders = (value: ProvidersByApp) =>
@@ -253,6 +258,7 @@ export const resetProviderState = () => {
           hermes: false,
           zcode: false,
           dsh: false,
+          workbuddy: false,
         },
         server: {
           type: "stdio",
@@ -275,6 +281,7 @@ export const resetProviderState = () => {
           hermes: false,
           zcode: false,
           dsh: false,
+          workbuddy: false,
         },
         server: {
           type: "http",
@@ -290,6 +297,7 @@ export const resetProviderState = () => {
     dsh: {},
     pi: {},
     zcode: {},
+    workbuddy: {},
   };
 };
 

@@ -71,11 +71,13 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     hermes: boolean;
     dsh: boolean;
     zcode: boolean;
+    workbuddy: boolean;
   }>(() => {
     if (initialData?.apps) {
       return {
         ...initialData.apps,
         grokbuild: initialData.apps.grokbuild ?? false,
+        workbuddy: initialData.apps.workbuddy ?? false,
       };
     }
     return {
@@ -88,6 +90,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
       hermes: defaultEnabledApps.includes("hermes"),
       dsh: defaultEnabledApps.includes("dsh"),
       zcode: defaultEnabledApps.includes("zcode"),
+      workbuddy: defaultEnabledApps.includes("workbuddy"),
     };
   });
 
@@ -659,6 +662,22 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                     className="text-sm text-foreground cursor-pointer select-none"
                   >
                     {t("mcp.unifiedPanel.apps.zcode")}
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="enable-workbuddy"
+                    checked={enabledApps.workbuddy}
+                    onCheckedChange={(checked: boolean) =>
+                      setEnabledApps({ ...enabledApps, workbuddy: checked })
+                    }
+                  />
+                  <label
+                    htmlFor="enable-workbuddy"
+                    className="text-sm text-foreground cursor-pointer select-none"
+                  >
+                    {t("mcp.unifiedPanel.apps.workbuddy")}
                   </label>
                 </div>
               </div>

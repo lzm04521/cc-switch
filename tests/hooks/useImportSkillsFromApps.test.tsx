@@ -37,6 +37,7 @@ function makeSkill(overrides: Partial<InstalledSkill> = {}): InstalledSkill {
       pi: false,
       zcode: false,
       dsh: false,
+      workbuddy: false,
     },
     installedAt: 0,
     updatedAt: 0,

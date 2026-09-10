@@ -115,6 +115,20 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     usage: false,
     defaultModel: false,
   }),
+  // WorkBuddy providers are managed in-app; cc-switch only manages its
+  // skills deployment and its user-level mcp.json MCP config.
+  workbuddy: generic({
+    proxy: false,
+    failover: false,
+    prompts: false,
+    skills: true,
+    mcp: true,
+    sessions: false,
+    universal: false,
+    tray: false,
+    usage: false,
+    defaultModel: false,
+  }),
 };
 
 /** Return the immutable capability row for an application. */

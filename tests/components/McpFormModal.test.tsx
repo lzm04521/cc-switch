@@ -393,6 +393,7 @@ type = "stdio"
       codex: false,
       gemini: false,
       grokbuild: false,
+      workbuddy: false,
     });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith();
@@ -447,6 +448,7 @@ type = "stdio"
       hermes: false,
       dsh: false,
       zcode: false,
+      workbuddy: false,
     });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).not.toHaveBeenCalled();

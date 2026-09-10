@@ -59,6 +59,7 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   dsh: "Deepseek",
   pi: "Pi",
   zcode: "ZCode",
+  workbuddy: "WorkBuddy",
 };
 
 /** 余额/次数类单条展示：剩余值 + 单位（不足 10% 变橙、失效变红，梯度同主界面） */

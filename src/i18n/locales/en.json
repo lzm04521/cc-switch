@@ -966,6 +966,7 @@
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
     "dsh": "Deepseek",
+    "workbuddy": "WorkBuddy",
     "pi": "Pi",
     "zcode": "ZCode"
   },
@@ -2090,6 +2091,7 @@
         "openclaw": "OpenClaw",
         "hermes": "Hermes",
         "dsh": "Deepseek",
+        "workbuddy": "WorkBuddy",
         "zcode": "ZCode"
       }
     },
@@ -3317,6 +3319,9 @@
   },
   "dsh": {
     "providerManagedExternally": "DSH providers are managed inside the Deepseek app. Add, switch, or configure providers there."
+  },
+  "workbuddy": {
+    "providerManagedExternally": "WorkBuddy providers are managed inside the WorkBuddy app. Please add, switch, or configure providers there."
   },
   "subscription": {
     "title": "Subscription Quota",
