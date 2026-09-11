@@ -2025,6 +2025,509 @@ pub fn chat_error_to_response_error(body: Option<&Value>) -> Value {
     })
 }
 
+// ============================================================================
+// Chat → Responses（/chat/completions 入口 × Responses 型上游，2026-09-11）
+//
+// 与上方 responses_to_chat_completions 系列互为镜像：chat 客户端的请求形态
+// 远比 Codex CLI 简单（无 reasoning item / custom_tool_call / media pending），
+// 转换按 chat 协议的标准字段做直映射，不做 Codex 特化附挂。
+// ============================================================================
+
+/// 提取 chat message 的纯文本（content 为 string 或 text parts 数组）。
+/// 非 text part（image_url 等）被忽略——多模态走专用 content 转换。
+fn chat_message_text(message: &Value) -> Option<String> {
+    match message.get("content") {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Array(parts)) => {
+            let text: Vec<&str> = parts
+                .iter()
+                .filter(|part| {
+                    part.get("type")
+                        .and_then(Value::as_str)
+                        .map(|t| t == "text" || t == "input_text" || t == "output_text")
+                        .unwrap_or(true)
+                })
+                .filter_map(|part| {
+                    part.get("text")
+                        .and_then(Value::as_str)
+                        .or_else(|| part.as_str())
+                })
+                .collect();
+            (!text.is_empty()).then(|| text.join(""))
+        }
+        _ => None,
+    }
+}
+
+/// chat user content（string / parts）→ Responses message content parts。
+/// text part → input_text；image_url part → input_image（取 url 字符串形态）。
+fn chat_user_content_to_responses_parts(message: &Value) -> Vec<Value> {
+    let mut parts = Vec::new();
+    match message.get("content") {
+        Some(Value::String(text)) => {
+            if !text.is_empty() {
+                parts.push(json!({ "type": "input_text", "text": text }));
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                match item.get("type").and_then(Value::as_str) {
+                    Some("image_url") => {
+                        let url = item
+                            .pointer("/image_url/url")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if !url.is_empty() {
+                            parts.push(json!({ "type": "input_image", "image_url": url }));
+                        }
+                    }
+                    // text part 与无 type 的裸 string part
+                    _ => {
+                        if let Some(text) = item
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .or_else(|| item.as_str())
+                            .filter(|t| !t.is_empty())
+                        {
+                            parts.push(json!({ "type": "input_text", "text": text }));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    if parts.is_empty() {
+        parts.push(json!({ "type": "input_text", "text": "" }));
+    }
+    parts
+}
+
+/// chat assistant `tool_calls[]` 条目 → Responses `function_call` input item。
+/// `call_id` 取 tool_call.id（Responses 侧必填），缺失时按序合成 `call_<n>`。
+fn chat_tool_call_to_responses_function_call(tool_call: &Value, fallback_index: usize) -> Value {
+    let function = tool_call.get("function").cloned().unwrap_or_else(|| json!({}));
+    let call_id = tool_call
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("call_{fallback_index}"));
+    json!({
+        "type": "function_call",
+        "call_id": call_id,
+        "name": function.get("name").cloned().unwrap_or(Value::String(String::new())),
+        "arguments": function
+            .get("arguments")
+            .cloned()
+            .unwrap_or(Value::String("{}".to_string())),
+    })
+}
+
+/// chat tool 消息 content → 字符串（string 直取；parts 拼接 text）。
+fn chat_tool_content_to_string(message: &Value) -> String {
+    match message.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| part.as_str())
+            })
+            .collect::<Vec<&str>>()
+            .join(""),
+        Some(Value::Object(_)) => serde_json::to_string(message.get("content").unwrap_or(&Value::Null))
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// 把 OpenAI Chat Completions 请求转换为 Responses API 请求（纯函数）。
+///
+/// 映射表见 doc/20260911-实施计划-chat-completions接入Responses型上游.md §5：
+/// - system/developer 消息 → 顶层 `instructions`（多条 `\n\n` 合并）
+/// - user → message item（input_text / input_image parts）
+/// - assistant 文本 → message item（output_text）；tool_calls → function_call items
+/// - tool 消息 → function_call_output item
+/// - tools 嵌套形态扁平化；max_tokens/max_completion_tokens → max_output_tokens；
+///   reasoning_effort → reasoning.effort
+/// - stop/n/logprobs/user/response_format/stream_options 无 Responses 对应，丢弃
+pub fn chat_completions_to_responses(body: Value) -> Result<Value, ProxyError> {
+    let mut result = json!({});
+    if let Some(model) = body.get("model") {
+        result["model"] = model.clone();
+    }
+
+    let mut instructions_parts: Vec<String> = Vec::new();
+    let mut input: Vec<Value> = Vec::new();
+    if let Some(messages) = body.get("messages").and_then(Value::as_array) {
+        for message in messages {
+            let role = message.get("role").and_then(Value::as_str).unwrap_or("user");
+            match role {
+                "system" | "developer" => {
+                    if let Some(text) = chat_message_text(message) {
+                        if !text.is_empty() {
+                            instructions_parts.push(text);
+                        }
+                    }
+                }
+                "assistant" => {
+                    let tool_calls = message
+                        .get("tool_calls")
+                        .and_then(Value::as_array)
+                        .map(|calls| {
+                            calls
+                                .iter()
+                                .enumerate()
+                                .map(|(index, call)| {
+                                    chat_tool_call_to_responses_function_call(call, index)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let has_tool_calls = !tool_calls.is_empty();
+                    input.extend(tool_calls);
+                    if let Some(text) = chat_message_text(message) {
+                        if !text.is_empty() {
+                            input.push(json!({
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{ "type": "output_text", "text": text }]
+                            }));
+                        }
+                    } else if !has_tool_calls {
+                        // 空 assistant 消息（无文本无工具）：保留占位，维持回合边界
+                        input.push(json!({
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{ "type": "output_text", "text": "" }]
+                        }));
+                    }
+                }
+                "tool" => {
+                    let call_id = message
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    input.push(json!({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": chat_tool_content_to_string(message),
+                    }));
+                }
+                _ => {
+                    input.push(json!({
+                        "type": "message",
+                        "role": "user",
+                        "content": chat_user_content_to_responses_parts(message),
+                    }));
+                }
+            }
+        }
+    }
+    if !instructions_parts.is_empty() {
+        result["instructions"] = Value::String(instructions_parts.join("\n\n"));
+    }
+    result["input"] = json!(input);
+
+    // max_tokens / max_completion_tokens → max_output_tokens（取先出现者）
+    for key in ["max_tokens", "max_completion_tokens"] {
+        if let Some(value) = body.get(key) {
+            result["max_output_tokens"] = value.clone();
+            break;
+        }
+    }
+
+    for key in ["temperature", "top_p", "stream", "parallel_tool_calls"] {
+        if let Some(value) = body.get(key) {
+            result[key] = value.clone();
+        }
+    }
+
+    if let Some(effort) = body.get("reasoning_effort").filter(|v| !v.is_null()) {
+        result["reasoning"] = json!({ "effort": effort });
+    }
+
+    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
+        let converted: Vec<Value> = tools
+            .iter()
+            .filter_map(|tool| {
+                if tool.get("type").and_then(Value::as_str) != Some("function") {
+                    return None; // 非 function 工具（v1 不支持），丢弃
+                }
+                let function = tool.get("function")?;
+                let mut item = json!({ "type": "function" });
+                for key in ["name", "description", "parameters", "strict"] {
+                    if let Some(value) = function.get(key) {
+                        item[key] = value.clone();
+                    }
+                }
+                Some(item)
+            })
+            .collect();
+        if !converted.is_empty() {
+            result["tools"] = json!(converted);
+            if let Some(tool_choice) = body.get("tool_choice") {
+                result["tool_choice"] = chat_tool_choice_to_responses(tool_choice);
+            }
+        }
+    }
+
+    // 无 Responses 对应的字段集中丢弃；debug 记录被丢弃字段名便于排查
+    let mut dropped: Vec<&str> = Vec::new();
+    for key in [
+        "stop",
+        "n",
+        "logprobs",
+        "top_logprobs",
+        "user",
+        "response_format",
+        "stream_options",
+        "seed",
+        "presence_penalty",
+        "frequency_penalty",
+    ] {
+        if body.get(key).is_some() {
+            dropped.push(key);
+        }
+    }
+    if !dropped.is_empty() {
+        log::debug!("[ChatToResponses] 请求字段无 Responses 对应，已丢弃: {dropped:?}");
+    }
+
+    Ok(result)
+}
+
+/// chat tool_choice → Responses tool_choice。
+/// 字符串枚举原样；`{"type":"function","function":{"name"}}` → `{"type":"function","name"}`。
+fn chat_tool_choice_to_responses(tool_choice: &Value) -> Value {
+    match tool_choice {
+        Value::String(_) => tool_choice.clone(),
+        Value::Object(_) => {
+            let name = tool_choice
+                .pointer("/function/name")
+                .or_else(|| tool_choice.get("name"))
+                .cloned();
+            match name {
+                Some(name) => json!({ "type": "function", "name": name }),
+                None => tool_choice.clone(),
+            }
+        }
+        _ => tool_choice.clone(),
+    }
+}
+
+/// Responses usage → Chat usage（`chat_usage_to_responses_usage` 的逆映射）。
+/// 流式状态机（streaming_responses_to_chat）与非流式转换共用。
+pub(crate) fn responses_usage_to_chat_usage(usage: Option<&Value>) -> Value {
+    let Some(usage) = usage.filter(|value| value.is_object() && !value.is_null()) else {
+        return json!({ "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 });
+    };
+
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let total_tokens = usage
+        .get("total_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(input_tokens + output_tokens);
+
+    let mut result = json!({
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "total_tokens": total_tokens
+    });
+
+    if let Some(cached) = usage
+        .pointer("/input_tokens_details/cached_tokens")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+    {
+        result["prompt_tokens_details"] = json!({ "cached_tokens": cached });
+    }
+    if let Some(details) = usage
+        .get("output_tokens_details")
+        .filter(|v| v.is_object())
+    {
+        result["completion_tokens_details"] = details.clone();
+    }
+
+    result
+}
+
+/// Responses 非流式响应 → Chat Completion JSON（纯函数）。
+///
+/// `chat_completion_to_response_with_context` 的镜像：
+/// - output 的 message.output_text 拼接为 `choices[0].message.content`
+/// - reasoning item 的 summary 文本 → `reasoning_content`（BigModel / DeepSeek chat
+///   端点同名字段，paas/v4 实测带该字段）
+/// - function_call item → `tool_calls[]`；缺 name 且为本回合唯一工具调用时
+///   fail-closed（对照 :1476 的 dropped 防线，不谎报成功）
+/// - status / incomplete_details → finish_reason（tool_calls / length / stop）
+pub fn responses_completion_to_chat(body: Value) -> Result<Value, ProxyError> {
+    let output = body
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            ProxyError::TransformError("No output array in responses body".to_string())
+        })?;
+
+    let mut content_parts: Vec<String> = Vec::new();
+    let mut reasoning_text = String::new();
+    let mut tool_calls: Vec<Value> = Vec::new();
+    let mut dropped_tool_calls = 0usize;
+
+    for item in output {
+        match item.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                if let Some(parts) = item.get("content").and_then(Value::as_array) {
+                    for part in parts {
+                        let is_text = part
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(|t| t == "output_text" || t == "text")
+                            .unwrap_or(true);
+                        if is_text {
+                            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                                content_parts.push(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            Some("reasoning") => {
+                // 标准 Responses：summary[].summary_text；兼容部分网关的顶层 text 字段
+                if let Some(summary) = item.get("summary").and_then(Value::as_array) {
+                    for part in summary {
+                        if let Some(text) = part
+                            .get("text")
+                            .or_else(|| part.get("summary_text"))
+                            .and_then(Value::as_str)
+                        {
+                            reasoning_text.push_str(text);
+                        }
+                    }
+                } else if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    reasoning_text.push_str(text);
+                }
+            }
+            Some("function_call") => {
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                if name.is_empty() {
+                    dropped_tool_calls += 1;
+                    continue;
+                }
+                tool_calls.push(json!({
+                    "id": item
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .unwrap_or("call_0"),
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": item
+                            .get("arguments")
+                            .and_then(Value::as_str)
+                            .unwrap_or("{}"),
+                    }
+                }));
+            }
+            _ => {} // web_search_call / 未知 item：尽力提取，不崩流
+        }
+    }
+
+    let status = body.get("status").and_then(Value::as_str).unwrap_or("");
+    let incomplete_reason = body
+        .pointer("/incomplete_details/reason")
+        .and_then(Value::as_str);
+    let finish_reason = if !tool_calls.is_empty() {
+        "tool_calls"
+    } else if status == "incomplete" || incomplete_reason.is_some() {
+        "length"
+    } else {
+        "stop"
+    };
+
+    // 防线：completed 回合里唯一被丢弃的工具调用 → 如实报错（镜像 :1476 语义）
+    if dropped_tool_calls > 0 && tool_calls.is_empty() && finish_reason != "length" {
+        return Err(ProxyError::TransformError(format!(
+            "Upstream returned {dropped_tool_calls} function_call item(s) without a name, \
+             leaving no usable tool call in this turn"
+        )));
+    }
+
+    let mut message = json!({ "role": "assistant", "content": content_parts.join("") });
+    if !reasoning_text.trim().is_empty() {
+        message["reasoning_content"] = Value::String(reasoning_text);
+    }
+    if !tool_calls.is_empty() {
+        message["tool_calls"] = json!(tool_calls);
+    }
+
+    Ok(json!({
+        "id": body
+            .get("id")
+            .cloned()
+            .unwrap_or(Value::String("resp_ccswitch".to_string())),
+        "object": "chat.completion",
+        "created": body.get("created_at").and_then(Value::as_u64).unwrap_or(0),
+        "model": body
+            .get("model")
+            .cloned()
+            .unwrap_or(Value::String(String::new())),
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": finish_reason,
+        }],
+        "usage": responses_usage_to_chat_usage(body.get("usage")),
+    }))
+}
+
+/// Responses 错误体 → Chat 风格错误体（保留状态码由调用方处理）。
+/// `chat_error_to_response_error` 的镜像：输入 `{error:{message,type,code}}`
+/// 或顶层 `message`，输出统一 `{error:{message,type,code}}`（chat 客户端可识别）。
+pub fn responses_error_to_chat_error(body: Option<&Value>) -> Value {
+    let Some(value) = body else {
+        return json!({
+            "error": {
+                "message": "Upstream returned an empty error response",
+                "type": "upstream_error",
+                "code": serde_json::Value::Null,
+            }
+        });
+    };
+
+    let source = value.get("error").unwrap_or(value);
+    let message = source
+        .get("message")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .or_else(|| source.get("detail").and_then(Value::as_str).map(ToString::to_string))
+        .unwrap_or_else(|| "Upstream responses error".to_string());
+    let error_type = source
+        .get("type")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "upstream_error".to_string());
+    let code = source.get("code").cloned().unwrap_or(serde_json::Value::Null);
+
+    json!({
+        "error": { "message": message, "type": error_type, "code": code }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4863,5 +5366,287 @@ mod tests {
             "tools should be present from tool_search_output"
         );
         assert_eq!(result["tools"][0]["function"]["name"], "search_docs");
+    }
+
+    // ---- Chat → Responses 请求转换（/chat/completions 入口，2026-09-11）----
+
+    #[test]
+    fn chat_to_responses_maps_basic_conversation() {
+        let result = chat_completions_to_responses(json!({
+            "model": "glm-5.3",
+            "messages": [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+                {"role": "user", "content": "bye"}
+            ]
+        }))
+        .expect("convert basic conversation");
+
+        assert_eq!(result["model"], json!("glm-5.3"));
+        assert_eq!(result["instructions"], json!("You are helpful."));
+        let input = result["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[0]["type"], json!("message"));
+        assert_eq!(input[0]["role"], json!("user"));
+        assert_eq!(input[0]["content"][0]["type"], json!("input_text"));
+        assert_eq!(input[0]["content"][0]["text"], json!("hi"));
+        assert_eq!(input[1]["role"], json!("assistant"));
+        assert_eq!(input[1]["content"][0]["type"], json!("output_text"));
+        assert_eq!(input[1]["content"][0]["text"], json!("hello"));
+        assert_eq!(input[2]["content"][0]["text"], json!("bye"));
+        assert!(result.get("tools").is_none());
+        assert!(result.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn chat_to_responses_merges_multiple_system_messages_into_instructions() {
+        let result = chat_completions_to_responses(json!({
+            "messages": [
+                {"role": "system", "content": "rule one"},
+                {"role": "system", "content": "rule two"},
+                {"role": "user", "content": "hi"}
+            ]
+        }))
+        .expect("convert merged system");
+
+        assert_eq!(result["instructions"], json!("rule one\n\nrule two"));
+    }
+
+    #[test]
+    fn chat_to_responses_maps_tool_roundtrip() {
+        let result = chat_completions_to_responses(json!({
+            "messages": [
+                {"role": "user", "content": "weather?"},
+                {"role": "assistant", "content": "", "tool_calls": [{
+                    "id": "call_abc",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": "{\"city\":\"sz\"}"}
+                }]},
+                {"role": "tool", "tool_call_id": "call_abc", "content": "sunny"}
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "query weather",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }],
+            "tool_choice": {"type": "function", "function": {"name": "get_weather"}}
+        }))
+        .expect("convert tool roundtrip");
+
+        let input = result["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[1]["type"], json!("function_call"));
+        assert_eq!(input[1]["call_id"], json!("call_abc"));
+        assert_eq!(input[1]["name"], json!("get_weather"));
+        assert_eq!(input[1]["arguments"], json!("{\"city\":\"sz\"}"));
+        assert_eq!(input[2]["type"], json!("function_call_output"));
+        assert_eq!(input[2]["call_id"], json!("call_abc"));
+        assert_eq!(input[2]["output"], json!("sunny"));
+        assert_eq!(result["tools"][0]["type"], json!("function"));
+        assert_eq!(result["tools"][0]["name"], json!("get_weather"));
+        assert_eq!(result["tools"][0]["description"], json!("query weather"));
+        assert!(result["tools"][0].get("function").is_none());
+        assert_eq!(
+            result["tool_choice"],
+            json!({"type": "function", "name": "get_weather"})
+        );
+    }
+
+    #[test]
+    fn chat_to_responses_synthesizes_call_id_when_missing() {
+        let result = chat_completions_to_responses(json!({
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "tool_calls": [{
+                    "type": "function",
+                    "function": {"name": "f", "arguments": "{}"}
+                }]}
+            ]
+        }))
+        .expect("convert missing id");
+
+        let input = result["input"].as_array().expect("input array");
+        assert_eq!(input[1]["call_id"], json!("call_0"));
+    }
+
+    #[test]
+    fn chat_to_responses_maps_params_reasoning_and_multimodal() {
+        let result = chat_completions_to_responses(json!({
+            "model": "glm-5.3",
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "look"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}
+            ]}],
+            "max_tokens": 100,
+            "temperature": 0.7,
+            "stream": false,
+            "reasoning_effort": "high",
+            "stop": ["\n"],
+            "user": "u1"
+        }))
+        .expect("convert params");
+
+        let content = &result["input"][0]["content"];
+        assert_eq!(content[0]["type"], json!("input_text"));
+        assert_eq!(content[1]["type"], json!("input_image"));
+        assert_eq!(content[1]["image_url"], json!("https://example.com/a.png"));
+        assert_eq!(result["max_output_tokens"], json!(100));
+        assert_eq!(result["temperature"], json!(0.7));
+        assert_eq!(result["stream"], json!(false));
+        assert_eq!(result["reasoning"], json!({"effort": "high"}));
+        assert!(result.get("stop").is_none());
+        assert!(result.get("user").is_none());
+        assert!(result.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn chat_to_responses_roundtrips_through_responses_to_chat() {
+        let original = json!({
+            "model": "glm-5.3",
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi there"},
+                {"role": "user", "content": "and now?"}
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {"name": "f1", "description": "d", "parameters": {"type": "object"}}
+            }],
+            "temperature": 0.3
+        });
+        let responses = chat_completions_to_responses(original).expect("forward");
+        let back = responses_to_chat_completions(responses).expect("backward roundtrip");
+
+        assert_eq!(back["messages"][0], json!({"role": "system", "content": "sys"}));
+        assert_eq!(back["messages"][1]["content"], json!("hello"));
+        assert_eq!(back["messages"][2]["content"], json!("hi there"));
+        assert_eq!(back["messages"][3]["content"], json!("and now?"));
+        assert_eq!(back["temperature"], json!(0.3));
+        let tool = back["tools"][0].pointer("/function/name").cloned();
+        assert_eq!(tool, Some(json!("f1")));
+    }
+
+    // ---- Responses → Chat 非流式响应转换 ----
+
+    #[test]
+    fn responses_to_chat_completion_text_and_usage() {
+        let result = responses_completion_to_chat(json!({
+            "id": "resp_123",
+            "created_at": 1789097940,
+            "model": "glm-5.3",
+            "status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "thinking..."}]},
+                {"type": "message", "role": "assistant", "content": [
+                    {"type": "output_text", "text": "hello "}
+                ]},
+                {"type": "message", "role": "assistant", "content": [
+                    {"type": "output_text", "text": "world"}
+                ]}
+            ],
+            "usage": {
+                "input_tokens": 7,
+                "output_tokens": 11,
+                "total_tokens": 18,
+                "input_tokens_details": {"cached_tokens": 3},
+                "output_tokens_details": {"reasoning_tokens": 5}
+            }
+        }))
+        .expect("convert text response");
+
+        assert_eq!(result["id"], json!("resp_123"));
+        assert_eq!(result["object"], json!("chat.completion"));
+        assert_eq!(result["created"], json!(1789097940));
+        let message = &result["choices"][0]["message"];
+        assert_eq!(message["role"], json!("assistant"));
+        assert_eq!(message["content"], json!("hello world"));
+        assert_eq!(message["reasoning_content"], json!("thinking..."));
+        assert_eq!(result["choices"][0]["finish_reason"], json!("stop"));
+        assert_eq!(result["usage"]["prompt_tokens"], json!(7));
+        assert_eq!(result["usage"]["completion_tokens"], json!(11));
+        assert_eq!(result["usage"]["total_tokens"], json!(18));
+        assert_eq!(result["usage"]["prompt_tokens_details"]["cached_tokens"], json!(3));
+        assert_eq!(
+            result["usage"]["completion_tokens_details"]["reasoning_tokens"],
+            json!(5)
+        );
+    }
+
+    #[test]
+    fn responses_to_chat_completion_tool_calls_finish_reason() {
+        let result = responses_completion_to_chat(json!({
+            "id": "resp_456",
+            "status": "completed",
+            "output": [
+                {"type": "function_call", "call_id": "call_abc", "name": "get_weather",
+                 "arguments": "{\"city\":\"sz\"}"}
+            ],
+            "usage": null
+        }))
+        .expect("convert tool call response");
+
+        let tool_call = &result["choices"][0]["message"]["tool_calls"][0];
+        assert_eq!(tool_call["id"], json!("call_abc"));
+        assert_eq!(tool_call["type"], json!("function"));
+        assert_eq!(tool_call["function"]["name"], json!("get_weather"));
+        assert_eq!(result["choices"][0]["finish_reason"], json!("tool_calls"));
+        assert_eq!(result["usage"]["total_tokens"], json!(0));
+    }
+
+    #[test]
+    fn responses_to_chat_completion_length_finish_reason() {
+        let result = responses_completion_to_chat(json!({
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": "partial"}]}
+            ]
+        }))
+        .expect("convert length response");
+
+        assert_eq!(result["choices"][0]["finish_reason"], json!("length"));
+        assert_eq!(result["choices"][0]["message"]["content"], json!("partial"));
+    }
+
+    #[test]
+    fn responses_to_chat_completion_dropped_tool_call_fails_closed() {
+        let err = responses_completion_to_chat(json!({
+            "status": "completed",
+            "output": [{"type": "function_call", "call_id": "c1", "arguments": "{}"}]
+        }))
+        .expect_err("nameless function_call must fail closed");
+
+        assert!(err.to_string().contains("without a name"), "err: {err}");
+    }
+
+    #[test]
+    fn responses_to_chat_completion_ignores_unknown_items() {
+        let result = responses_completion_to_chat(json!({
+            "status": "completed",
+            "output": [
+                {"type": "web_search_call", "action": {"type": "search"}},
+                {"type": "message", "content": [{"type": "output_text", "text": "ok"}]}
+            ]
+        }))
+        .expect("unknown items ignored");
+
+        assert_eq!(result["choices"][0]["message"]["content"], json!("ok"));
+    }
+
+    #[test]
+    fn responses_error_to_chat_error_shapes_body() {
+        let result = responses_error_to_chat_error(Some(&json!({
+            "error": {"message": "No permission", "code": "model_access_denied", "type": "forbidden"}
+        })));
+        assert_eq!(result["error"]["message"], json!("No permission"));
+        assert_eq!(result["error"]["code"], json!("model_access_denied"));
+
+        let empty = responses_error_to_chat_error(None);
+        assert_eq!(empty["error"]["type"], json!("upstream_error"));
     }
 }

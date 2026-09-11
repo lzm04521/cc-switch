@@ -1201,6 +1201,11 @@ impl RequestForwarder {
             && super::providers::should_convert_codex_responses_to_chat(provider, endpoint);
         let codex_responses_to_anthropic = matches!(app_type, AppType::Codex | AppType::GrokBuild)
             && super::providers::should_convert_codex_responses_to_anthropic(provider, endpoint);
+        // Chat 客户端（/chat/completions 入口）× Responses 型上游：转换后发 /responses
+        // （2026-09-11；is_copilot 是 base_url 兜底，与判定函数内的 provider_type 双保险）
+        let chat_to_responses = matches!(app_type, AppType::Codex)
+            && !is_copilot
+            && super::providers::should_convert_codex_chat_to_responses(provider, endpoint);
         let codex_official_auth_passthrough = matches!(app_type, AppType::Codex)
             && super::providers::is_codex_official_provider(provider);
 
@@ -1468,6 +1473,8 @@ impl RequestForwarder {
             rewrite_codex_responses_endpoint_to_chat(endpoint)
         } else if codex_responses_to_anthropic {
             rewrite_codex_responses_endpoint_to_anthropic(endpoint)
+        } else if chat_to_responses {
+            rewrite_chat_endpoint_to_responses(endpoint)
         } else if needs_transform && adapter.name() == "Claude" {
             let api_format = resolved_claude_api_format
                 .as_deref()
@@ -1571,6 +1578,18 @@ impl RequestForwarder {
                     .then_some(self.session_id.as_str()),
             );
             chat_body
+        } else if chat_to_responses {
+            // Chat 客户端 × Responses 型上游：请求体转 Responses 协议发上游 /responses
+            // （2026-09-11）。显式透传守卫与 chat/anthropic 桥一致：RoutePassthrough
+            // 时跳过分组上游模型改写，否则 catalog 外的显式模型被静默吞掉。
+            let mut mapped_body = mapped_body;
+            if extensions
+                .get::<super::route_prefix::RoutePassthrough>()
+                .is_none()
+            {
+                super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+            }
+            super::providers::transform_codex_chat::chat_completions_to_responses(mapped_body)?
         } else if codex_responses_to_anthropic {
             let mut mapped_body = mapped_body;
             // 透传标记存在时跳过分组上游模型兜底（同 chat 桥，2026-09-10）
@@ -3028,6 +3047,20 @@ fn rewrite_codex_responses_endpoint_to_chat(endpoint: &str) -> (String, Option<S
     let (_path, query) = split_endpoint_and_query(endpoint);
     let passthrough_query = query.map(ToString::to_string);
     let target_path = "/chat/completions";
+    let rewritten = match passthrough_query.as_deref() {
+        Some(query) if !query.is_empty() => format!("{target_path}?{query}"),
+        _ => target_path.to_string(),
+    };
+
+    (rewritten, passthrough_query)
+}
+
+/// `rewrite_codex_responses_endpoint_to_chat` 的镜像：/chat/completions → /responses
+/// （Chat 客户端 × Responses 型上游，2026-09-11），query 原样透传。
+fn rewrite_chat_endpoint_to_responses(endpoint: &str) -> (String, Option<String>) {
+    let (_path, query) = split_endpoint_and_query(endpoint);
+    let passthrough_query = query.map(ToString::to_string);
+    let target_path = "/responses";
     let rewritten = match passthrough_query.as_deref() {
         Some(query) if !query.is_empty() => format!("{target_path}?{query}"),
         _ => target_path.to_string(),

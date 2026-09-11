@@ -84,6 +84,66 @@ pub fn should_convert_codex_responses_to_chat(provider: &Provider, endpoint: &st
     ) && codex_provider_uses_chat_completions(provider)
 }
 
+/// `/chat/completions` 入口 × Responses 型上游 → 转换后发上游 `/responses`
+/// （Chat 客户端 × Responses 分组，2026-09-11）。镜像
+/// `should_convert_codex_responses_to_chat` 的判定结构。
+///
+/// **只认显式声明**（wire_api=responses / api_format=openai_responses）：
+/// 未声明 wire_api 的裸 base_url 分组维持 chat 入口直通现状——把「未声明」
+/// 推定为 Responses 会破坏手填 chat 端点（如 paas/v4）的既有可用组合。
+/// 同时排除 Anthropic 型（无 chat→anthropic 转换）、Codex 官方 OAuth
+/// （ChatGPT backend 专属链路）、GitHub Copilot（专属模型映射链路）。
+pub fn should_convert_codex_chat_to_responses(provider: &Provider, endpoint: &str) -> bool {
+    let path = endpoint
+        .split_once('?')
+        .map_or(endpoint, |(path, _query)| path);
+
+    matches!(path, "/chat/completions" | "/v1/chat/completions")
+        && codex_provider_uses_responses(provider)
+        && !codex_provider_uses_anthropic(provider)
+        && !is_codex_official_provider(provider)
+        && provider.meta.as_ref().and_then(|m| m.provider_type.as_deref()) != Some("github_copilot")
+}
+
+/// Whether this Codex provider explicitly declares a native Responses upstream
+/// (`wire_api = "responses"` in config TOML, or api_format `openai_responses`).
+/// Undeclared providers return false — callers must not infer "responses" from
+/// the absence of a chat declaration.
+pub fn codex_provider_uses_responses(provider: &Provider) -> bool {
+    let declared: Option<String> = provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.api_format.as_deref())
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("api_format")
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("apiFormat")
+                .and_then(|v| v.as_str())
+        })
+        .map(str::to_string)
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("config")
+                .and_then(|v| v.as_str())
+                .and_then(extract_codex_wire_api_from_toml)
+        });
+
+    match declared {
+        Some(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "responses" | "openai_responses" | "openai-responses" | "responses_api"
+        ),
+        None => false,
+    }
+}
+
 /// Whether a converted Codex Responses request may send `prompt_cache_key` to
 /// its Chat Completions upstream. Unknown OpenAI-compatible gateways default to
 /// false because many reject unsupported request fields with HTTP 400.
@@ -1836,6 +1896,96 @@ wire_api = "chat"
         assert!(should_convert_codex_responses_to_chat(
             &provider,
             "/v1/responses"
+        ));
+    }
+
+    // ---- Chat→Responses 转换判定（chat/completions 入口，2026-09-11）----
+
+    fn responses_toml_provider(base_url: &str) -> Provider {
+        create_provider(json!({
+            "config": format!(
+                "model_provider = \"custom\"\nmodel = \"glm-5.3\"\n\n[model_providers.custom]\nname = \"Zhipu\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\n"
+            )
+        }))
+    }
+
+    #[test]
+    fn chat_to_responses_converts_only_for_chat_endpoint() {
+        let provider = responses_toml_provider("https://open.bigmodel.cn/api/v1");
+
+        assert!(should_convert_codex_chat_to_responses(
+            &provider,
+            "/chat/completions"
+        ));
+        assert!(should_convert_codex_chat_to_responses(
+            &provider,
+            "/v1/chat/completions?client_version=1"
+        ));
+        // 其他端点（responses 入口自身）不触发
+        assert!(!should_convert_codex_chat_to_responses(
+            &provider,
+            "/v1/responses"
+        ));
+    }
+
+    #[test]
+    fn chat_to_responses_not_triggered_for_chat_or_undeclared_providers() {
+        // 显式 chat 型（wire_api=chat）：不转（直通 chat 端点）
+        let mut chat_provider = responses_toml_provider("https://relay.example.com/v1");
+        chat_provider.settings_config = json!({
+            "config": "wire_api = \"chat\"\n",
+            "base_url": "https://relay.example.com/v1"
+        });
+        assert!(!codex_provider_uses_responses(&chat_provider));
+        assert!(!should_convert_codex_chat_to_responses(
+            &chat_provider,
+            "/chat/completions"
+        ));
+
+        // 未声明 wire_api 的裸 base_url：不转（维持 chat 入口直通现状，
+        // 手填 chat 端点如 paas/v4 的分组是既有可用组合）
+        let bare = create_provider(json!({
+            "base_url": "https://api.deepseek.com/v1"
+        }));
+        assert!(!codex_provider_uses_responses(&bare));
+        assert!(!should_convert_codex_chat_to_responses(
+            &bare,
+            "/chat/completions"
+        ));
+
+        // api_format 显式 responses（meta）：转
+        let mut meta_responses = create_provider(json!({
+            "base_url": "https://relay.example.com/v1"
+        }));
+        meta_responses.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("openai_responses".to_string()),
+            ..Default::default()
+        });
+        assert!(codex_provider_uses_responses(&meta_responses));
+    }
+
+    #[test]
+    fn chat_to_responses_excludes_anthropic_and_copilot() {
+        // Anthropic 型（wire_api=responses 但 api_format=anthropic 的怪组合 /
+        // 直接 wire_api=anthropic）：不转
+        let mut anthropic = create_provider(json!({
+            "config": "wire_api = \"anthropic\"\n"
+        }));
+        anthropic.settings_config = json!({ "config": "wire_api = \"anthropic\"\n" });
+        assert!(!should_convert_codex_chat_to_responses(
+            &anthropic,
+            "/chat/completions"
+        ));
+
+        // GitHub Copilot provider_type：不转
+        let mut copilot = responses_toml_provider("https://api.githubcopilot.com");
+        copilot.meta = Some(crate::provider::ProviderMeta {
+            provider_type: Some("github_copilot".to_string()),
+            ..Default::default()
+        });
+        assert!(!should_convert_codex_chat_to_responses(
+            &copilot,
+            "/chat/completions"
         ));
     }
 

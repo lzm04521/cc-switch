@@ -1096,6 +1096,199 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_chat_completions_converts_to_responses_upstream() {
+        // Chat 客户端 × Responses 型上游（wire_api=responses）：请求转 Responses
+        // 协议发上游 /responses，响应流转回 Chat（2026-09-11）
+        let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+        let mock_app = Router::new().route(
+            "/v1/responses",
+            post({
+                let captured = captured.clone();
+                move |request: axum::extract::Request| {
+                    let captured = captured.clone();
+                    async move {
+                        let (parts, body) = request.into_parts();
+                        let body = axum::body::to_bytes(body, 1024 * 1024)
+                            .await
+                            .expect("read mock request body");
+                        captured.lock().await.push(CapturedRequest {
+                            path_and_query: parts
+                                .uri
+                                .path_and_query()
+                                .map(|value| value.as_str().to_string())
+                                .unwrap_or_else(|| parts.uri.path().to_string()),
+                            authorization: parts
+                                .headers
+                                .get(header::AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(ToString::to_string),
+                            body: serde_json::from_slice(&body)
+                                .expect("parse mock request body"),
+                        });
+
+                        // 上游按请求 stream 字段决定返回 SSE 还是 JSON
+                        // （captured 里最后一条即本请求）
+                        let is_stream = captured
+                            .lock()
+                            .await
+                            .last()
+                            .and_then(|req| req.body.get("stream").and_then(|v| v.as_bool()))
+                            .unwrap_or(false);
+                        if is_stream {
+                            let sse = concat!(
+                                "event: response.created\n",
+                                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"upstream-glm\",\"created_at\":9}}\n\n",
+                                "event: response.output_text.delta\n",
+                                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"streamed \"}\n\n",
+                                "event: response.output_text.delta\n",
+                                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}\n\n",
+                                "event: response.completed\n",
+                                "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":4,\"output_tokens\":6,\"total_tokens\":10}}}\n\n",
+                            );
+                            (
+                                StatusCode::OK,
+                                [(header::CONTENT_TYPE, "text/event-stream")],
+                                sse,
+                            )
+                        } else {
+                            (
+                                StatusCode::OK,
+                                [(header::CONTENT_TYPE, "application/json")],
+                                r#"{"id":"resp_2","object":"response","created_at":8,"status":"completed","model":"upstream-glm","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello from responses"}]}],"usage":{"input_tokens":7,"output_tokens":11,"total_tokens":18}}"#,
+                            )
+                        }
+                    }
+                }
+            }),
+        );
+        let mock_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind mock upstream");
+        let mock_addr = mock_listener.local_addr().expect("mock upstream address");
+        let mock_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app)
+                .await
+                .expect("serve mock upstream");
+        });
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+        // Responses 型分组：wire_api=responses（chat 入口将触发协议转换）
+        let mut routed = Provider::with_id(
+            "responses-group".to_string(),
+            "Responses Group".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "responses-secret"},
+                "config": format!(
+                    "model_provider = \"custom\"\nmodel = \"upstream-glm\"\n\n[model_providers.custom]\nname = \"Mock\"\nbase_url = \"http://{mock_addr}/v1\"\nwire_api = \"responses\"\n"
+                )
+            }),
+            None,
+        );
+        routed.meta = Some(ProviderMeta {
+            route_enabled: Some(true),
+            route_key: Some("rs".to_string()),
+            ..ProviderMeta::default()
+        });
+        db.save_provider("codex", &routed).expect("save provider");
+        db.set_current_provider("codex", &routed.id)
+            .expect("select provider");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+        let base = format!(
+            "http://127.0.0.1:{}/codex/v1/chat/completions",
+            proxy_info.port
+        );
+        let prefix = crate::settings::get_route_prefix();
+
+        // 1) 非流式 + G.<key> 路由：上游收 Responses 格式（无 messages，有 input），
+        //    model 为分组默认；客户端收 Chat JSON
+        let response = client
+            .post(&base)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&json!({
+                "model": format!("{prefix}rs"),
+                "messages": [
+                    {"role": "system", "content": "be brief"},
+                    {"role": "user", "content": "hi"}
+                ],
+                "stream": false
+            }))
+            .send()
+            .await
+            .expect("send non-streaming chat request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let chat_json: serde_json::Value =
+            response.json().await.expect("parse chat completion json");
+        assert_eq!(chat_json["object"], json!("chat.completion"));
+        assert_eq!(
+            chat_json["choices"][0]["message"]["content"],
+            json!("hello from responses")
+        );
+        assert_eq!(chat_json["choices"][0]["finish_reason"], json!("stop"));
+        assert_eq!(chat_json["usage"]["prompt_tokens"], json!(7));
+        assert_eq!(chat_json["usage"]["completion_tokens"], json!(11));
+
+        // 2) 流式 + G.<key>:<model> 显式透传：上游 model 为透传值，
+        //    客户端收 Chat SSE chunk 流 + [DONE]
+        let response = client
+            .post(&base)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&json!({
+                "model": format!("{prefix}rs:custom-model"),
+                "messages": [{"role": "user", "content": "stream me"}],
+                "stream": true
+            }))
+            .send()
+            .await
+            .expect("send streaming chat request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.text().await.expect("read sse body");
+        assert!(body.contains("\"role\":\"assistant\""), "body: {body}");
+        assert!(body.contains("streamed "), "body: {body}");
+        assert!(body.contains("answer"), "body: {body}");
+        assert!(body.contains("\"finish_reason\":\"stop\""), "body: {body}");
+        assert!(body.contains("\"prompt_tokens\":4"), "body: {body}");
+        assert!(body.contains("[DONE]"), "body: {body}");
+
+        proxy.stop().await.expect("stop test proxy");
+        mock_handle.abort();
+
+        // 上游侧断言：两次请求都打到 /v1/responses（端点改写 + build_url），
+        // body 为 Responses 协议形态（input 数组、无 messages、instructions 存在）
+        let captured = captured.lock().await;
+        assert_eq!(captured.len(), 2, "upstream request count");
+        for request in captured.iter() {
+            assert_eq!(request.path_and_query, "/v1/responses");
+            assert!(
+                request.body.get("input").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()),
+                "input array must be present: {}",
+                request.body
+            );
+            assert!(request.body.get("messages").is_none(), "messages must be converted");
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer responses-secret")
+            );
+        }
+        // 1) 分组默认模型改写 + system → instructions 2) 显式透传（无 system）
+        assert_eq!(captured[0].body["model"], json!("upstream-glm"));
+        assert_eq!(captured[0].body["instructions"], json!("be brief"));
+        assert_eq!(captured[1].body["model"], json!("custom-model"));
+    }
+
+    #[tokio::test]
     async fn alpha_search_routes_forward_to_canonical_upstream() {
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
         let mock_app = Router::new().route(

@@ -1096,6 +1096,20 @@ pub async fn handle_chat_completions(
     ctx.provider = result.provider;
     let response = result.response;
 
+    // Chat 客户端 × Responses 型上游：响应流转回 Chat 协议（2026-09-11）。
+    // 判定用回填后的实际 provider（故障转移可能换了分组），与 /responses 链路
+    // 的转换判定位置对称（1198 行模式）。
+    if super::providers::should_convert_codex_chat_to_responses(&ctx.provider, &endpoint) {
+        return handle_codex_responses_to_chat_transform(
+            response,
+            &ctx,
+            &state,
+            is_stream,
+            connection_guard,
+        )
+        .await;
+    }
+
     process_response(
         response,
         &ctx,
@@ -1104,6 +1118,93 @@ pub async fn handle_chat_completions(
         connection_guard,
     )
     .await
+}
+
+/// Chat 客户端 × Responses 型上游的响应转换（2026-09-11）：
+/// 上游 Responses SSE → Chat SSE；上游 Responses JSON → Chat JSON；
+/// 上游错误体 → Chat 风格错误（保留原始状态码）。
+///
+/// 与 /responses 链路的 transform handler（自接管响应 + SseUsageCollector）
+/// 不同：转换后的响应包回 `ProxyResponse` 走既有 `process_response`，
+/// 计费解析 / 流式超时 / api_log tee 全部零改动复用——因为入口本来
+/// 就是 Chat 协议，parser 配置（OPENAI_PARSER_CONFIG）直接适用。
+async fn handle_codex_responses_to_chat_transform(
+    response: super::hyper_client::ProxyResponse,
+    ctx: &RequestContext,
+    state: &ProxyState,
+    is_stream: bool,
+    connection_guard: Option<ActiveConnectionGuard>,
+) -> Result<axum::response::Response, ProxyError> {
+    let status = response.status();
+
+    let body_timeout = if ctx.app_config.auto_failover_enabled && ctx.app_config.non_streaming_timeout > 0 {
+        std::time::Duration::from_secs(ctx.app_config.non_streaming_timeout as u64)
+    } else {
+        std::time::Duration::ZERO
+    };
+
+    if !status.is_success() {
+        // 上游错误体：Responses 风格 → Chat 风格，保留原始 HTTP 状态码
+        let (_headers, status, body_bytes) =
+            read_decoded_body(response, ctx.tag, body_timeout).await?;
+        let upstream: Option<Value> = serde_json::from_slice(&body_bytes).ok();
+        let chat_error = transform_codex_chat::responses_error_to_chat_error(upstream.as_ref());
+        return Ok((status, Json(chat_error)).into_response());
+    }
+
+    if is_stream || response.is_sse() {
+        let stream = response.bytes_stream();
+        let chat_stream =
+            super::providers::streaming_responses_to_chat::create_chat_sse_stream_from_responses(
+                stream,
+            );
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "Content-Type",
+            axum::http::HeaderValue::from_static("text/event-stream"),
+        );
+        headers.insert(
+            "Cache-Control",
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        let converted =
+            super::hyper_client::ProxyResponse::streamed(status, headers, chat_stream);
+        return process_response(converted, ctx, state, &OPENAI_PARSER_CONFIG, connection_guard)
+            .await;
+    }
+
+    let (_headers, status, body_bytes) =
+        read_decoded_body(response, ctx.tag, body_timeout).await?;
+    let value: Value = match serde_json::from_slice(&body_bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            // 上游 200 但 body 非 JSON（如违规返回 SSE）：原样透传保留现场，
+            // 客户端解析失败可见可排查，不静默吞换
+            log::warn!(
+                "[{}] Responses→Chat 非流式响应体非 JSON，原样透传: {error}",
+                ctx.tag
+            );
+            return Ok((status, body_bytes).into_response());
+        }
+    };
+    let chat = match transform_codex_chat::responses_completion_to_chat(value) {
+        Ok(chat) => chat,
+        Err(error) => {
+            // 转换失败（如本回合唯一工具调用缺 name）：如实报错，不谎报成功
+            return build_codex_proxy_error_response(ctx, "/chat/completions", &error);
+        }
+    };
+    let mut converted_headers = axum::http::HeaderMap::new();
+    converted_headers.insert(
+        "Content-Type",
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    let converted = super::hyper_client::ProxyResponse::buffered(
+        status,
+        converted_headers,
+        Bytes::from(chat.to_string()),
+    );
+    process_response(converted, ctx, state, &OPENAI_PARSER_CONFIG, connection_guard).await
 }
 
 /// 处理 /v1/responses 请求（OpenAI Responses API - Codex CLI 透传）
