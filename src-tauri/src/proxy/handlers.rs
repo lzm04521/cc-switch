@@ -1041,14 +1041,14 @@ pub async fn handle_chat_completions(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let extensions = parts.extensions;
+    let mut extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx =
@@ -1058,6 +1058,10 @@ pub async fn handle_chat_completions(
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
     }
+
+    // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
+    // （received 报文保留原文，forward 报文为改写后内容；chat/completions 入口，2026-09-11）
+    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
 
     let is_stream = body
         .get("stream")

@@ -892,6 +892,210 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_chat_completions_route_prefix_locks_route_group() {
+        // 会话级路由在 /chat/completions 入口（含 /codex/v1 别名）的行为：
+        // G.<key> 锁定分组 + 默认模型改写、G.<key>:<model> 显式透传、
+        // key 未命中 fail-closed、session 粘性跟随（2026-09-11 接线）
+        let captured_default = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+        let captured_route = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+
+        let spawn_chat_mock = |captured: Arc<Mutex<Vec<CapturedRequest>>>| async move {
+            let mock_app = Router::new().route(
+                "/v1/chat/completions",
+                post({
+                    let captured = captured.clone();
+                    move |request: axum::extract::Request| {
+                        let captured = captured.clone();
+                        async move {
+                            let (parts, body) = request.into_parts();
+                            let body = axum::body::to_bytes(body, 1024 * 1024)
+                                .await
+                                .expect("read mock request body");
+                            captured.lock().await.push(CapturedRequest {
+                                path_and_query: parts
+                                    .uri
+                                    .path_and_query()
+                                    .map(|value| value.as_str().to_string())
+                                    .unwrap_or_else(|| parts.uri.path().to_string()),
+                                authorization: parts
+                                    .headers
+                                    .get(header::AUTHORIZATION)
+                                    .and_then(|value| value.to_str().ok())
+                                    .map(ToString::to_string),
+                                body: serde_json::from_slice(&body)
+                                    .expect("parse mock request body"),
+                            });
+
+                            (
+                                StatusCode::OK,
+                                [(header::CONTENT_TYPE, "application/json")],
+                                r#"{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}"#,
+                            )
+                        }
+                    }
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("bind mock upstream");
+            let addr = listener.local_addr().expect("mock upstream address");
+            let handle = tokio::spawn(async move {
+                axum::serve(listener, mock_app)
+                    .await
+                    .expect("serve mock upstream");
+            });
+            (addr, handle)
+        };
+
+        let (default_addr, default_handle) =
+            spawn_chat_mock(captured_default.clone()).await;
+        let (route_addr, route_handle) = spawn_chat_mock(captured_route.clone()).await;
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+        let default_provider = Provider::with_id(
+            "default-upstream".to_string(),
+            "Default Upstream".to_string(),
+            json!({
+                "base_url": format!("http://{default_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "default-secret"}
+            }),
+            None,
+        );
+        let mut route_provider = Provider::with_id(
+            "route-group".to_string(),
+            "Route Group".to_string(),
+            json!({
+                "base_url": format!("http://{route_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "route-secret"},
+                "model": "upstream-model"
+            }),
+            None,
+        );
+        route_provider.meta = Some(ProviderMeta {
+            route_enabled: Some(true),
+            route_key: Some("ds".to_string()),
+            ..ProviderMeta::default()
+        });
+        db.save_provider("codex", &default_provider)
+            .expect("save default provider");
+        db.set_current_provider("codex", &default_provider.id)
+            .expect("select default provider");
+        db.save_provider("codex", &route_provider)
+            .expect("save route provider");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+        let base = format!(
+            "http://127.0.0.1:{}/codex/v1/chat/completions",
+            proxy_info.port
+        );
+        // 前缀动态取自设置：本机自定义路由前缀时测试不脆弱
+        let prefix = crate::settings::get_route_prefix();
+        let session_value = "d937243f-4275-97b6-c9682235ab81"; // 31 字符 > 20
+
+        // 1) G.<key>：锁定分组 + 默认模型改写（settings_config.model）
+        let response = client
+            .post(&base)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&json!({
+                "model": format!("{prefix}ds"),
+                "messages": [{"role": "user", "content": "route me"}]
+            }))
+            .send()
+            .await
+            .expect("send routed chat request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2) G.<key>:<model>：显式模型透传，不落分组默认模型
+        let response = client
+            .post(&base)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&json!({
+                "model": format!("{prefix}ds:custom-model"),
+                "messages": [{"role": "user", "content": "passthrough"}]
+            }))
+            .send()
+            .await
+            .expect("send passthrough chat request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 3) key 未命中：fail-closed，不打任何上游
+        let response = client
+            .post(&base)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&json!({
+                "model": format!("{prefix}unknown-key"),
+                "messages": [{"role": "user", "content": "should fail"}]
+            }))
+            .send()
+            .await
+            .expect("send unknown key chat request");
+        assert!(!response.status().is_success());
+
+        // 4) session 粘性：带 session header 显式路由后，同 session 的
+        //    无前缀请求跟随锁定分组（模型名不改写）
+        for (model, content) in [
+            (format!("{prefix}ds"), "bind session"),
+            ("plain-model".to_string(), "sticky follow"),
+        ] {
+            let response = client
+                .post(&base)
+                .header(header::AUTHORIZATION, "Bearer client-secret")
+                .header("session_id", session_value)
+                .json(&json!({
+                    "model": model,
+                    "messages": [{"role": "user", "content": content}]
+                }))
+                .send()
+                .await
+                .expect("send sticky session chat request");
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        proxy.stop().await.expect("stop test proxy");
+        default_handle.abort();
+        route_handle.abort();
+
+        // 默认上游零请求：路由请求全部锁定到路由分组
+        assert!(
+            captured_default.lock().await.is_empty(),
+            "default upstream must not receive routed requests"
+        );
+        let route_captured = captured_route.lock().await;
+        assert_eq!(route_captured.len(), 4, "routed upstream request count");
+        let models: Vec<&str> = route_captured
+            .iter()
+            .map(|request| request.body["model"].as_str().expect("model string"))
+            .collect();
+        assert_eq!(
+            models,
+            vec![
+                "upstream-model", // 1) G.ds → 分组默认模型
+                "custom-model",   // 2) G.ds:custom-model → 显式透传
+                "upstream-model", // 4a) G.ds 绑定 session
+                "plain-model",    // 4b) 粘性跟随，模型名不改写
+            ]
+        );
+        for request in route_captured.iter() {
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer route-secret"),
+                "routed requests must use the route group's credential"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn alpha_search_routes_forward_to_canonical_upstream() {
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
         let mock_app = Router::new().route(
