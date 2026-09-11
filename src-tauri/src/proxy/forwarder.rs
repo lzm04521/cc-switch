@@ -2309,6 +2309,16 @@ impl RequestForwarder {
             ordered_headers.insert(name, value);
         }
 
+        // OpenCode zen go 上游强制 x-opencode-session（缺失即 400 MissingSessionID），
+        // 客户端未带时代理兜底注入；取值原则见函数 doc。
+        super::providers::ensure_opencode_session_header(
+            &url,
+            &mut ordered_headers,
+            self.session_client_provided
+                .then_some(self.session_id.as_str()),
+            &provider.id,
+        );
+
         // 序列化请求体。GET/HEAD 是 idempotent/safe 方法，按 HTTP 语义不应携带 body；
         // 强行附带 JSON body 会让某些上游（如 Google Gemini 的 models.list）拒绝请求。
         let body_bytes = if matches!(method, &http::Method::GET | &http::Method::HEAD) {

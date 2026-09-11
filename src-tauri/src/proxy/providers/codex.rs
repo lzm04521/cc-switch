@@ -434,6 +434,47 @@ pub fn is_codex_native_responses_url(base_url: &str) -> bool {
         .any(|marker| lower.contains(marker))
 }
 
+/// OpenCode zen go 上游（`https://opencode.ai/zen/go/v1`）强制要求每个请求带
+/// `x-opencode-session`（会话级路由优化 + prompt caching 折扣），缺失即返回
+/// 400 MissingSessionID。Codex/ZCode 等客户端原生请求不带该头，转发前由代理
+/// 兜底注入：
+/// - 请求已带非空值 → 透传不动（OpenCode 原生客户端场景）
+/// - 客户端提供了会话 ID → 用它（同会话稳定，上游缓存亲和最佳）
+/// - 都没有 → 用分组级稳定值 `ccswitch-<stable_id>`；刻意不用代理生成的
+///   每请求 UUID——变化值会浪费上游的会话亲和与前缀缓存（与
+///   `build_codex_oauth_session_headers` 的取值原则一致）
+pub fn ensure_opencode_session_header(
+    url: &str,
+    headers: &mut http::HeaderMap,
+    client_session_id: Option<&str>,
+    fallback_stable_id: &str,
+) {
+    const HEADER: &str = "x-opencode-session";
+    if !is_opencode_zen_go_url(url) {
+        return;
+    }
+    if headers
+        .get(HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return;
+    }
+    let value = client_session_id
+        .filter(|session| !session.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("ccswitch-{fallback_stable_id}"));
+    if let Ok(value) = http::HeaderValue::from_str(&value) {
+        headers.insert(http::HeaderName::from_static(HEADER), value);
+    }
+}
+
+/// 实际转发目标是否落在 OpenCode zen go API 域（host+path 子串，大小写不敏感）。
+/// 官网文档页等非 `/zen/go` 路径不命中，其他供应商域名天然不命中。
+fn is_opencode_zen_go_url(url: &str) -> bool {
+    url.to_ascii_lowercase().contains("opencode.ai/zen/go")
+}
+
 /// Resolve the model-catalog tool profile for a Codex provider using the SAME
 /// Anthropic detection as the proxy router ([`codex_provider_uses_anthropic`]), so the
 /// generated catalog never disagrees with the routed transform. A provider whose
@@ -1182,6 +1223,89 @@ mod tests {
             icon_color: None,
             in_failover_queue: false,
         }
+    }
+
+    fn session_header_of(headers: &http::HeaderMap) -> Option<&str> {
+        headers
+            .get("x-opencode-session")
+            .and_then(|value| value.to_str().ok())
+    }
+
+    #[test]
+    fn opencode_zen_go_url_matches_only_zen_go_paths() {
+        assert!(is_opencode_zen_go_url(
+            "https://opencode.ai/zen/go/v1/chat/completions"
+        ));
+        assert!(is_opencode_zen_go_url(
+            "https://OpenCode.ai/zen/go/v1/responses"
+        ));
+        // 官网文档路径与其他供应商域名不命中
+        assert!(!is_opencode_zen_go_url("https://opencode.ai/docs/go/"));
+        assert!(!is_opencode_zen_go_url(
+            "https://open.bigmodel.cn/api/v1/chat/completions"
+        ));
+    }
+
+    #[test]
+    fn opencode_session_header_passes_existing_client_value_through() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "x-opencode-session",
+            http::HeaderValue::from_static("native-sess"),
+        );
+        ensure_opencode_session_header(
+            "https://opencode.ai/zen/go/v1/chat/completions",
+            &mut headers,
+            Some("proxy-session"),
+            "prov-id",
+        );
+        assert_eq!(session_header_of(&headers), Some("native-sess"));
+    }
+
+    #[test]
+    fn opencode_session_header_uses_client_session_when_present() {
+        let mut headers = http::HeaderMap::new();
+        ensure_opencode_session_header(
+            "https://opencode.ai/zen/go/v1/responses",
+            &mut headers,
+            Some("conv-42"),
+            "prov-id",
+        );
+        assert_eq!(session_header_of(&headers), Some("conv-42"));
+    }
+
+    #[test]
+    fn opencode_session_header_falls_back_to_stable_provider_id() {
+        let mut headers = http::HeaderMap::new();
+        ensure_opencode_session_header(
+            "https://opencode.ai/zen/go/v1/chat/completions",
+            &mut headers,
+            None,
+            "98371f83",
+        );
+        assert_eq!(session_header_of(&headers), Some("ccswitch-98371f83"));
+
+        // 空白 session 同样走兜底，不注入空值
+        let mut headers = http::HeaderMap::new();
+        ensure_opencode_session_header(
+            "https://opencode.ai/zen/go/v1/chat/completions",
+            &mut headers,
+            Some("   "),
+            "98371f83",
+        );
+        assert_eq!(session_header_of(&headers), Some("ccswitch-98371f83"));
+    }
+
+    #[test]
+    fn opencode_session_header_skips_non_zen_go_upstreams() {
+        let mut headers = http::HeaderMap::new();
+        ensure_opencode_session_header(
+            "https://open.bigmodel.cn/api/v1/chat/completions",
+            &mut headers,
+            Some("conv-42"),
+            "prov-id",
+        );
+        assert_eq!(session_header_of(&headers), None);
     }
 
     #[test]
