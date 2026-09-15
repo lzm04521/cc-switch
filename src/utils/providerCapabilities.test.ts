@@ -380,4 +380,53 @@ describe("providerNeedsRouting", () => {
       },
     );
   });
+
+  describe("会话路由：route_enabled 短路（本地代理才生效，开启即需接管）", () => {
+    it("route_enabled=true 时三链路均需要路由（即便 anthropic 原生直连）", () => {
+      const apps: AppId[] = ["claude", "claude-desktop", "codex"];
+      for (const app of apps) {
+        expect(
+          providerNeedsRouting(
+            app,
+            mkProvider({
+              meta: {
+                route_enabled: true,
+                route_key: "BMAX",
+                apiFormat: "anthropic",
+              },
+            }),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("official + route_enabled 脏数据仍需要路由（压过 official 判定）", () => {
+      expect(
+        providerNeedsRouting(
+          "claude",
+          mkProvider({
+            category: "official",
+            meta: { route_enabled: true, route_key: "BMAX" },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it("route_enabled=false 或缺省不影响原判定", () => {
+      expect(
+        providerNeedsRouting(
+          "claude",
+          mkProvider({
+            meta: { route_enabled: false, apiFormat: "anthropic" },
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        providerNeedsRouting(
+          "claude",
+          mkProvider({ meta: { route_key: "BMAX", apiFormat: "anthropic" } }),
+        ),
+      ).toBe(false);
+    });
+  });
 });

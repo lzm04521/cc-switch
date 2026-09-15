@@ -117,6 +117,10 @@ export function providerNeedsRouting(
   appId: AppId,
   provider: Provider,
 ): boolean {
+  // 会话路由（G. 前缀）只在本地代理生效，开启即必须接管；放在 official 判定
+  // 之前以覆盖 official + route_enabled 的脏数据。
+  if (provider.meta?.route_enabled === true) return true;
+
   if (
     provider.category === "official" ||
     resolveCodexOfficialIdentity(appId, provider)

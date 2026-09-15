@@ -118,6 +118,7 @@
     "defaultInUse": "デフォルト",
     "needsRouting": "ルーティングが必要",
     "noRoutingSupport": "ルーティング非対応",
+    "sessionRouteKey": "セッションルート: G.{{routeKey}}",
     "blockedByProxyHint": "プロキシ引き継ぎモードでは公式プロバイダーに切り替えできません",
     "editProvider": "プロバイダーを編集",
     "editProviderHint": "保存すると現在のプロバイダーにすぐ反映されます。",

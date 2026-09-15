@@ -474,6 +474,16 @@ export function ProviderCard({
                 />
               )}
 
+              {provider.meta?.route_enabled && (
+                <ProviderStatusBadge
+                  tone="success"
+                  label={t("provider.sessionRouteKey", {
+                    defaultValue: "会话路由：G.{{routeKey}}",
+                    routeKey: provider.meta?.route_key ?? "",
+                  })}
+                />
+              )}
+
               {appId === "claude" && provider.category === "official" && (
                 <ProviderStatusBadge
                   label={t("provider.noRoutingSupport", {
