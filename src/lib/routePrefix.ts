@@ -5,6 +5,20 @@ export type RoutePrefixValidation =
       reason: "empty" | "length" | "charset" | "colon" | "boundary";
     };
 
+/** 默认路由触发前缀（与后端 route_prefix::DEFAULT_ROUTE_PREFIX 一致）。 */
+export const DEFAULT_ROUTE_PREFIX = "G.";
+
+/**
+ * 展示层前缀归一化（与后端 normalize_route_prefix 的 fail-safe 一致）：
+ * trim 后为空或校验不过（如直接改库绕过保存校验）时回退默认前缀，
+ * 保证 UI 展示的前缀与代理实际生效的前缀相同。
+ */
+export function resolveDisplayRoutePrefix(raw: string | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return DEFAULT_ROUTE_PREFIX;
+  return validateRoutePrefixValue(trimmed).ok ? trimmed : DEFAULT_ROUTE_PREFIX;
+}
+
 /**
  * 路由触发前缀校验（与后端 route_prefix::validate_route_prefix 规则一致）：
  * 非空、1–8 个字符、可打印 ASCII、不含冒号、以非字母数字字符结尾

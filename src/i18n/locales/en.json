@@ -118,7 +118,7 @@
     "defaultInUse": "Default",
     "needsRouting": "Needs Routing",
     "noRoutingSupport": "No Routing Support",
-    "sessionRouteKey": "Session Route: G.{{routeKey}}",
+    "sessionRouteKey": "Session Route: {{prefix}}{{routeKey}}",
     "blockedByProxyHint": "Can't switch to an official provider while proxy takeover is active",
     "editProvider": "Edit Provider",
     "editProviderHint": "Configuration will be applied to the current provider immediately after update.",

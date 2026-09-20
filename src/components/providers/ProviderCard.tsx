@@ -37,7 +37,8 @@ import {
   providerNeedsRouting,
 } from "@/utils/providerCapabilities";
 import { useProviderHealth } from "@/lib/query/failover";
-import { useUsageQuery } from "@/lib/query/queries";
+import { useSettingsQuery, useUsageQuery } from "@/lib/query/queries";
+import { resolveDisplayRoutePrefix } from "@/lib/routePrefix";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { ProviderStatusBadge } from "@/components/providers/ProviderStatusBadge";
 import { isAdditiveAppId, isProxyAppId } from "@/config/appConfig";
@@ -309,6 +310,12 @@ export function ProviderCard({
   // apiFormat 被改动/缺省影响。此 badge 仅在 Codex 视图渲染，故加 appId 守卫。
   const codexNeedsRouting =
     appId === "codex" && providerNeedsRouting(appId, provider);
+  // 会话路由 Tag 前缀：读取「设置 → 路由 → 会话级路由前缀」，
+  // 空/非法回退 "G."（与后端 normalize_route_prefix 的实际生效值一致）。
+  const { data: appSettings } = useSettingsQuery();
+  const displayRoutePrefix = resolveDisplayRoutePrefix(
+    appSettings?.routePrefix,
+  );
   // 获取用量数据以判断是否有多套餐
   // 累加模式应用：使用 isInConfig 代替 isCurrent
   const shouldAutoQuery = isAdditiveAppId(appId) ? isInConfig : isCurrent;
@@ -478,7 +485,8 @@ export function ProviderCard({
                 <ProviderStatusBadge
                   tone="success"
                   label={t("provider.sessionRouteKey", {
-                    defaultValue: "会话路由：G.{{routeKey}}",
+                    defaultValue: "会话路由：{{prefix}}{{routeKey}}",
+                    prefix: displayRoutePrefix,
                     routeKey: provider.meta?.route_key ?? "",
                   })}
                 />

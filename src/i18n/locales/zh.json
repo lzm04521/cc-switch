@@ -118,7 +118,7 @@
     "defaultInUse": "默认中",
     "needsRouting": "需要路由",
     "noRoutingSupport": "不支持路由",
-    "sessionRouteKey": "会话路由：G.{{routeKey}}",
+    "sessionRouteKey": "会话路由：{{prefix}}{{routeKey}}",
     "blockedByProxyHint": "代理接管模式下不可切换到官方供应商",
     "editProvider": "编辑供应商",
     "editProviderHint": "更新配置后将立即应用到当前供应商。",
