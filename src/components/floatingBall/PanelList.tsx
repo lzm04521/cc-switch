@@ -58,6 +58,7 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   hermes: "Hermes",
   dsh: "Deepseek",
   pi: "Pi",
+  mcode: "MiniMax Code",
   zcode: "ZCode",
   workbuddy: "WorkBuddy",
 };

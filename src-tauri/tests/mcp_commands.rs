@@ -825,6 +825,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
                 grokbuild: false,
                 opencode: false,
                 hermes: false,
+                mcode: false,
                 zcode: false,
                 dsh: false,
                 workbuddy: false, // 初始未启用

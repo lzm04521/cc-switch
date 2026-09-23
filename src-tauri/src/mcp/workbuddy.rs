@@ -68,6 +68,7 @@ pub fn import_from_workbuddy(config: &mut MultiAppConfig) -> Result<usize, AppEr
                         grokbuild: false,
                         opencode: false,
                         hermes: false,
+                        mcode: false,
                         zcode: false,
                         dsh: false,
                         workbuddy: true,

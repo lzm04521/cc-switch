@@ -4057,6 +4057,101 @@ mod tests {
     }
 
     #[test]
+    fn migrate_v22_to_v23_adds_mcode_skill_and_mcp_flags() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        // 建一个 v22 形态的库（无 enabled_mcode 列）：直接建旧结构表
+        conn.execute_batch(
+            "CREATE TABLE mcp_servers (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, server_config TEXT NOT NULL,
+                description TEXT, homepage TEXT, docs TEXT, tags TEXT NOT NULL DEFAULT '[]',
+                enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+                enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0
+            );
+            CREATE TABLE skills (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+                directory TEXT NOT NULL, repo_owner TEXT, repo_name TEXT, repo_branch TEXT DEFAULT 'main',
+                readme_url TEXT, enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+                enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0,
+                installed_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT, updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO mcp_servers (id, name, server_config, enabled_zcode) VALUES ('mcp-1', 'm', '{}', 1);
+            INSERT INTO skills (id, name, directory, enabled_zcode) VALUES ('skill-1', 's', 'dir', 1);",
+        )?;
+        Database::set_user_version(&conn, 22)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(Database::has_column(&conn, "mcp_servers", "enabled_mcode")?);
+        assert!(Database::has_column(&conn, "skills", "enabled_mcode")?);
+        let mcp_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_zcode, enabled_mcode FROM mcp_servers WHERE id = 'mcp-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let skill_values: (i64, i64) = conn.query_row(
+            "SELECT enabled_zcode, enabled_mcode FROM skills WHERE id = 'skill-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        // 旧行默认 false，保留既有 enabled_zcode 值
+        assert_eq!(mcp_values, (1, 0));
+        assert_eq!(skill_values, (1, 0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_from_v19_fork_db_upgrades_through_chain_to_v23() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        // 旧 fork 用户形态：v19（zcode/dsh 列已有，workbuddy/mcode/速度列缺失）
+        conn.execute_batch(
+            "CREATE TABLE mcp_servers (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, server_config TEXT NOT NULL,
+                description TEXT, homepage TEXT, docs TEXT, tags TEXT NOT NULL DEFAULT '[]',
+                enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0
+            );
+            CREATE TABLE skills (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+                directory TEXT NOT NULL, repo_owner TEXT, repo_name TEXT, repo_branch TEXT DEFAULT 'main',
+                readme_url TEXT, enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0, enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+                enabled_zcode BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+                installed_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT, updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO mcp_servers (id, name, server_config, enabled_dsh) VALUES ('mcp-1', 'm', '{}', 1);",
+        )?;
+        Database::set_user_version(&conn, 19)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        // 沿链迁移到最新版后，链上每一步补的列（workbuddy/mcode 等）都必须存在
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        for column in ["enabled_workbuddy", "enabled_mcode"] {
+            assert!(Database::has_column(&conn, "mcp_servers", column)?);
+            assert!(Database::has_column(&conn, "skills", column)?);
+        }
+        let values: (i64, i64, i64) = conn.query_row(
+            "SELECT enabled_dsh, enabled_workbuddy, enabled_mcode FROM mcp_servers WHERE id = 'mcp-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(values, (1, 0, 0));
+
+        Ok(())
+    }
+
+    #[test]
     fn migrate_v15_to_v16_resets_only_codex_session_usage() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;

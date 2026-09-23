@@ -171,6 +171,7 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
                         grokbuild: false,
                         opencode: false,
                         hermes: false,
+                        mcode: false,
                         zcode: false,
                         dsh: true,
                         workbuddy: false,
