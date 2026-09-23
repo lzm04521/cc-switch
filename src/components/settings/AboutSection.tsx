@@ -4,6 +4,7 @@ import {
   Copy,
   ExternalLink,
   Github,
+  GitFork,
   Globe,
   Info,
   Loader2,
@@ -937,6 +938,20 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               >
                 ⭐
               </span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                settingsApi.openExternal(
+                  "https://github.com/lzm04521/cc-switch",
+                )
+              }
+              className="h-8 gap-1.5 text-xs"
+            >
+              <GitFork className="h-3.5 w-3.5" />
+              {t("settings.forkGithub")}
             </Button>
             <Button
               type="button"
