@@ -948,7 +948,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                   "https://github.com/lzm04521/cc-switch",
                 )
               }
-              className="h-8 gap-1.5 text-xs"
+              className="h-8 gap-1.5 border-primary/30 bg-primary/10 text-xs text-primary hover:bg-primary/20 hover:text-primary"
             >
               <GitFork className="h-3.5 w-3.5" />
               {t("settings.forkGithub")}
