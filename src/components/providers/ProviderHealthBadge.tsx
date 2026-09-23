@@ -60,7 +60,8 @@ export function ProviderHealthBadge({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium",
+        // 徽章随异步数据条件显隐，淡入替代瞬间弹出（CSS 动画仅节点首次插入时播放）
+        "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium animate-in fade-in-0 zoom-in-95 duration-200",
         statusConfig.bgColor,
         statusConfig.textColor,
         className,

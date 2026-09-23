@@ -22,6 +22,10 @@ export function useProviderHealth(
     enabled: enabled && !!providerId && !!appType,
     refetchInterval: 5000, // 每 5 秒刷新一次
     retry: false,
+    // 重新进入供应商列表时先用缓存渲染健康徽章，避免徽章"消失→重现"闪烁；
+    // staleTime 略小于轮询间隔，同时避免列表重挂载瞬间的并发查询风暴
+    staleTime: 4_000,
+    gcTime: 10 * 60_000,
   });
 }
 
@@ -105,6 +109,9 @@ export function useFailoverQueue(appType: string, enabled = true) {
     queryKey: ["failoverQueue", appType],
     queryFn: () => failoverApi.getFailoverQueue(appType),
     enabled: enabled && !!appType,
+    // 同 useProviderHealth：重挂载时先用缓存渲染徽章，避免显隐跳变
+    staleTime: 4_000,
+    gcTime: 10 * 60_000,
   });
 }
 
@@ -199,6 +206,9 @@ export function useAutoFailoverEnabled(appType: string, enabled = true) {
     enabled: enabled && !!appType,
     // 默认值为 false（与后端保持一致）
     placeholderData: false,
+    // 同 useProviderHealth：避免重进列表页时 false→true 跳变（placeholder 翻转）
+    staleTime: 4_000,
+    gcTime: 10 * 60_000,
   });
 }
 

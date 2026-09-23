@@ -36,7 +36,8 @@ export function ProviderStatusBadge({
   const badge = (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+        // 徽章随异步数据条件显隐，淡入替代瞬间弹出（CSS 动画仅节点首次插入时播放）
+        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold animate-in fade-in-0 zoom-in-95 duration-200",
         toneClasses[tone],
         title &&
           "cursor-help outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",

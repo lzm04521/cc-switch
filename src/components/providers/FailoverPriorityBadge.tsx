@@ -19,7 +19,8 @@ export function FailoverPriorityBadge({
   return (
     <div
       className={cn(
-        "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold",
+        // 徽章随异步数据条件显隐，淡入替代瞬间弹出（CSS 动画仅节点首次插入时播放）
+        "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold animate-in fade-in-0 zoom-in-95 duration-200",
         "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
         className,
       )}
