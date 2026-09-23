@@ -89,12 +89,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
       grokbuild: defaultEnabledApps.includes("grokbuild"),
       opencode: defaultEnabledApps.includes("opencode"),
       openclaw: defaultEnabledApps.includes("openclaw"),
-        hermes: defaultEnabledApps.includes("hermes"),
-        mcode: defaultEnabledApps.includes("mcode"),
-        dsh: defaultEnabledApps.includes("dsh"),
-        zcode: defaultEnabledApps.includes("zcode"),
-        workbuddy: defaultEnabledApps.includes("workbuddy"),
-      };
+      hermes: defaultEnabledApps.includes("hermes"),
+      mcode: defaultEnabledApps.includes("mcode"),
+      dsh: defaultEnabledApps.includes("dsh"),
+      zcode: defaultEnabledApps.includes("zcode"),
+      workbuddy: defaultEnabledApps.includes("workbuddy"),
+    };
   });
 
   const isEditing = !!editingId;
