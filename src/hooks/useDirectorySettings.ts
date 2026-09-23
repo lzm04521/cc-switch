@@ -5,8 +5,12 @@ import { homeDir, join } from "@tauri-apps/api/path";
 import { settingsApi, type AppId } from "@/lib/api";
 import type { SettingsFormState } from "./useSettingsForm";
 
-// WorkBuddy 无用户可配的目录设置（home 由后端自动解析），不纳入目录管理。
-export type DirectoryAppId = Exclude<AppId, "claude-desktop" | "workbuddy">;
+// WorkBuddy 无用户可配的目录设置（home 由后端自动解析）、MCode 目录由应用
+// 自管，均不纳入目录管理。
+export type DirectoryAppId = Exclude<
+  AppId,
+  "claude-desktop" | "workbuddy" | "mcode"
+>;
 type AppDirectoryKey =
   | "claude"
   | "codex"

@@ -268,8 +268,10 @@ export function RequestLogTable({
                             </div>
                           )}
                         </TableCell>
-                        <TableCell className="text-center">
-                          {fmtInt(log.outputTokens, locale)}
+                        <TableCell className="text-center px-1.5">
+                          <div className="tabular-nums">
+                            {fmtInt(log.outputTokens, locale)}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center px-1.5">
                           <div

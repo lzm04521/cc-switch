@@ -56,8 +56,9 @@ use std::sync::Mutex;
 /// v18/v19 为 fork 迁移（enabled_zcode/enabled_dsh），v20 承接上游 v3.20.1
 /// 的会话日志字节游标列（上游侧编号为 v18，此处 renumber 顺延）；
 /// v21 为 fork 的用量日聚合 t/s 速度列（stream_output_tokens/stream_gen_ms）；
-/// v22 为 fork 的 WorkBuddy 接入列（enabled_workbuddy）
-pub(crate) const SCHEMA_VERSION: i32 = 22;
+/// v22 为 fork 的 WorkBuddy 接入列（enabled_workbuddy）；
+/// v23 承接上游 v3.20.4 的 enabled_mcode（上游侧编号为 v19，顺延同上）
+pub(crate) const SCHEMA_VERSION: i32 = 23;
 
 /// 安全地序列化 JSON，避免 unwrap panic
 pub(crate) fn to_json_string<T: Serialize>(value: &T) -> Result<String, AppError> {

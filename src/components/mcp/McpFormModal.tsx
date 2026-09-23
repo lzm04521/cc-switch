@@ -69,6 +69,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     opencode: boolean;
     openclaw: boolean;
     hermes: boolean;
+    mcode: boolean;
     dsh: boolean;
     zcode: boolean;
     workbuddy: boolean;
@@ -77,6 +78,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
       return {
         ...initialData.apps,
         grokbuild: initialData.apps.grokbuild ?? false,
+        mcode: initialData.apps.mcode ?? false,
         workbuddy: initialData.apps.workbuddy ?? false,
       };
     }
@@ -87,11 +89,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
       grokbuild: defaultEnabledApps.includes("grokbuild"),
       opencode: defaultEnabledApps.includes("opencode"),
       openclaw: defaultEnabledApps.includes("openclaw"),
-      hermes: defaultEnabledApps.includes("hermes"),
-      dsh: defaultEnabledApps.includes("dsh"),
-      zcode: defaultEnabledApps.includes("zcode"),
-      workbuddy: defaultEnabledApps.includes("workbuddy"),
-    };
+        hermes: defaultEnabledApps.includes("hermes"),
+        mcode: defaultEnabledApps.includes("mcode"),
+        dsh: defaultEnabledApps.includes("dsh"),
+        zcode: defaultEnabledApps.includes("zcode"),
+        workbuddy: defaultEnabledApps.includes("workbuddy"),
+      };
   });
 
   const isEditing = !!editingId;
@@ -630,6 +633,21 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                     className="text-sm text-foreground cursor-pointer select-none"
                   >
                     {t("mcp.unifiedPanel.apps.hermes")}
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="enable-mcode"
+                    checked={enabledApps.mcode}
+                    onCheckedChange={(checked: boolean) =>
+                      setEnabledApps({ ...enabledApps, mcode: checked })
+                    }
+                  />
+                  <label
+                    htmlFor="enable-mcode"
+                    className="text-sm text-foreground cursor-pointer select-none"
+                  >
+                    {t("mcp.unifiedPanel.apps.mcode")}
                   </label>
                 </div>
 

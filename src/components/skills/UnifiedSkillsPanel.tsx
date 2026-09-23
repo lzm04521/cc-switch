@@ -222,6 +222,7 @@ const UnifiedSkillsPanel = React.forwardRef<
       openclaw: 0,
       hermes: 0,
       pi: 0,
+      mcode: 0,
       dsh: 0,
       zcode: 0,
       workbuddy: 0,
@@ -1052,6 +1053,7 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
           openclaw: false,
           hermes: skill.foundIn.includes("hermes"),
           pi: false,
+          mcode: skill.foundIn.includes("mcode"),
           dsh: skill.foundIn.includes("dsh"),
           zcode: skill.foundIn.includes("zcode"),
           workbuddy: skill.foundIn.includes("workbuddy"),
@@ -1083,6 +1085,7 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
           openclaw: false,
           hermes: false,
           pi: false,
+          mcode: false,
         },
       })),
     );

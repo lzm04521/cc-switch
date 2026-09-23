@@ -38,6 +38,7 @@ const APP_ICON_NAME: Record<AppId, string> = {
   hermes: "hermes",
   dsh: "deepseek",
   pi: "pi",
+  mcode: "minimax",
   zcode: "zcode",
   workbuddy: "workbuddy",
 };
@@ -53,6 +54,7 @@ const APP_DISPLAY_NAME: Record<AppId, string> = {
   hermes: "Hermes",
   dsh: "Deepseek",
   pi: "Pi",
+  mcode: "MiniMax Code",
   zcode: "ZCode",
   workbuddy: "WorkBuddy",
 };

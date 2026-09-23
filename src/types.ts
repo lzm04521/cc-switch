@@ -304,6 +304,7 @@ export interface VisibleApps {
   /** Deepseek (DSH, live YAML settings, not the SQLite provider store). */
   dsh: boolean;
   pi: boolean;
+  mcode: boolean;
   zcode: boolean;
   workbuddy?: boolean;
 }
@@ -537,6 +538,7 @@ export interface McpServerSpec {
 
 // v3.7.0: MCP 服务器应用启用状态
 export interface McpApps {
+  mcode?: boolean;
   claude: boolean;
   "claude-desktop"?: boolean;
   codex: boolean;

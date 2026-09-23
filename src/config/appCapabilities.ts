@@ -93,6 +93,13 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     proxy: false,
     failover: false,
   }),
+  // MiniMax Code is an additive app like OpenCode: providers, prompts, skills,
+  // MCP, sessions, and usage are managed without the local proxy data plane.
+  mcode: generic({
+    proxy: false,
+    failover: false,
+    universal: false,
+  }),
   // ZCode providers are managed in-app; it keeps the shared skills, prompts,
   // MCP, and sessions surfaces without the proxy/universal integrations.
   zcode: generic({

@@ -54,6 +54,7 @@ export function AddProviderDialog({
     appId !== "openclaw" &&
     appId !== "hermes" &&
     appId !== "pi" &&
+    appId !== "mcode" &&
     appId !== "grokbuild" &&
     appId !== "claude-desktop" &&
     appId !== "dsh";
@@ -199,7 +200,8 @@ export function AddProviderDialog({
         (appId === "opencode" ||
           appId === "openclaw" ||
           appId === "hermes" ||
-          appId === "pi") &&
+          appId === "pi" ||
+          appId === "mcode") &&
         values.providerKey
       ) {
         providerData.providerKey = values.providerKey;

@@ -8,3 +8,5 @@ pub mod opencode;
 pub mod pi;
 mod utils;
 pub mod zcode;
+
+pub mod mcode;

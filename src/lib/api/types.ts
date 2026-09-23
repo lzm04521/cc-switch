@@ -10,5 +10,6 @@ export type AppId =
   | "hermes"
   | "dsh"
   | "pi"
+  | "mcode"
   | "zcode"
   | "workbuddy";

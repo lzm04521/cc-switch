@@ -240,6 +240,7 @@ pub fn import_from_codex(config: &mut MultiAppConfig) -> Result<usize, AppError>
                             grokbuild: false,
                             opencode: false,
                             hermes: false,
+                            mcode: false,
                             zcode: false,
                             dsh: false,
                             workbuddy: false,

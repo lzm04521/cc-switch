@@ -50,6 +50,8 @@ pub struct VisibleApps {
     pub dsh: bool,
     #[serde(default = "default_true")]
     pub pi: bool,
+    #[serde(default = "default_true")]
+    pub mcode: bool,
     #[serde(default)]
     pub zcode: bool,
     #[serde(default)]
@@ -69,6 +71,7 @@ impl Default for VisibleApps {
             hermes: false, // 默认不显示，需用户手动启用
             dsh: true,
             pi: true,
+            mcode: true,
             zcode: false,     // 默认不显示，需用户手动启用
             workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
         }
@@ -88,6 +91,7 @@ impl VisibleApps {
             AppType::OpenClaw => self.openclaw,
             AppType::Hermes => self.hermes,
             AppType::Pi => self.pi,
+            AppType::Mcode => self.mcode,
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
             AppType::Workbuddy => self.workbuddy,
@@ -1197,7 +1201,7 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::OpenCode => settings.current_provider_opencode.clone(),
         AppType::OpenClaw => settings.current_provider_openclaw.clone(),
         AppType::Hermes => settings.current_provider_hermes.clone(),
-        AppType::Pi => None,
+        AppType::Pi | AppType::Mcode => None,
         // zcode 的 provider 由 zcode 应用内自管，cc-switch 不记录 current provider
         AppType::Zcode => None,
         // dsh 的 provider 由 dsh 应用内自管，cc-switch 不记录 current provider
@@ -1222,7 +1226,7 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::OpenCode => settings.current_provider_opencode = id_owned.clone(),
         AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
         AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
-        AppType::Pi => {}
+        AppType::Pi | AppType::Mcode => {}
         // zcode 的 provider 由 zcode 应用内自管，忽略设置
         AppType::Zcode => {}
         // dsh 的 provider 由 dsh 应用内自管，忽略设置

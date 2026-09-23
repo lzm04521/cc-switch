@@ -159,6 +159,7 @@ pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
         grokbuild: false,
         opencode: false,
         hermes: false,
+        mcode: false,
         zcode: false,
         dsh: false,
         workbuddy: false,
@@ -176,6 +177,7 @@ pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
                 log::debug!("OpenClaw doesn't support MCP, ignoring in apps parameter");
             }
             "hermes" => apps.hermes = true,
+            "mcode" => apps.mcode = true,
             "zcode" => apps.zcode = true,
             "dsh" => apps.dsh = true,
             "workbuddy" => apps.workbuddy = true,

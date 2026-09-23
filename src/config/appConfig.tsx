@@ -26,6 +26,7 @@ export const APP_IDS: AppId[] = [
   "openclaw",
   "hermes",
   "pi",
+  "mcode",
   "zcode",
   "dsh",
   "workbuddy",
@@ -42,6 +43,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   hermes: true,
   dsh: true,
   pi: true,
+  mcode: true,
   zcode: false, // 默认不显示，需用户手动启用
   workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
 };
@@ -55,6 +57,7 @@ export const SKILLS_APP_IDS: AppId[] = [
   "opencode",
   "hermes",
   "pi",
+  "mcode",
   "zcode",
   "dsh",
   "workbuddy",
@@ -79,10 +82,11 @@ export function isProxyAppId(appId: string): appId is ProxyAppId {
 
 export type AdditiveAppId = Extract<
   AppId,
-  "opencode" | "openclaw" | "hermes" | "pi"
+  "opencode" | "openclaw" | "hermes" | "pi" | "mcode"
 >;
 
 export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
+  "mcode",
   "opencode",
   "openclaw",
   "hermes",
@@ -102,6 +106,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "mcode",
   "zcode",
   "dsh",
   "workbuddy",
@@ -211,6 +216,13 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-sky-500/10 ring-1 ring-sky-500/20 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300",
     badgeClass:
       "bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 border-0 gap-1.5",
+  },
+  mcode: {
+    label: "MiniMax Code",
+    icon: <ProviderIcon icon="minimax" name="MiniMax Code" size={14} />,
+    activeClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+    badgeClass:
+      "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-0 gap-1.5",
   },
   pi: {
     label: "Pi",
