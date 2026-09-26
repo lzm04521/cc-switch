@@ -45,6 +45,7 @@ const PROMPT_APP_OPTIONS: Array<{
   { value: "opencode", icon: "opencode", labelKey: "apps.opencode" },
   { value: "openclaw", icon: "openclaw", labelKey: "apps.openclaw" },
   { value: "hermes", icon: "hermes", labelKey: "apps.hermes" },
+  { value: "mcode", icon: "minimax", labelKey: "apps.mcode" },
   { value: "zcode", icon: "zcode", labelKey: "apps.zcode" },
 ];
 
