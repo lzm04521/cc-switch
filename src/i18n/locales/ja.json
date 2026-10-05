@@ -2050,6 +2050,7 @@
     "realTotalHint": "Input + Output + キャッシュ書込 + キャッシュ命中",
     "freshInput": "新規入力",
     "cacheHitRate": "キャッシュヒット率",
+    "outputSpeed": "出力速度",
     "requestLogs": "リクエストログ",
     "providerStats": "プロバイダー統計",
     "modelStats": "モデル統計",
@@ -2267,7 +2268,8 @@
       "realTotalHelpTitle": "実消費 Tokens の計算方法",
       "realTotalHelp": "新規入力 + 出力 + キャッシュ書き込み + キャッシュヒット。新規入力にキャッシュは含みません。一部のプロトコル（OpenAI など）はキャッシュ書き込みを報告しないため、その分が少なく出ることがあります。",
       "hitRateHelpTitle": "キャッシュヒット率の計算方法",
-      "hitRateHelp": "キャッシュヒット ÷（新規入力 + キャッシュ書き込み + キャッシュヒット）。"
+      "hitRateHelp": "キャッシュヒット ÷（新規入力 + キャッシュ書き込み + キャッシュヒット）。",
+      "speedHelp": "ローカルプロキシ経由のストリーミングのみ（出力≥100トークン・生成≥100ms）、生成時間の加重平均。対象なしは --"
     },
     "heatmap": {
       "title": "使用量ヒートマップ",

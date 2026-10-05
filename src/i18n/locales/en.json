@@ -2050,6 +2050,7 @@
     "realTotalHint": "Input + Output + Cache Write + Cache Read",
     "freshInput": "Fresh Input",
     "cacheHitRate": "Cache Hit Rate",
+    "outputSpeed": "Output speed",
     "requestLogs": "Request Logs",
     "providerStats": "Provider Stats",
     "modelStats": "Model Stats",
@@ -2267,7 +2268,8 @@
       "realTotalHelpTitle": "How total tokens are counted",
       "realTotalHelp": "Fresh input + output + cache writes + cache hits. Fresh input excludes cache; some protocols (such as OpenAI) don't report cache writes, so that part may be low.",
       "hitRateHelpTitle": "How the cache hit rate is calculated",
-      "hitRateHelp": "Cache hits ÷ (fresh input + cache writes + cache hits)."
+      "hitRateHelp": "Cache hits ÷ (fresh input + cache writes + cache hits).",
+      "speedHelp": "Streams through the local proxy only (≥100 output tokens and ≥100ms generation window), weighted by generation time; -- when no request qualifies"
     },
     "heatmap": {
       "title": "Usage heatmap",

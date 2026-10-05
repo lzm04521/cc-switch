@@ -2050,6 +2050,7 @@
     "realTotalHint": "Input + Output + 缓存写入 + 缓存命中",
     "freshInput": "新增输入",
     "cacheHitRate": "缓存命中率",
+      "outputSpeed": "输出速度",
     "requestLogs": "请求日志",
     "providerStats": "Provider 统计",
     "modelStats": "模型统计",
@@ -2267,7 +2268,8 @@
       "realTotalHelpTitle": "真实消耗 Tokens 怎么算",
       "realTotalHelp": "新增输入 + 输出 + 缓存写入 + 缓存命中。新增输入不含缓存；部分协议（如 OpenAI）不上报缓存写入，这一项可能偏低。",
       "hitRateHelpTitle": "缓存命中率怎么算",
-      "hitRateHelp": "缓存命中 ÷（新增输入 + 缓存写入 + 缓存命中）。"
+      "hitRateHelp": "缓存命中 ÷（新增输入 + 缓存写入 + 缓存命中）。",
+      "speedHelp": "仅统计经本地代理的流式请求（输出 ≥100 token 且生成窗口 ≥100ms），按生成时长加权平均；无满足条件的请求时显示 --"
     },
     "heatmap": {
       "title": "用量热力图",

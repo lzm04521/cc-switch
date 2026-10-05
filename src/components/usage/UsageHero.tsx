@@ -9,6 +9,7 @@ import {
   fmtInt,
   fmtUsd,
   formatTokensCompact,
+  formatTokensPerSecond,
   getLocaleFromLanguage,
   getResolvedLang,
   parseFiniteNumber,
@@ -158,7 +159,8 @@ function MiniMetric({
 }
 
 /**
- * 指标区（v7 S6）：默认 4 张卡——总成本、总请求数、真实消耗 Tokens、缓存命中率；
+ * 指标区（v7 S6）：默认 5 张卡——总成本、总请求数、真实消耗 Tokens、缓存命中率、
+ * 输出速度 t/s（fork，仅代理直录流式可计算行的加权平均）；
  * 「更多指标」展开新增输入 / Output / 创建 / 命中。
  */
 export function UsageHero({
@@ -221,7 +223,7 @@ export function UsageHero({
           <div
             className={cn(
               "grid gap-2.5",
-              compact ? "grid-cols-2" : "grid-cols-4",
+              compact ? "grid-cols-2" : "grid-cols-5",
             )}
           >
             <MetricCard
@@ -251,6 +253,18 @@ export function UsageHero({
                 body: t("usage.metrics.hitRateHelp"),
               }}
               value={placeholder ?? `${hitPercentLabel}%`}
+            />
+            <MetricCard
+              label={t("usage.outputSpeed")}
+              help={{
+                title: t("usage.outputSpeed"),
+                body: t("usage.metrics.speedHelp"),
+              }}
+              value={
+                placeholder ??
+                (formatTokensPerSecond(summary?.avgTokensPerSecond ?? null) ??
+                  "--")
+              }
             />
           </div>
           {moreOpen && (

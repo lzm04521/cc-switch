@@ -2051,6 +2051,7 @@
     "realTotalHint": "Input + Output + 快取建立 + 快取命中",
     "freshInput": "新增輸入",
     "cacheHitRate": "快取命中率",
+      "outputSpeed": "輸出速度",
     "requestLogs": "請求日誌",
     "providerStats": "Provider 統計",
     "modelStats": "模型統計",
@@ -2268,7 +2269,8 @@
       "realTotalHelpTitle": "真實消耗 Tokens 怎麼算",
       "realTotalHelp": "新增輸入 + 輸出 + 快取寫入 + 快取命中。新增輸入不含快取；部分協定（如 OpenAI）不上報快取寫入，這一項可能偏低。",
       "hitRateHelpTitle": "快取命中率怎麼算",
-      "hitRateHelp": "快取命中 ÷（新增輸入 + 快取寫入 + 快取命中）。"
+      "hitRateHelp": "快取命中 ÷（新增輸入 + 快取寫入 + 快取命中）。",
+      "speedHelp": "僅統計經本機代理的串流請求（輸出 ≥100 token 且生成視窗 ≥100ms），按生成時長加權平均；無滿足條件的請求時顯示 --"
     },
     "heatmap": {
       "title": "用量熱力圖",
