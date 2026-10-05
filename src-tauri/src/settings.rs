@@ -546,6 +546,9 @@ pub struct AppSettings {
     // ===== 主页面显示的应用 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible_apps: Option<VisibleApps>,
+    /// 侧栏显示的应用（fork）：None 时逐 app 回落 visible_apps，由前端兜底
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_apps: Option<VisibleApps>,
 
     // ===== 设备级目录覆盖 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -682,6 +685,7 @@ impl Default for AppSettings {
             common_config_confirmed: None,
             language: None,
             visible_apps: None,
+            sidebar_apps: None,
             claude_config_dir: None,
             codex_config_dir: None,
             gemini_config_dir: None,
@@ -1439,6 +1443,47 @@ mod tests {
         .expect("visible apps");
 
         assert!(!visible.is_visible(&AppType::ClaudeDesktop));
+    }
+
+    #[test]
+    fn sidebar_apps_defaults_to_none_for_old_settings() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "showInTray": false,
+            "visibleApps": {
+                "claude": true,
+                "gemini": false
+            }
+        }))
+        .expect("old settings without sidebarApps");
+
+        assert!(settings.sidebar_apps.is_none());
+        assert!(!settings.show_in_tray);
+        let visible = settings.visible_apps.expect("visible apps kept");
+        assert!(visible.is_visible(&AppType::Claude));
+        assert!(!visible.is_visible(&AppType::Gemini));
+    }
+
+    #[test]
+    fn sidebar_apps_roundtrips() {
+        let sidebar: VisibleApps = serde_json::from_value(serde_json::json!({
+            "claude": true,
+            "gemini": false,
+            "zcode": true
+        }))
+        .expect("sidebar apps");
+
+        let mut settings = AppSettings::default();
+        settings.sidebar_apps = Some(sidebar);
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["sidebarApps"]["claude"], true);
+        assert_eq!(json["sidebarApps"]["gemini"], false);
+        assert_eq!(json["sidebarApps"]["zcode"], true);
+
+        let back: AppSettings = serde_json::from_value(json).unwrap();
+        let sidebar_back = back.sidebar_apps.expect("sidebar apps roundtrip");
+        assert!(sidebar_back.is_visible(&AppType::Claude));
+        assert!(!sidebar_back.is_visible(&AppType::Gemini));
+        assert!(sidebar_back.is_visible(&AppType::Zcode));
     }
 
     #[test]
