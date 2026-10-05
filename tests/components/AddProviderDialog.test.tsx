@@ -122,10 +122,11 @@ describe("AddProviderDialog", () => {
       />,
     );
 
-    // Claude 的表单要等 live 底读回来才渲染。
+    // Claude 的表单要等 live 底读回来才渲染；footer 按钮挂载可能再晚一拍，
+    // 与 manage-auth 一致用 findBy 等待，避免高负载下同步查询误判
     await screen.findByRole("button", { name: "manage-auth" });
     fireEvent.click(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: "common.add",
       }),
     );
@@ -164,7 +165,7 @@ describe("AddProviderDialog", () => {
 
     await screen.findByRole("button", { name: "manage-auth" });
     fireEvent.click(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: "common.add",
       }),
     );

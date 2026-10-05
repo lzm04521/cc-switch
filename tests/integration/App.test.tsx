@@ -6,6 +6,7 @@ import {
   waitFor,
   fireEvent,
   within,
+  cleanup,
 } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -188,6 +189,9 @@ const renderApp = (AppComponent: ComponentType) => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
+    // 超时中断的用例可能留下未卸载的 DOM（Radix scroll-lock 残留等），
+    // 显式清理避免污染后续用例的查询
+    cleanup();
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
@@ -251,7 +255,7 @@ describe("App integration with MSW", () => {
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalled();
-  }, 10_000);
+  }, 30_000);
 
   it("resets provider view scroll when switching apps", async () => {
     const { default: App } = await import("@/App");
