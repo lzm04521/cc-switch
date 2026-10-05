@@ -262,8 +262,8 @@ export function UsageHero({
               }}
               value={
                 placeholder ??
-                (formatTokensPerSecond(summary?.avgTokensPerSecond ?? null) ??
-                  "--")
+                formatTokensPerSecond(summary?.avgTokensPerSecond ?? null) ??
+                "--"
               }
             />
           </div>

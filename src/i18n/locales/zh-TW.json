@@ -2051,7 +2051,7 @@
     "realTotalHint": "Input + Output + 快取建立 + 快取命中",
     "freshInput": "新增輸入",
     "cacheHitRate": "快取命中率",
-      "outputSpeed": "輸出速度",
+    "outputSpeed": "輸出速度",
     "requestLogs": "請求日誌",
     "providerStats": "Provider 統計",
     "modelStats": "模型統計",
