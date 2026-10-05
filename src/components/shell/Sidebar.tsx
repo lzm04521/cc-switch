@@ -48,7 +48,8 @@ type IconComponent = ComponentType<{ className?: string }>;
 interface SidebarProps {
   activeApp: AppId;
   view: View;
-  visibleApps: VisibleApps;
+  /** 侧栏显示集合（fork sidebarApps，缺省逐 app 回落 visibleApps）；管理界面另读 visibleApps */
+  sidebarApps: VisibleApps;
   settingsSection: SettingsSection;
   onSelectApp: (app: AppId) => void;
   onSelectPage: (page: GlobalPage | "settings") => void;
@@ -205,7 +206,7 @@ function MainDirectory({
   collapsed,
   activeApp,
   view,
-  visibleApps,
+  sidebarApps,
   onSelectApp,
   onSelectPage,
   appsUpdateAvailable = false,
@@ -213,7 +214,7 @@ function MainDirectory({
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
   const { appStatus, todayCost, authNeedsAttention } = useSidebarStatus();
-  const apps = APP_IDS.filter((app) => visibleApps[app]);
+  const apps = APP_IDS.filter((app) => sidebarApps[app]);
   const onAppPage = isAppPage(view);
 
   const todayLabel =

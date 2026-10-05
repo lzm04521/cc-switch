@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   error: vi.fn(),
   updateSettings: vi.fn(),
-  autoSaveSettings: vi.fn(async () => null),
+  autoSaveSettings: vi.fn(async (_patch: Record<string, unknown>) => null),
   // 双开关用例需要按用例注入不同的 settings 形态
   settingsState: {
     value: { visibleApps: undefined } as {
@@ -976,9 +976,12 @@ describe("AppsPage dual switches (manage + sidebar)", () => {
   });
 
   it("cannot turn off the last sidebar app while manage switch stays free", async () => {
-    const allOff = Object.fromEntries(
-      Object.keys(DEFAULT_VISIBLE_APPS).map((key) => [key, false]),
-    ) as VisibleApps;
+    const allOff: VisibleApps = {
+      ...DEFAULT_VISIBLE_APPS,
+      ...Object.fromEntries(
+        Object.keys(DEFAULT_VISIBLE_APPS).map((key) => [key, false]),
+      ),
+    };
     mocks.settingsState.value = {
       visibleApps: { ...allOff, claude: true },
       sidebarApps: { ...allOff, claude: true },
@@ -1003,7 +1006,7 @@ describe("AppsPage dual switches (manage + sidebar)", () => {
     await waitFor(() =>
       expect(mocks.autoSaveSettings).toHaveBeenCalledTimes(1),
     );
-    expect(mocks.autoSaveSettings.mock.calls[0][0].visibleApps).toEqual({
+    expect(mocks.autoSaveSettings.mock.calls[0]![0].visibleApps).toEqual({
       ...allOff,
       claude: false,
     });
@@ -1022,7 +1025,7 @@ describe("AppsPage dual switches (manage + sidebar)", () => {
     await waitFor(() =>
       expect(mocks.autoSaveSettings).toHaveBeenCalledTimes(1),
     );
-    const payload = mocks.autoSaveSettings.mock.calls[0][0];
+    const payload = mocks.autoSaveSettings.mock.calls[0]![0];
     // 完整对象（含其他应用现值），而非仅增量 { gemini: false }
     expect(payload.sidebarApps).toEqual({
       ...DEFAULT_VISIBLE_APPS,

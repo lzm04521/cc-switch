@@ -116,6 +116,7 @@ import {
   APP_IDS,
   DEFAULT_VISIBLE_APPS,
   isProxyAppId,
+  resolveSidebarApps,
 } from "@/config/appConfig";
 
 interface SyncStatusUpdatedPayload {
@@ -176,16 +177,21 @@ function App() {
     }),
     [settingsData?.visibleApps],
   );
+  // 侧栏显示集合（fork）：管理消费点（PromptPanel 等）仍读 visibleApps
+  const sidebarApps = useMemo<VisibleApps>(
+    () => resolveSidebarApps(settingsData),
+    [settingsData],
+  );
 
   const getFirstVisibleApp = (): AppId => {
-    return APP_IDS.find((app) => visibleApps[app]) ?? "claude";
+    return APP_IDS.find((app) => sidebarApps[app]) ?? "claude";
   };
 
   useEffect(() => {
-    if (!visibleApps[activeApp]) {
+    if (!sidebarApps[activeApp]) {
       setActiveApp(getFirstVisibleApp());
     }
-  }, [visibleApps, activeApp]);
+  }, [sidebarApps, activeApp]);
 
   // 启动后把其他可见应用的供应商列表预取进缓存：第一次切过去直接有数据，不先画骨架
   const providersPrefetchedRef = useRef(false);
@@ -193,11 +199,11 @@ function App() {
     if (!settingsData || providersPrefetchedRef.current) return;
     providersPrefetchedRef.current = true;
     for (const app of APP_IDS) {
-      if (app !== activeApp && visibleApps[app]) {
+      if (app !== activeApp && sidebarApps[app]) {
         void queryClient.prefetchQuery(providersQueryOptions(app));
       }
     }
-  }, [settingsData, visibleApps, activeApp, queryClient]);
+  }, [settingsData, sidebarApps, activeApp, queryClient]);
 
   // 「启动时检查应用更新」（默认关）：打开了才在后台查一次，查到新版本侧栏「应用」上出现圆点
   const checkToolUpdatesOnStartup =
@@ -1046,13 +1052,16 @@ function App() {
   };
 
   const handleHideActiveApp = async () => {
-    const visibleCount = Object.values(visibleApps).filter(Boolean).length;
-    if (visibleCount <= 1) return;
+    const sidebarCount = Object.values(sidebarApps).filter(Boolean).length;
+    if (sidebarCount <= 1) return;
     try {
+      // 从 get() 的 current 固化完整 sidebarApps 对象，防止覆盖期间并发改动
       const current = await settingsApi.get();
+      const sidebar = resolveSidebarApps(current);
+      if (Object.values(sidebar).filter(Boolean).length <= 1) return;
       await settingsApi.save({
         ...current,
-        visibleApps: { ...visibleApps, [activeApp]: false },
+        sidebarApps: { ...sidebar, [activeApp]: false },
       });
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (error) {
@@ -1112,7 +1121,7 @@ function App() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          disabled={Object.values(visibleApps).filter(Boolean).length <= 1}
+          disabled={Object.values(sidebarApps).filter(Boolean).length <= 1}
           onSelect={() => void handleHideActiveApp()}
         >
           {t("appPage.hideFromSidebar")}
@@ -1503,7 +1512,7 @@ function App() {
         <Sidebar
           activeApp={activeApp}
           view={currentView}
-          visibleApps={visibleApps}
+          sidebarApps={sidebarApps}
           settingsSection={settingsSection}
           onSelectApp={selectApp}
           onSelectPage={openPageFromNav}
