@@ -357,7 +357,7 @@
     "general": {
       "appearance": "外観",
       "sidebarAndHeader": "サイドバーとヘッダー",
-      "visibleApps": "サイドバーに表示するアプリ",
+      "visibleApps": "サイドバー表示と管理参加を選択",
       "goToApps": "「アプリ」を開く",
       "updates": "各アプリの新しいバージョン",
       "checkToolUpdates": "起動時に各アプリの新しいバージョンを確認",
@@ -3958,6 +3958,9 @@
   },
   "appsPage": {
     "showInSidebar": "{{name}} をサイドバーに表示",
+    "showInSidebarHint": "サイドバーへの表示切替（最低 1 つは必須）",
+    "manageApp": "{{name}} を管理に参加",
+    "manageAppHint": "Skills・MCP・セッション・プロンプト管理への表示切替。設定ファイル同期には影響しません",
     "lastChecked": "最終確認 {{time}}",
     "neverChecked": "まだ更新を確認していません",
     "helpTitle": "アプリ",
@@ -3969,7 +3972,7 @@
     "columnApp": "アプリ",
     "columnVersion": "バージョン",
     "columnVisible": "表示",
-    "visibleHelp": "オフにすると、このアプリはサイドバー、MCP / Skills のアプリ列、プロンプトとセッションのアプリ選択に表示されなくなります。既存の設定はそのまま同期されます。",
+    "visibleHelp": "2 つのスイッチの役割：「管理に参加」は MCP / Skills のアプリ列とプロンプト・セッションのアプリ選択を、「サイドバーに表示」は左サイドバー（最低 1 つは必須）を担当します。オフにしても UI が変わるだけで、設定は同期され続けます。",
     "desktopHelp": "Claude Desktop はデスクトップアプリのため、ここではインストールやアップグレードはできません。CC Switch は設定ファイル経由で接続します。",
     "desktopUnsupported": "このシステムには対応していません",
     "desktopConnected": "接続済み",

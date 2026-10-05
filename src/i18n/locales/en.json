@@ -357,7 +357,7 @@
     "general": {
       "appearance": "Appearance",
       "sidebarAndHeader": "Sidebar and header",
-      "visibleApps": "Apps shown in the sidebar",
+      "visibleApps": "Choose each app's sidebar and management visibility",
       "goToApps": "Open Apps",
       "updates": "New versions of your apps",
       "checkToolUpdates": "Check for new versions of your apps at launch",
@@ -3958,6 +3958,9 @@
   },
   "appsPage": {
     "showInSidebar": "Show {{name}} in the sidebar",
+    "showInSidebarHint": "Show this app in the sidebar (at least one stays on)",
+    "manageApp": "Manage {{name}}",
+    "manageAppHint": "Show this app in Skills / MCP / sessions / prompts management; config files still sync",
     "lastChecked": "Last checked {{time}}",
     "neverChecked": "Not checked for updates yet",
     "helpTitle": "Apps",
@@ -3969,7 +3972,7 @@
     "columnApp": "App",
     "columnVersion": "Version",
     "columnVisible": "Show",
-    "visibleHelp": "When off, the app no longer appears in the sidebar, in the MCP / Skills app columns, or in the app pickers on Prompts and Sessions. Its existing config stays and keeps syncing.",
+    "visibleHelp": "Two switches: \"Manage\" controls the MCP / Skills app columns and the app pickers on Prompts and Sessions; \"Show in sidebar\" controls the left sidebar (at least one stays on). Turning either off only affects the UI; existing config keeps syncing.",
     "desktopHelp": "Claude Desktop is a desktop app and can't be installed or upgraded here; CC Switch connects to it through its config file.",
     "desktopUnsupported": "Not supported on this system",
     "desktopConnected": "Connected",

@@ -16,7 +16,7 @@ import type { AppId } from "@/lib/api";
 import { providersApi } from "@/lib/api/providers";
 import type { ToolInstallationReport } from "@/lib/api/settings";
 import type { VisibleApps } from "@/types";
-import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import { DEFAULT_VISIBLE_APPS, resolveSidebarApps } from "@/config/appConfig";
 import { useSettings } from "@/hooks/useSettings";
 import { isUpdateAvailable } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -106,8 +106,9 @@ function formatCheckedAt(timestamp: number, locale: string): string {
 }
 
 /**
- * 「应用」页（v7）：每个应用一行 = 安装状态 / 版本 + 安装 / 升级 + 在侧栏显示的开关。
- * 隐藏一个应用只影响界面（侧栏、MCP / Skills 的列、提示词和会话的下拉），配置照常同步。
+ * 「应用」页（v7）：每个应用一行 = 安装状态 / 版本 + 安装 / 升级 + 两个开关。
+ * 「参与管理」（visibleApps）管 MCP / Skills 的列、提示词和会话的下拉；「侧栏显示」
+ * （sidebarApps，缺省逐 app 回落 visibleApps）只管左侧应用栏。隐藏只影响界面，配置照常同步。
  */
 export function AppsPage() {
   const { t, i18n } = useTranslation();
@@ -138,13 +139,13 @@ export function AppsPage() {
     ...DEFAULT_VISIBLE_APPS,
     ...settings?.visibleApps,
   };
-  const visibleCount = Object.values(visibleApps).filter(Boolean).length;
+  const sidebarApps = resolveSidebarApps(settings);
+  const sidebarCount = Object.values(sidebarApps).filter(Boolean).length;
 
-  const setVisible = (app: AppId, visible: boolean) => {
+  // 管理开关（visibleApps）：只影响管理界面的应用维度，无下限约束
+  const setManaged = (app: AppId, managed: boolean) => {
     if (!settings) return;
-    // 至少留一个应用在侧栏
-    if (!visible && visibleCount <= 1) return;
-    const next = { ...visibleApps, [app]: visible };
+    const next = { ...visibleApps, [app]: managed };
     const previous = settings.visibleApps;
     updateSettings({ visibleApps: next });
     void autoSaveSettings({ visibleApps: next }).catch(() =>
@@ -152,15 +153,43 @@ export function AppsPage() {
     );
   };
 
-  const visibilitySwitch = (app: AppId) => (
-    <Switch
-      size="sm"
-      tone="neutral"
-      checked={visibleApps[app]}
-      disabled={!settings || (visibleApps[app] && visibleCount <= 1)}
-      onCheckedChange={(checked) => setVisible(app, checked)}
-      aria-label={t("appsPage.showInSidebar", { name: APP_DISPLAY_NAME[app] })}
-    />
+  // 侧栏开关（sidebarApps）：至少留一个应用在侧栏
+  const setSidebar = (app: AppId, on: boolean) => {
+    if (!settings) return;
+    if (!on && sidebarCount <= 1) return;
+    const next = { ...sidebarApps, [app]: on };
+    const previous = settings.sidebarApps;
+    updateSettings({ sidebarApps: next });
+    void autoSaveSettings({ sidebarApps: next }).catch(() =>
+      updateSettings({ sidebarApps: previous }),
+    );
+  };
+
+  const switchesFor = (app: AppId) => (
+    <div className="flex items-center justify-end gap-2">
+      <HoverTip content={t("appsPage.manageAppHint")}>
+        <Switch
+          size="sm"
+          tone="neutral"
+          checked={visibleApps[app]}
+          disabled={!settings}
+          onCheckedChange={(checked) => setManaged(app, checked)}
+          aria-label={t("appsPage.manageApp", { name: APP_DISPLAY_NAME[app] })}
+        />
+      </HoverTip>
+      <HoverTip content={t("appsPage.showInSidebarHint")}>
+        <Switch
+          size="sm"
+          tone="neutral"
+          checked={sidebarApps[app]}
+          disabled={!settings || (sidebarApps[app] && sidebarCount <= 1)}
+          onCheckedChange={(checked) => setSidebar(app, checked)}
+          aria-label={t("appsPage.showInSidebar", {
+            name: APP_DISPLAY_NAME[app],
+          })}
+        />
+      </HoverTip>
+    </div>
   );
 
   const lastChecked = tools.lastCheckedAt
@@ -268,7 +297,7 @@ export function AppsPage() {
               {t("appsPage.columnVersion")}
             </span>
             <span className="w-[104px]" />
-            <span className="flex w-[56px] items-center justify-end gap-0.5">
+            <span className="flex w-[104px] items-center justify-end gap-0.5">
               {t("appsPage.columnVisible")}
               <HelpTip title={t("appsPage.columnVisible")} align="end">
                 {t("appsPage.visibleHelp")}
@@ -299,7 +328,7 @@ export function AppsPage() {
                           : t("appsPage.desktopNotConnected")}
                     </span>
                   }
-                  visibility={visibilitySwitch("claude-desktop")}
+                  switches={switchesFor("claude-desktop")}
                 />
               ) : row.kind === "forkApp" ? (
                 <AppRow
@@ -314,7 +343,7 @@ export function AppsPage() {
                       })}
                     </span>
                   }
-                  visibility={visibilitySwitch(row.app)}
+                  switches={switchesFor(row.app)}
                 />
               ) : (
                 <ToolRow
@@ -328,7 +357,7 @@ export function AppsPage() {
                       [row.tool]: !prev[row.tool],
                     }))
                   }
-                  visibility={visibilitySwitch(TOOL_APP_IDS[row.tool])}
+                  switches={switchesFor(TOOL_APP_IDS[row.tool])}
                 />
               ),
             )}
@@ -386,7 +415,7 @@ function AppRow({
   meta,
   version,
   action,
-  visibility,
+  switches,
   footer,
 }: {
   app: AppId;
@@ -394,7 +423,7 @@ function AppRow({
   meta?: React.ReactNode;
   version?: React.ReactNode;
   action?: React.ReactNode;
-  visibility: React.ReactNode;
+  switches: React.ReactNode;
   footer?: React.ReactNode;
 }) {
   return (
@@ -413,7 +442,7 @@ function AppRow({
         </div>
         <div className="w-[168px] shrink-0 text-end">{version}</div>
         <div className="flex w-[104px] shrink-0 justify-end">{action}</div>
-        <div className="flex w-[56px] shrink-0 justify-end">{visibility}</div>
+        <div className="flex w-[104px] shrink-0 justify-end">{switches}</div>
       </div>
       {footer && <div className="ms-9 mt-2">{footer}</div>}
     </div>
@@ -433,13 +462,13 @@ function ToolRow({
   tools,
   expanded,
   onToggleExpanded,
-  visibility,
+  switches,
 }: {
   tool: ToolName;
   tools: ReturnType<typeof useToolManagement>;
   expanded: boolean;
   onToggleExpanded: () => void;
-  visibility: React.ReactNode;
+  switches: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const info = tools.toolVersionByName.get(tool);
@@ -639,7 +668,7 @@ function ToolRow({
       meta={meta}
       version={version}
       action={actionButton}
-      visibility={visibility}
+      switches={switches}
       footer={footer}
     />
   );

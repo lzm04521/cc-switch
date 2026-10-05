@@ -10,6 +10,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { settingsApi, ToolInstallationReport } from "@/lib/api/settings";
+import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import type { VisibleApps } from "@/types";
 
 type ToolVersions = Awaited<ReturnType<typeof settingsApi.getToolVersions>>;
 
@@ -22,6 +24,15 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
+  updateSettings: vi.fn(),
+  autoSaveSettings: vi.fn(async () => null),
+  // 双开关用例需要按用例注入不同的 settings 形态
+  settingsState: {
+    value: { visibleApps: undefined } as {
+      visibleApps?: import("@/types").VisibleApps;
+      sidebarApps?: import("@/types").VisibleApps;
+    },
+  },
 }));
 
 vi.mock("@/lib/api", () => ({ settingsApi: mocks }));
@@ -32,9 +43,9 @@ vi.mock("@/lib/api/providers", () => ({
 }));
 vi.mock("@/hooks/useSettings", () => ({
   useSettings: () => ({
-    settings: { visibleApps: undefined },
-    updateSettings: vi.fn(),
-    autoSaveSettings: vi.fn(async () => null),
+    settings: mocks.settingsState.value,
+    updateSettings: mocks.updateSettings,
+    autoSaveSettings: mocks.autoSaveSettings,
   }),
 }));
 vi.mock("sonner", () => ({ toast: mocks }));
@@ -114,46 +125,52 @@ async function renderApps() {
 const updateAllButton = () =>
   screen.getByRole("button", { name: /settings\.updateAllTools/ });
 
+/** 并发升级与双开关用例共用的工具版本 / 安装探测 / settings mock 复位。 */
+function resetToolMocks() {
+  upgraded.clear();
+  outdated.clear();
+  missing.clear();
+  outdated.add("claude").add("codex").add("gemini");
+  mocks.settingsState.value = { visibleApps: undefined };
+  mocks.getToolVersions
+    .mockReset()
+    .mockImplementation(async (tools: string[]) =>
+      tools.map((name) => ({
+        name,
+        version: missing.has(name)
+          ? null
+          : upgraded.has(name) || !outdated.has(name)
+            ? "2.0.0"
+            : "1.0.0",
+        latest_version: "2.0.0",
+        error: null,
+        installed_but_broken: false,
+        env_type: "windows",
+        wsl_distro: null,
+      })),
+    );
+  mocks.probeToolInstallations
+    .mockReset()
+    .mockImplementation(async (tools: string[]) =>
+      tools.map((tool) => report(tool)),
+    );
+  mocks.listToolInstallations
+    .mockReset()
+    .mockImplementation(async (tools: string[]) =>
+      tools.map((tool) => report(tool)),
+    );
+  mocks.runToolLifecycleAction
+    .mockReset()
+    .mockImplementation(async ([tool]: string[]) => {
+      upgraded.add(tool);
+      missing.delete(tool);
+    });
+}
+
 describe("AppsPage concurrent CLI upgrades", () => {
   beforeEach(() => {
     vi.resetModules();
-    upgraded.clear();
-    outdated.clear();
-    missing.clear();
-    outdated.add("claude").add("codex").add("gemini");
-    mocks.getToolVersions
-      .mockReset()
-      .mockImplementation(async (tools: string[]) =>
-        tools.map((name) => ({
-          name,
-          version: missing.has(name)
-            ? null
-            : upgraded.has(name) || !outdated.has(name)
-              ? "2.0.0"
-              : "1.0.0",
-          latest_version: "2.0.0",
-          error: null,
-          installed_but_broken: false,
-          env_type: "windows",
-          wsl_distro: null,
-        })),
-      );
-    mocks.probeToolInstallations
-      .mockReset()
-      .mockImplementation(async (tools: string[]) =>
-        tools.map((tool) => report(tool)),
-      );
-    mocks.listToolInstallations
-      .mockReset()
-      .mockImplementation(async (tools: string[]) =>
-        tools.map((tool) => report(tool)),
-      );
-    mocks.runToolLifecycleAction
-      .mockReset()
-      .mockImplementation(async ([tool]: string[]) => {
-        upgraded.add(tool);
-        missing.delete(tool);
-      });
+    resetToolMocks();
   });
 
   it("lets different tools preflight and submit together while blocking duplicate clicks", async () => {
@@ -907,5 +924,109 @@ describe("AppsPage visibility column", () => {
       expect(element).toHaveAttribute("data-size", "sm");
       expect(element).toHaveAttribute("data-tone", "neutral");
     }
+  });
+});
+
+describe("AppsPage dual switches (manage + sidebar)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    resetToolMocks();
+  });
+
+  it("renders both manage and sidebar switches per app row", async () => {
+    await renderApps();
+    const manage = screen.getAllByRole("switch", {
+      name: /appsPage\.manageApp/,
+    });
+    const sidebar = screen.getAllByRole("switch", {
+      name: /appsPage\.showInSidebar/,
+    });
+    expect(manage.length).toBeGreaterThan(0);
+    expect(manage.length).toBe(sidebar.length);
+    // 每行两个开关：抽查 Claude Code 行
+    const claude = card("Claude Code");
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.manageApp/ }),
+    ).toBeInTheDocument();
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("sidebar switch falls back to visibleApps when sidebarApps unset", async () => {
+    mocks.settingsState.value = {
+      visibleApps: { ...DEFAULT_VISIBLE_APPS, gemini: false },
+    };
+    await renderApps();
+    const gemini = card("Gemini CLI");
+    // 无 sidebarApps：侧栏开关回落 visibleApps，gemini 两开关均 off
+    expect(
+      gemini.getByRole("switch", { name: /appsPage\.manageApp/ }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(
+      gemini.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toHaveAttribute("aria-checked", "false");
+    const claude = card("Claude Code");
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.manageApp/ }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("cannot turn off the last sidebar app while manage switch stays free", async () => {
+    const allOff = Object.fromEntries(
+      Object.keys(DEFAULT_VISIBLE_APPS).map((key) => [key, false]),
+    ) as VisibleApps;
+    mocks.settingsState.value = {
+      visibleApps: { ...allOff, claude: true },
+      sidebarApps: { ...allOff, claude: true },
+    };
+    await renderApps();
+    const claude = card("Claude Code");
+    // 唯一在侧栏的应用：侧栏开关锁住；管理开关不受此约束
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toBeDisabled();
+    expect(
+      claude.getByRole("switch", { name: /appsPage\.manageApp/ }),
+    ).toBeEnabled();
+    // 已关的侧栏开关可以重新打开
+    expect(
+      card("Codex").getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toBeEnabled();
+    // 唯一开的管理开关允许直接关闭（管理无下限约束）
+    fireEvent.click(
+      claude.getByRole("switch", { name: /appsPage\.manageApp/ }),
+    );
+    await waitFor(() =>
+      expect(mocks.autoSaveSettings).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.autoSaveSettings.mock.calls[0][0].visibleApps).toEqual({
+      ...allOff,
+      claude: false,
+    });
+  });
+
+  it("setSidebar saves full sidebarApps object", async () => {
+    mocks.settingsState.value = {
+      visibleApps: { ...DEFAULT_VISIBLE_APPS },
+    };
+    await renderApps();
+    fireEvent.click(
+      card("Gemini CLI").getByRole("switch", {
+        name: /appsPage\.showInSidebar/,
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.autoSaveSettings).toHaveBeenCalledTimes(1),
+    );
+    const payload = mocks.autoSaveSettings.mock.calls[0][0];
+    // 完整对象（含其他应用现值），而非仅增量 { gemini: false }
+    expect(payload.sidebarApps).toEqual({
+      ...DEFAULT_VISIBLE_APPS,
+      gemini: false,
+    });
   });
 });

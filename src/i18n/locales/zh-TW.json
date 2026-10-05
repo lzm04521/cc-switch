@@ -357,7 +357,7 @@
     "general": {
       "appearance": "外觀",
       "sidebarAndHeader": "側欄與頁首",
-      "visibleApps": "在側欄顯示哪些應用",
+      "visibleApps": "選擇應用的側欄顯示與參與管理",
       "goToApps": "前往「應用」",
       "updates": "各應用的新版本",
       "checkToolUpdates": "啟動時檢查各應用的新版本",
@@ -3959,6 +3959,9 @@
   },
   "appsPage": {
     "showInSidebar": "在側欄顯示 {{name}}",
+    "showInSidebarHint": "控制是否出現在左側應用欄（至少保留一個應用）",
+    "manageApp": "參與管理 {{name}}",
+    "manageAppHint": "控制 Skills、MCP、工作階段、提示詞的管理介面中是否出現；不影響設定檔同步",
     "lastChecked": "上次檢查 {{time}}",
     "neverChecked": "還沒檢查過更新",
     "helpTitle": "應用",
@@ -3970,7 +3973,7 @@
     "columnApp": "應用",
     "columnVersion": "版本",
     "columnVisible": "顯示",
-    "visibleHelp": "關掉後，這個應用不再出現在側欄、MCP / Skills 的應用欄，以及提示詞和工作階段的應用下拉選單裡。既有設定不變，照常同步。",
+    "visibleHelp": "兩個開關分工：「參與管理」管 MCP / Skills 的應用欄和提示詞、工作階段的應用下拉；「側欄顯示」管左側應用欄（至少保留一個）。關掉只影響介面，設定照常同步。",
     "desktopHelp": "Claude Desktop 是桌面應用，不能在這裡安裝或升級；CC Switch 透過它的設定檔接入。",
     "desktopUnsupported": "目前系統不支援",
     "desktopConnected": "已接入",

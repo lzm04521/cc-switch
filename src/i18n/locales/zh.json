@@ -357,7 +357,7 @@
     "general": {
       "appearance": "外观",
       "sidebarAndHeader": "侧栏与页头",
-      "visibleApps": "在侧栏显示哪些应用",
+      "visibleApps": "选择应用的侧栏显示与参与管理",
       "goToApps": "前往「应用」",
       "updates": "各应用的新版本",
       "checkToolUpdates": "启动时检查各应用的新版本",
@@ -3958,6 +3958,9 @@
   },
   "appsPage": {
     "showInSidebar": "在侧栏显示 {{name}}",
+    "showInSidebarHint": "控制是否出现在左侧应用栏（至少保留一个应用）",
+    "manageApp": "参与管理 {{name}}",
+    "manageAppHint": "控制在 Skills、MCP、会话、提示词的管理界面中出现；不影响配置文件同步",
     "lastChecked": "上次检查 {{time}}",
     "neverChecked": "还没检查过更新",
     "helpTitle": "应用",
@@ -3969,7 +3972,7 @@
     "columnApp": "应用",
     "columnVersion": "版本",
     "columnVisible": "显示",
-    "visibleHelp": "关掉后，这个应用不再出现在侧栏、MCP / Skills 的应用列，以及提示词和会话的应用下拉里。已有的配置不变，照常同步。",
+    "visibleHelp": "两个开关分工：「参与管理」管 MCP / Skills 的应用列和提示词、会话的应用下拉；「侧栏显示」管左侧应用栏（至少保留一个）。关掉只影响界面，配置照常同步。",
     "desktopHelp": "Claude Desktop 是桌面应用，不能在这里安装或升级；CC Switch 通过它的配置文件接入。",
     "desktopUnsupported": "当前系统不支持",
     "desktopConnected": "已接入",
