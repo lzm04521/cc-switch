@@ -307,6 +307,15 @@ pub fn get_app_config_dir() -> PathBuf {
     // 同时也避免新安装因为 `HOME` 被设置而写入非预期路径。
     #[cfg(windows)]
     {
+        // 测试显式接管 home（CC_SWITCH_TEST_HOME）时不做 legacy 回退：Git Bash 下
+        // HOME 会被 MSYS 转换成真实用户目录，temp 下无库时回退会命中真实库，
+        // 导致测试读写 ~/.cc-switch 真实数据（隔离失效 + skills 目录被污染）。
+        let test_home_override = std::env::var_os("CC_SWITCH_TEST_HOME")
+            .map(|value| !value.to_string_lossy().trim().is_empty())
+            .unwrap_or(false);
+        if test_home_override {
+            return default_dir;
+        }
         let default_db = default_dir.join("cc-switch.db");
         if !default_db.exists() {
             if let Ok(home_env) = std::env::var("HOME") {
