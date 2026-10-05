@@ -209,6 +209,15 @@ pub struct ModelStats {
     pub total_tokens: u64,
     pub total_cost: String,
     pub avg_cost_per_request: String,
+    /// t/s 速度聚合的分子/分母（仅 speed-eligible 行，与 UsageSummary 同口径）：
+    /// 加权平均输出速度 = stream_output_tokens / (stream_gen_ms / 1000)。
+    #[serde(default)]
+    pub stream_output_tokens: u64,
+    #[serde(default)]
+    pub stream_gen_ms: u64,
+    /// 加权平均输出速度（t/s）；None = 该模型无可计算请求（展示为 —）。
+    #[serde(default)]
+    pub avg_tokens_per_second: Option<f64>,
 }
 
 /// 请求日志过滤器
@@ -1821,17 +1830,24 @@ impl Database {
         let fresh_input_rollup = fresh_input_sql("r");
         let detail_model = effective_model_sql("l");
         let rollup_model = effective_model_sql("r");
+        // t/s 聚合与 get_usage_summary 同口径：detail 用 speed-eligible CASE WHEN
+        // 加权，rollup 直接累加落库的 stream 两列（落库时已过滤）
+        let speed_eligible_detail = speed_eligible_sql("l");
         let sql = format!(
             "SELECT
                 model,
                 SUM(request_count) as request_count,
                 SUM(total_tokens) as total_tokens,
-                SUM(total_cost) as total_cost
+                SUM(total_cost) as total_cost,
+                SUM(stream_output_tokens) as stream_output_tokens,
+                SUM(stream_gen_ms) as stream_gen_ms
             FROM (
                 SELECT {detail_model} as model,
                     COUNT(*) as request_count,
                     COALESCE(SUM({fresh_input_detail} + l.output_tokens), 0) as total_tokens,
-                    COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as total_cost
+                    COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as total_cost,
+                    COALESCE(SUM(CASE WHEN {speed_eligible_detail} THEN l.output_tokens ELSE 0 END), 0) as stream_output_tokens,
+                    COALESCE(SUM(CASE WHEN {speed_eligible_detail} THEN l.latency_ms - l.first_token_ms ELSE 0 END), 0) as stream_gen_ms
                 FROM proxy_request_logs l
                 {detail_join}
                 {detail_where}
@@ -1840,7 +1856,9 @@ impl Database {
                 SELECT {rollup_model},
                     COALESCE(SUM(r.request_count), 0),
                     COALESCE(SUM({fresh_input_rollup} + r.output_tokens), 0),
-                    COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0)
+                    COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0),
+                    COALESCE(SUM(r.stream_output_tokens), 0),
+                    COALESCE(SUM(r.stream_gen_ms), 0)
                 FROM usage_daily_rollups r
                 {rollup_join}
                 {rollup_where}
@@ -1862,6 +1880,8 @@ impl Database {
             } else {
                 0.0
             };
+            let stream_output_tokens: i64 = row.get(4)?;
+            let stream_gen_ms: i64 = row.get(5)?;
 
             Ok(ModelStats {
                 model: row.get(0)?,
@@ -1869,6 +1889,12 @@ impl Database {
                 total_tokens: row.get::<_, i64>(2)? as u64,
                 total_cost: format!("{total_cost:.6}"),
                 avg_cost_per_request: format!("{avg_cost:.6}"),
+                stream_output_tokens: stream_output_tokens as u64,
+                stream_gen_ms: stream_gen_ms as u64,
+                avg_tokens_per_second: derive_avg_tokens_per_second(
+                    stream_output_tokens as u64,
+                    stream_gen_ms as u64,
+                ),
             })
         };
 
@@ -4688,6 +4714,107 @@ mod tests {
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].model, "claude-3-sonnet");
         assert_eq!(stats[0].request_count, 1);
+
+        Ok(())
+    }
+
+    /// 模型统计 t/s：按模型独立聚合 speed-eligible 明细行，不可计算行为 None。
+    #[test]
+    fn test_get_model_stats_speed_per_model() -> Result<(), AppError> {
+        let db = Database::memory()?;
+
+        {
+            let conn = lock_conn!(db.conn);
+            let insert =
+                |id: &str, model: &str, output: i64, latency: i64, first: Option<i64>| {
+                    conn.execute(
+                        "INSERT INTO proxy_request_logs (
+                            request_id, provider_id, app_type, model,
+                            input_tokens, output_tokens, total_cost_usd,
+                            latency_ms, first_token_ms, status_code, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        params![
+                            id, "p1", "claude", model, 10, output, "0", latency, first, 200, 1000
+                        ],
+                    )
+                };
+            // fast-model 计入：1000 token / (11000 - 1000) ms
+            insert("fast-a", "fast-model", 1000, 11_000, Some(1_000))?;
+            // fast-model 计入：300 token / (4000 - 1000) ms
+            insert("fast-b", "fast-model", 300, 4_000, Some(1_000))?;
+            // fast-model 不计：输出不到 100
+            insert("fast-short", "fast-model", 50, 2_000, Some(100))?;
+            // slow-model 不计：没有首字（非流式 / 会话日志）
+            insert("slow-no-ttft", "slow-model", 5_000, 9_000, None)?;
+        }
+
+        let stats = db.get_model_stats(None, None, None, None, None)?;
+        assert_eq!(stats.len(), 2);
+
+        let fast = stats
+            .iter()
+            .find(|s| s.model == "fast-model")
+            .expect("fast-model row");
+        assert_eq!(fast.request_count, 3);
+        assert_eq!(fast.stream_output_tokens, 1_300);
+        assert_eq!(fast.stream_gen_ms, 13_000);
+        let avg = fast.avg_tokens_per_second.expect("fast-model has t/s");
+        assert!((avg - 100.0).abs() < 1e-9, "1300 token / 13 s = 100 t/s");
+
+        let slow = stats
+            .iter()
+            .find(|s| s.model == "slow-model")
+            .expect("slow-model row");
+        assert_eq!(slow.request_count, 1);
+        assert_eq!(slow.stream_gen_ms, 0);
+        assert!(slow.avg_tokens_per_second.is_none());
+
+        Ok(())
+    }
+
+    /// 模型统计 t/s：rollup 分支的 stream 两列按模型并入（完整覆盖的本地日）。
+    #[test]
+    fn test_get_model_stats_speed_includes_rollup_columns() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let start = local_ts(2024, 2, 1, 12, 0, 0);
+        let end = local_ts(2024, 2, 3, 12, 0, 0);
+
+        {
+            let conn = lock_conn!(db.conn);
+            let insert_rollup =
+                |date: &str, model: &str, stream_tokens: i64, stream_ms: i64| {
+                    conn.execute(
+                        "INSERT INTO usage_daily_rollups (
+                            date, app_type, provider_id, model,
+                            request_count, success_count, input_tokens, output_tokens,
+                            cache_read_tokens, cache_creation_tokens, total_cost_usd, avg_latency_ms,
+                            stream_output_tokens, stream_gen_ms
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        params![
+                            date, "claude", "p-rollup", model,
+                            5, 5, 500, 250,
+                            0, 0, "0.50", 100,
+                            stream_tokens, stream_ms
+                        ],
+                    )
+                };
+            // 2024-02-02 是范围内唯一完整覆盖的本地日；02-01 / 02-03 是边界日不计
+            insert_rollup("2024-02-01", "m1", 999_999, 999_999)?;
+            insert_rollup("2024-02-02", "m1", 700, 7_000)?;
+            insert_rollup("2024-02-03", "m1", 888_888, 888_888)?;
+            insert_rollup("2024-02-02", "m2", 0, 0)?;
+        }
+
+        let stats = db.get_model_stats(Some(start), Some(end), None, None, None)?;
+        let m1 = stats.iter().find(|s| s.model == "m1").expect("m1 row");
+        assert_eq!(m1.stream_output_tokens, 700);
+        assert_eq!(m1.stream_gen_ms, 7_000);
+        let avg = m1.avg_tokens_per_second.expect("m1 t/s from rollup");
+        assert!((avg - 100.0).abs() < 1e-9);
+
+        let m2 = stats.iter().find(|s| s.model == "m2").expect("m2 row");
+        assert_eq!(m2.stream_gen_ms, 0);
+        assert!(m2.avg_tokens_per_second.is_none());
 
         Ok(())
     }

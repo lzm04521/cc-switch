@@ -7,6 +7,8 @@ import {
   fmtInt,
   fmtUsd,
   formatTokensCompact,
+  formatTokensPerSecond,
+  getAggregateTokensPerSecond,
   getLocaleFromLanguage,
   getResolvedLang,
 } from "./format";
@@ -55,7 +57,7 @@ export function ModelStatsTable({
     <div className="flex flex-col">
       <div className={usageTable.scroller}>
         <table
-          className={cn(usageTable.table, "min-w-[560px]")}
+          className={cn(usageTable.table, "min-w-[640px]")}
           aria-label={t("usage.modelStats")}
         >
           <thead>
@@ -65,49 +67,76 @@ export function ModelStatsTable({
               <th className={usageTable.thEnd}>{t("usage.tokens")}</th>
               <th className={usageTable.thEnd}>{t("usage.totalCost")}</th>
               <th className={usageTable.thEnd}>{t("usage.avgCost")}</th>
+              <th className={usageTable.thEnd}>{t("usage.speed")}</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className={usageTable.empty}>
+                <td colSpan={6} className={usageTable.empty}>
                   {t("usage.noData")}
                 </td>
               </tr>
             ) : (
-              pagination.pageRows.map((stat) => (
-                <tr key={stat.model} className={usageTable.row}>
-                  <td className={cn(usageTable.td, usageTable.mono)}>
-                    <span
-                      className="block max-w-[320px] truncate"
-                      title={stat.model}
+              pagination.pageRows.map((stat) => {
+                // 一行模型的汇总速度：Σ输出 ÷ Σ生成时间（与供应商表同口径）
+                const speed = formatTokensPerSecond(
+                  getAggregateTokensPerSecond(
+                    stat.streamOutputTokens,
+                    stat.streamGenMs,
+                  ),
+                );
+                return (
+                  <tr key={stat.model} className={usageTable.row}>
+                    <td className={cn(usageTable.td, usageTable.mono)}>
+                      <span
+                        className="block max-w-[320px] truncate"
+                        title={stat.model}
+                      >
+                        {stat.model}
+                      </span>
+                    </td>
+                    <td className={usageTable.tdEnd}>
+                      {fmtInt(stat.requestCount, locale)}
+                    </td>
+                    <td
+                      className={usageTable.tdEnd}
+                      title={fmtInt(stat.totalTokens, locale)}
                     >
-                      {stat.model}
-                    </span>
-                  </td>
-                  <td className={usageTable.tdEnd}>
-                    {fmtInt(stat.requestCount, locale)}
-                  </td>
-                  <td
-                    className={usageTable.tdEnd}
-                    title={fmtInt(stat.totalTokens, locale)}
-                  >
-                    {formatTokensCompact(stat.totalTokens, locale)}
-                  </td>
-                  <td
-                    className={cn(usageTable.tdEnd, "font-medium")}
-                    title={fmtUsd(stat.totalCost, 6)}
-                  >
-                    {fmtUsd(stat.totalCost, 2)}
-                  </td>
-                  <td
-                    className={cn(usageTable.tdEnd, "text-fg-2")}
-                    title={fmtUsd(stat.avgCostPerRequest, 6)}
-                  >
-                    {fmtUsd(stat.avgCostPerRequest, 4)}
-                  </td>
-                </tr>
-              ))
+                      {formatTokensCompact(stat.totalTokens, locale)}
+                    </td>
+                    <td
+                      className={cn(usageTable.tdEnd, "font-medium")}
+                      title={fmtUsd(stat.totalCost, 6)}
+                    >
+                      {fmtUsd(stat.totalCost, 2)}
+                    </td>
+                    <td
+                      className={cn(usageTable.tdEnd, "text-fg-2")}
+                      title={fmtUsd(stat.avgCostPerRequest, 6)}
+                    >
+                      {fmtUsd(stat.avgCostPerRequest, 4)}
+                    </td>
+                    <td
+                      className={cn(
+                        usageTable.tdEnd,
+                        speed == null && usageTable.muted,
+                      )}
+                    >
+                      {speed == null ? (
+                        "—"
+                      ) : (
+                        <>
+                          {speed}
+                          <span className="ms-0.5 text-badge font-normal text-fg-3">
+                            tok/s
+                          </span>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

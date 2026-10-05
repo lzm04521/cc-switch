@@ -141,6 +141,12 @@ export interface ModelStats {
   totalTokens: number;
   totalCost: string;
   avgCostPerRequest: string;
+  /** t/s 分子/分母（仅 speed-eligible 行，与 UsageSummary 同口径）：
+   *  加权平均 = streamOutputTokens ÷ (streamGenMs / 1000)。 */
+  streamOutputTokens?: number;
+  streamGenMs?: number;
+  /** 加权平均输出速度（t/s）；null = 该模型无可计算请求。 */
+  avgTokensPerSecond?: number | null;
 }
 
 export interface LogFilters {
