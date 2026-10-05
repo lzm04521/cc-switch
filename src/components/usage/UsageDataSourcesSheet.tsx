@@ -23,6 +23,9 @@ interface UsageDataSourcesSheetProps {
   onOpenChange: (open: boolean) => void;
   sessionAutoSyncEnabled: boolean;
   onSessionAutoSyncEnabledChange?: (next: boolean) => void;
+  /** fork：自动刷新所有供应商用量（非启用 Provider 也定时查询余额） */
+  providerUsageAutoRefreshEnabled?: boolean;
+  onProviderUsageAutoRefreshEnabledChange?: (next: boolean) => void;
   /** 「刚刚同步」「N 分钟前同步」；还没手动同步过时为空 */
   syncedLabel?: string;
   syncing: boolean;
@@ -86,6 +89,8 @@ export function UsageDataSourcesSheet({
   onOpenChange,
   sessionAutoSyncEnabled,
   onSessionAutoSyncEnabledChange,
+  providerUsageAutoRefreshEnabled = false,
+  onProviderUsageAutoRefreshEnabledChange,
   syncedLabel,
   syncing,
   onSyncNow,
@@ -149,6 +154,28 @@ export function UsageDataSourcesSheet({
                 {t("usage.sessionSync.syncNow")}
               </Button>
             </div>
+          </SourceCard>
+
+          {/* fork 定制：自动刷新所有供应商用量（原用量设置 Tab 的开关卡片迁入） */}
+          <SourceCard
+            title={t("usage.providerUsageAutoRefresh.title")}
+            help={{
+              title: t("usage.providerUsageAutoRefresh.title"),
+              body: t("usage.providerUsageAutoRefresh.description"),
+            }}
+            trailing={
+              <Switch
+                checked={providerUsageAutoRefreshEnabled}
+                onCheckedChange={(value) =>
+                  onProviderUsageAutoRefreshEnabledChange?.(value)
+                }
+                aria-label={t("usage.providerUsageAutoRefresh.title")}
+              />
+            }
+          >
+            <p className="m-0 text-caption text-fg-2">
+              {t("usage.providerUsageAutoRefresh.description")}
+            </p>
           </SourceCard>
 
           <SourceCard

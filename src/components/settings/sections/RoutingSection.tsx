@@ -8,6 +8,7 @@ import type { AppId } from "@/lib/api";
 import { proxyApi } from "@/lib/api/proxy";
 import { useProvidersQuery, useSettingsQuery } from "@/lib/query";
 import { settingsApi } from "@/lib/api/settings";
+import type { ApiLogConfig } from "@/lib/api/settings";
 import type { Settings } from "@/types";
 import { RoutePrefixSettings } from "@/components/settings/RoutePrefixSettings";
 import {
@@ -70,6 +71,46 @@ function formatUptime(seconds: number, t: TFunction) {
  */
 export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   const { data: settings } = useSettingsQuery();
+
+  // fork 定制：API 报文记录开关（默认关闭；报文含完整对话上下文，仅调试时打开）
+  const [apiLogConfig, setApiLogConfig] = useState<ApiLogConfig>({
+    enabled: false,
+  });
+  useEffect(() => {
+    settingsApi
+      .getApiLogConfig()
+      .then(setApiLogConfig)
+      .catch((e) => console.error("Failed to load api log config:", e));
+  }, []);
+  const handleApiLogChange = async (enabled: boolean) => {
+    const previous = apiLogConfig;
+    const next = { enabled };
+    setApiLogConfig(next);
+    try {
+      await settingsApi.setApiLogConfig(next);
+      toast.success(
+        enabled
+          ? t("proxy.apiLog.enabled", { defaultValue: "API 报文记录已开启" })
+          : t("proxy.apiLog.disabled", { defaultValue: "API 报文记录已关闭" }),
+      );
+    } catch (e) {
+      setApiLogConfig(previous);
+      toast.error(
+        t("proxy.apiLog.saveFailed", { defaultValue: "切换 API 报文记录失败" }),
+      );
+      console.error("Failed to save api log config:", e);
+    }
+  };
+  const handleOpenApiLogDir = async () => {
+    try {
+      await settingsApi.openApiLogDir();
+    } catch (e) {
+      toast.error(
+        t("proxy.apiLog.openFailed", { defaultValue: "打开报文目录失败" }),
+      );
+      console.error("Failed to open api log dir:", e);
+    }
+  };
 
   // fork 定制：会话级路由前缀 + 路由模型列表接口（原 ProxyTabContent 迁入）
   const saveRouteSettings = async (updates: {
@@ -402,6 +443,39 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
         <div className="rounded-panel border border-border bg-surface p-5">
           <RectifierConfigPanel />
         </div>
+      </SettingsBlock>
+
+      {/* fork 定制：API 报文记录（本地路由调试；报文含完整对话上下文，默认关闭） */}
+      <SettingsBlock
+        title={t("routingSettings.apiLog.title", {
+          defaultValue: "API 报文记录",
+        })}
+        help={{
+          title: t("routingSettings.apiLog.title", {
+            defaultValue: "API 报文记录",
+          }),
+          body: t("routingSettings.apiLog.description", {
+            defaultValue:
+              "把经本地路由转发的请求/响应报文落盘到 api_logs 目录，用于排查协议转换与路由问题。报文包含完整对话上下文，仅在排查时短时开启。",
+          }),
+        }}
+      >
+        <SettingsSwitchRow
+          label={t("routingSettings.apiLog.title", {
+            defaultValue: "API 报文记录",
+          })}
+          description={
+            <Button
+              variant="quiet"
+              size="compact"
+              onClick={() => void handleOpenApiLogDir()}
+            >
+              {t("proxy.apiLog.openDir", { defaultValue: "打开记录目录" })}
+            </Button>
+          }
+          checked={apiLogConfig.enabled}
+          onCheckedChange={(value) => void handleApiLogChange(value)}
+        />
       </SettingsBlock>
 
       {/* fork 定制：会话级路由前缀（G. 前缀触发与 /v1/models 路由模型列表） */}

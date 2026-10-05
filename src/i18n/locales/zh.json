@@ -3989,6 +3989,11 @@
       "hermes": "安装时运行官方安装脚本",
       "pi": "通过 npm 安装",
       "mcode": "安装时运行官方安装脚本，失败时改用 npm"
+    },
+    "forkAppMeta": {
+      "dsh": "DeepSeek Harness：配置由应用自管，CC Switch 负责 Skills 与 MCP 同步",
+      "zcode": "ZCode：供应商由应用内自管，CC Switch 负责 Skills / 提示词 / MCP / 会话管理",
+      "workbuddy": "WorkBuddy：配置由应用自管，CC Switch 负责 Skills 与 MCP 同步"
     }
   },
   "appPage": {
@@ -4189,7 +4194,11 @@
     "exitAllTitle": "让所有应用回到直连？",
     "exitAllMessage": "在路由和聚合模式下的应用都会写回直连配置，然后停止路由服务。路由目标、队列和聚合名单会保留。",
     "exitAllConfirm": "全部回到直连",
-    "failoverHelp": "这里调各应用的超时、重试和熔断。队列在各应用页的「路由」页签里管理。"
+    "failoverHelp": "这里调各应用的超时、重试和熔断。队列在各应用页的「路由」页签里管理。",
+    "apiLog": {
+      "title": "API 报文记录",
+      "description": "把经本地路由转发的请求/响应报文落盘到 api_logs 目录，用于排查协议转换与路由问题。报文包含完整对话上下文，仅在排查时短时开启。"
+    }
   },
   "quota": {
     "tierShort": "{{label}} {{value}}%",

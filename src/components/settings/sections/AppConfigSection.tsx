@@ -54,6 +54,9 @@ const DIRECTORY_APPS: DirectoryAppId[] = [
   "openclaw",
   "hermes",
   "pi",
+  // fork：DSH home 与 ZCode 配置目录可自定义
+  "dsh",
+  "zcode",
 ];
 
 const normalizeDir = (value: unknown) =>

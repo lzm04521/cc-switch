@@ -3989,6 +3989,11 @@
       "hermes": "Installs with the official script",
       "pi": "Installs with npm",
       "mcode": "Installs with the official script, falls back to npm"
+    },
+    "forkAppMeta": {
+      "dsh": "DeepSeek Harness: config managed by the app itself; CC Switch only syncs Skills and MCP",
+      "zcode": "ZCode: providers managed by the app itself; CC Switch manages Skills / prompts / MCP / sessions",
+      "workbuddy": "WorkBuddy: config managed by the app itself; CC Switch only syncs Skills and MCP"
     }
   },
   "appPage": {
@@ -4189,7 +4194,11 @@
     "exitAllTitle": "Switch every app back to direct?",
     "exitAllMessage": "Apps in routing or Aggregation mode get their direct config written back, then the routing service stops. Route targets, queues and aggregation lists are kept.",
     "exitAllConfirm": "Switch all back to direct",
-    "failoverHelp": "Tune each app's timeouts, retries and circuit breaker here. Queues are managed on each app's Routing tab."
+    "failoverHelp": "Tune each app's timeouts, retries and circuit breaker here. Queues are managed on each app's Routing tab.",
+    "apiLog": {
+      "title": "API message logging",
+      "description": "Persist proxied request/response payloads to the api_logs folder for troubleshooting protocol conversion and routing. Payloads contain full conversation context; enable only while debugging."
+    }
   },
   "quota": {
     "tierShort": "{{label}} {{value}}%",

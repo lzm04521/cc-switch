@@ -75,7 +75,14 @@ const SOURCE_LABEL: Record<string, string> = {
   pip: "pip",
 };
 
-type Row = { kind: "tool"; tool: ToolName } | { kind: "desktop" };
+type Row =
+  | { kind: "tool"; tool: ToolName }
+  | { kind: "desktop" }
+  | { kind: "forkApp"; app: ForkAppId };
+
+// fork 定制：cc-switch 只做配置管理、不走工具检测/安装的应用
+const FORK_APPS = ["dsh", "zcode", "workbuddy"] as const;
+type ForkAppId = (typeof FORK_APPS)[number];
 
 const ROWS: Row[] = [
   { kind: "tool", tool: "claude" },
@@ -83,6 +90,7 @@ const ROWS: Row[] = [
   ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
     (tool): Row => ({ kind: "tool", tool }),
   ),
+  ...FORK_APPS.map((app): Row => ({ kind: "forkApp", app })),
 ];
 
 function formatCheckedAt(timestamp: number, locale: string): string {
@@ -292,6 +300,21 @@ export function AppsPage() {
                     </span>
                   }
                   visibility={visibilitySwitch("claude-desktop")}
+                />
+              ) : row.kind === "forkApp" ? (
+                <AppRow
+                  key={row.app}
+                  app={row.app}
+                  name={APP_DISPLAY_NAME[row.app]}
+                  meta={
+                    <span>
+                      {t(`appsPage.forkAppMeta.${row.app}`, {
+                        defaultValue:
+                          "由应用自管，CC Switch 负责 Skills / MCP 等配置同步",
+                      })}
+                    </span>
+                  }
+                  visibility={visibilitySwitch(row.app)}
                 />
               ) : (
                 <ToolRow

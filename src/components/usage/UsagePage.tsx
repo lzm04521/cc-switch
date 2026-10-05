@@ -32,6 +32,12 @@ export function UsagePage({
       onSessionAutoSyncEnabledChange={(sessionAutoSyncEnabled) =>
         save({ sessionAutoSyncEnabled })
       }
+      providerUsageAutoRefreshEnabled={
+        settings?.autoRefreshAllProvidersUsage ?? false
+      }
+      onProviderUsageAutoRefreshEnabledChange={(autoRefreshAllProvidersUsage) =>
+        save({ autoRefreshAllProvidersUsage })
+      }
       initialAppType={initialAppType}
       onOpenRoutingSettings={onOpenRoutingSettings}
     />

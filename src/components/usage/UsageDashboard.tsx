@@ -137,6 +137,11 @@ interface UsageDashboardProps {
   onSessionAutoSyncEnabledChange?: (
     next: boolean,
   ) => Promise<boolean> | boolean | void;
+  /** fork：自动刷新所有供应商用量开关（数据来源抽屉里展示） */
+  providerUsageAutoRefreshEnabled?: boolean;
+  onProviderUsageAutoRefreshEnabledChange?: (
+    next: boolean,
+  ) => Promise<boolean> | boolean | void;
   /** 从应用页「查看此应用的用量」进入时带上的应用筛选 */
   initialAppType?: AppTypeFilter;
   /** 「数据来源」里的「修改记录请求用量」：打开设置 → 本地路由 */
@@ -151,6 +156,8 @@ export function UsageDashboard({
   onRefreshIntervalChange,
   sessionAutoSyncEnabled = true,
   onSessionAutoSyncEnabledChange,
+  providerUsageAutoRefreshEnabled = false,
+  onProviderUsageAutoRefreshEnabledChange,
   initialAppType = "all",
   onOpenRoutingSettings,
 }: UsageDashboardProps = {}) {
@@ -825,6 +832,10 @@ export function UsageDashboard({
         sessionAutoSyncEnabled={sessionAutoSyncEnabled}
         onSessionAutoSyncEnabledChange={(value) =>
           void onSessionAutoSyncEnabledChange?.(value)
+        }
+        providerUsageAutoRefreshEnabled={providerUsageAutoRefreshEnabled}
+        onProviderUsageAutoRefreshEnabledChange={(value) =>
+          void onProviderUsageAutoRefreshEnabledChange?.(value)
         }
         syncedLabel={drawerSyncedLabel}
         syncing={syncingSession}
