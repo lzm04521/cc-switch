@@ -365,7 +365,9 @@ mod win32_dock {
             if cursor_over_ball(hwnd) {
                 return;
             }
-            let Some((_full, work)) = ball_monitor_rects(hwnd) else { return };
+            let Some((_full, work)) = ball_monitor_rects(hwnd) else {
+                return;
+            };
             let rect = window_rect(hwnd);
             let visible = COLLAPSED_VISIBLE_LOGICAL_PX * ball_scale(hwnd);
             let (tx, ty) = super::dock_collapsed_pos(side, &work, &rect, visible);
@@ -466,19 +468,24 @@ pub fn restore_dock_state(app: &AppHandle) -> bool {
     let visible = COLLAPSED_VISIBLE_LOGICAL_PX * monitor.scale_factor();
     // 判定基准是物理像素，容差随 DPI 缩放，缓解高 DPI / 启动期 DPI 抖动导致的漏匹配
     let tol = RESTORE_TOLERANCE_PX * monitor.scale_factor();
-    let restored = [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom]
-        .into_iter()
-        .find_map(|side| {
-            let (cx, cy) = dock_collapsed_pos(side, &work, &ball, visible);
-            if (cx - ball.x).abs() <= tol && (cy - ball.y).abs() <= tol {
-                return Some((side, true));
-            }
-            let (ex, ey) = dock_expanded_pos(side, &work, &ball);
-            if (ex - ball.x).abs() <= tol && (ey - ball.y).abs() <= tol {
-                return Some((side, false));
-            }
-            None
-        });
+    let restored = [
+        DockSide::Left,
+        DockSide::Right,
+        DockSide::Top,
+        DockSide::Bottom,
+    ]
+    .into_iter()
+    .find_map(|side| {
+        let (cx, cy) = dock_collapsed_pos(side, &work, &ball, visible);
+        if (cx - ball.x).abs() <= tol && (cy - ball.y).abs() <= tol {
+            return Some((side, true));
+        }
+        let (ex, ey) = dock_expanded_pos(side, &work, &ball);
+        if (ex - ball.x).abs() <= tol && (ey - ball.y).abs() <= tol {
+            return Some((side, false));
+        }
+        None
+    });
     match restored {
         Some((side, collapsed)) => {
             set_dock(Some(side), collapsed);
@@ -616,10 +623,7 @@ pub fn ensure_ball_visible(app: &AppHandle) -> bool {
         nx.round(),
         ny.round()
     );
-    let _ = ball_win.set_position(PhysicalPosition::new(
-        nx.round() as i32,
-        ny.round() as i32,
-    ));
+    let _ = ball_win.set_position(PhysicalPosition::new(nx.round() as i32, ny.round() as i32));
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let _ = handle.save_window_state(StateFlags::POSITION);
@@ -1002,7 +1006,11 @@ pub fn build_sections(
         let current_provider_id = if app_type.is_additive_mode() {
             None
         } else {
-            crate::settings::get_effective_current_provider(&app_state.db, &app_type)?
+            crate::mode::current::provider_for(
+                &app_state.db,
+                &app_type,
+                crate::mode::current::Purpose::InUse,
+            )?
         };
         let sorted = crate::tray::sort_providers(&providers);
         let provider_infos = sorted
@@ -1153,11 +1161,20 @@ mod tests {
     fn taskbar_side_detected_from_monitor_work_gap() {
         let full = rect(0.0, 0.0, 1920.0, 1080.0);
         // 底部任务栏
-        assert_eq!(taskbar_side(&full, &rect(0.0, 0.0, 1920.0, 1040.0)), Some(DockSide::Bottom));
+        assert_eq!(
+            taskbar_side(&full, &rect(0.0, 0.0, 1920.0, 1040.0)),
+            Some(DockSide::Bottom)
+        );
         // 顶部任务栏
-        assert_eq!(taskbar_side(&full, &rect(0.0, 40.0, 1920.0, 1040.0)), Some(DockSide::Top));
+        assert_eq!(
+            taskbar_side(&full, &rect(0.0, 40.0, 1920.0, 1040.0)),
+            Some(DockSide::Top)
+        );
         // 左侧任务栏
-        assert_eq!(taskbar_side(&full, &rect(60.0, 0.0, 1860.0, 1080.0)), Some(DockSide::Left));
+        assert_eq!(
+            taskbar_side(&full, &rect(60.0, 0.0, 1860.0, 1080.0)),
+            Some(DockSide::Left)
+        );
         // 无任务栏（副屏 / 自动隐藏）
         assert_eq!(taskbar_side(&full, &full), None);
     }
@@ -1167,7 +1184,10 @@ mod tests {
         let work = rect(0.0, 0.0, 1920.0, 1080.0);
         let ball = rect(10.0, 400.0, 56.0, 56.0);
         // 左侧：展开 x=work.x，y 保持；收起露出 15px → x = -41
-        assert_eq!(dock_expanded_pos(DockSide::Left, &work, &ball), (0.0, 400.0));
+        assert_eq!(
+            dock_expanded_pos(DockSide::Left, &work, &ball),
+            (0.0, 400.0)
+        );
         assert_eq!(
             dock_collapsed_pos(DockSide::Left, &work, &ball, 15.0),
             (-41.0, 400.0)
@@ -1189,7 +1209,10 @@ mod tests {
         let work = rect(2880.0, 0.0, 1920.0, 1040.0);
         let ball = rect(4000.0, 10.0, 84.0, 84.0);
         // 顶部：展开 y=work.y，x 保持；收起露出 15px → y = -69
-        assert_eq!(dock_expanded_pos(DockSide::Top, &work, &ball), (4000.0, 0.0));
+        assert_eq!(
+            dock_expanded_pos(DockSide::Top, &work, &ball),
+            (4000.0, 0.0)
+        );
         assert_eq!(
             dock_collapsed_pos(DockSide::Top, &work, &ball, 15.0),
             (4000.0, -69.0)

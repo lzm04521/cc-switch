@@ -62,6 +62,14 @@ pub struct ProxyServer {
     server_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
+#[cfg(test)]
+impl ProxyState {
+    /// 测试用：用这个数据库、其余都是默认值的状态。
+    pub(crate) fn for_test(db: Arc<Database>) -> Self {
+        ProxyServer::new(ProxyConfig::default(), db, None).state
+    }
+}
+
 impl ProxyServer {
     pub fn new(
         config: ProxyConfig,
@@ -71,7 +79,7 @@ impl ProxyServer {
         // 创建共享的 ProviderRouter（熔断器状态将跨所有请求保持）
         let provider_router = Arc::new(ProviderRouter::new(db.clone()));
         // 创建故障转移切换管理器
-        let failover_manager = Arc::new(FailoverSwitchManager::new(db.clone()));
+        let failover_manager = Arc::new(FailoverSwitchManager::new());
 
         let state = ProxyState {
             db,
@@ -333,11 +341,24 @@ impl ProxyServer {
             .route("/v1/models", get(handlers::handle_models))
             // codex 命名空间专属模型列表（base_url 配 .../codex 的客户端拉取）
             .route("/codex/v1/models", get(handlers::handle_codex_models))
-            // OpenAI Responses API (Codex CLI，支持带前缀和不带前缀)
-            .route("/responses", post(handlers::handle_responses))
-            .route("/v1/responses", post(handlers::handle_responses))
-            .route("/v1/v1/responses", post(handlers::handle_responses))
-            .route("/codex/v1/responses", post(handlers::handle_responses))
+            // OpenAI Responses API (Codex CLI，支持带前缀和不带前缀)。GET 是 WebSocket
+            // 握手：Codex 内置的 openai（代理的官方路由）会先试 WebSocket。
+            .route(
+                "/responses",
+                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+            )
+            .route(
+                "/v1/responses",
+                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+            )
+            .route(
+                "/v1/v1/responses",
+                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+            )
+            .route(
+                "/codex/v1/responses",
+                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+            )
             // Grok Build uses the Responses protocol but has an independent
             // provider namespace and failover queue.
             .route(
@@ -463,6 +484,40 @@ mod tests {
         path_and_query: String,
         authorization: Option<String>,
         body: Value,
+    }
+
+    /// Codex 内置的 openai 先用 WebSocket 连 Responses：握手回 426 它才立刻改走 HTTP。
+    #[tokio::test]
+    async fn responses_websocket_handshake_is_answered_with_upgrade_required() {
+        let db = Arc::new(Database::memory().expect("memory database"));
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                ..ProxyConfig::default()
+            },
+            db,
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+        for path in [
+            "/responses",
+            "/v1/responses",
+            "/v1/v1/responses",
+            "/codex/v1/responses",
+        ] {
+            let response = client
+                .get(format!("http://127.0.0.1:{}{path}", proxy_info.port))
+                .header(header::CONNECTION, "Upgrade")
+                .header(header::UPGRADE, "websocket")
+                .header("sec-websocket-version", "13")
+                .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .send()
+                .await
+                .expect("websocket handshake");
+            assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED, "{path}");
+        }
+        proxy.stop().await.expect("stop test proxy");
     }
 
     /// A base URL pasted as a complete endpoint with the full-URL switch left off
@@ -1110,8 +1165,7 @@ mod tests {
             (addr, handle)
         };
 
-        let (default_addr, default_handle) =
-            spawn_chat_mock(captured_default.clone()).await;
+        let (default_addr, default_handle) = spawn_chat_mock(captured_default.clone()).await;
         let (route_addr, route_handle) = spawn_chat_mock(captured_route.clone()).await;
 
         let db = Arc::new(Database::memory().expect("memory database"));
@@ -1435,11 +1489,18 @@ mod tests {
         for request in captured.iter() {
             assert_eq!(request.path_and_query, "/v1/responses");
             assert!(
-                request.body.get("input").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()),
+                request
+                    .body
+                    .get("input")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|a| !a.is_empty()),
                 "input array must be present: {}",
                 request.body
             );
-            assert!(request.body.get("messages").is_none(), "messages must be converted");
+            assert!(
+                request.body.get("messages").is_none(),
+                "messages must be converted"
+            );
             assert_eq!(
                 request.authorization.as_deref(),
                 Some("Bearer responses-secret")

@@ -96,10 +96,7 @@ impl ResponsesToChatState {
             .and_then(Value::as_u64)
             .unwrap_or(0);
         self.response_started = true;
-        vec![self.choice_chunk(
-            json!({ "role": "assistant", "content": "" }),
-            None,
-        )]
+        vec![self.choice_chunk(json!({ "role": "assistant", "content": "" }), None)]
     }
 
     /// response.output_item.added：function_call → tool_calls 首帧；其余占位
@@ -107,7 +104,10 @@ impl ResponsesToChatState {
         let Some(item) = data.get("item") else {
             return Vec::new();
         };
-        let output_index = data.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+        let output_index = data
+            .get("output_index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         if item.get("type").and_then(Value::as_str) != Some("function_call") {
             return Vec::new();
         }
@@ -141,7 +141,10 @@ impl ResponsesToChatState {
 
     /// response.function_call_arguments.delta → arguments 增量
     fn handle_tool_arguments_delta(&mut self, data: &Value) -> Vec<Bytes> {
-        let output_index = data.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+        let output_index = data
+            .get("output_index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         let Some(chat_index) = self.tool_index_by_output.get(&output_index).copied() else {
             return Vec::new();
         };
@@ -168,7 +171,10 @@ impl ResponsesToChatState {
         if item.get("type").and_then(Value::as_str) != Some("function_call") {
             return Vec::new();
         }
-        let output_index = data.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+        let output_index = data
+            .get("output_index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         self.pending_tools.remove(&output_index);
         let has_name = item
             .get("name")
@@ -492,9 +498,18 @@ mod tests {
         let first = &chunks[0]["choices"][0]["delta"]["tool_calls"][0];
         assert_eq!(first["id"], json!("call_abc"));
         assert_eq!(first["function"]["name"], json!("get_weather"));
-        assert_eq!(chunks[1]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"], json!("{\"ci"));
-        assert_eq!(chunks[2]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"], json!("ty\":\"sz\"}"));
-        assert_eq!(chunks[3]["choices"][0]["finish_reason"], json!("tool_calls"));
+        assert_eq!(
+            chunks[1]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            json!("{\"ci")
+        );
+        assert_eq!(
+            chunks[2]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            json!("ty\":\"sz\"}")
+        );
+        assert_eq!(
+            chunks[3]["choices"][0]["finish_reason"],
+            json!("tool_calls")
+        );
     }
 
     #[test]

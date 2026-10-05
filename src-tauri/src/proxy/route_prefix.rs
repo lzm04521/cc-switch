@@ -105,10 +105,7 @@ impl RouteBindingStore {
 
     /// 容量超限淘汰最久未用条目。绑定操作 O(1)，淘汰 O(n) 但 n ≤ 容量上限
     /// （默认 1000）且仅在插入超限时触发，无性能热点。
-    fn evict_if_over_capacity(
-        map: &mut HashMap<String, RouteBindingEntry>,
-        capacity: usize,
-    ) {
+    fn evict_if_over_capacity(map: &mut HashMap<String, RouteBindingEntry>, capacity: usize) {
         while map.len() > capacity {
             let Some(oldest) = map
                 .iter()
@@ -233,9 +230,7 @@ pub fn resolve_route_provider(
         0 => {
             let available: Vec<String> = all
                 .values()
-                .filter(|p| {
-                    p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true)
-                })
+                .filter(|p| p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true))
                 .filter_map(|p| p.meta.as_ref().and_then(|m| m.route_key.clone()))
                 .collect();
             Err(ProxyError::ConfigError(format!(
@@ -304,7 +299,9 @@ fn eligible_route_groups<'a>(
     let mut eligible: Vec<(&Provider, &str, ModelMapping)> = Vec::new();
 
     for provider in all.values() {
-        let Some(meta) = provider.meta.as_ref() else { continue };
+        let Some(meta) = provider.meta.as_ref() else {
+            continue;
+        };
         if meta.route_enabled != Some(true) {
             continue;
         }
@@ -581,7 +578,11 @@ pub async fn apply_route(
     ) {
         return Ok(()); // 生效范围守卫（设计 §3.7，双保险；Codex 适配 2026-09-10）
     }
-    let Some(model) = body.get("model").and_then(Value::as_str).map(str::to_string) else {
+    let Some(model) = body
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
         return Ok(());
     };
     let prefix = crate::settings::get_route_prefix();
@@ -697,26 +698,41 @@ mod tests {
     fn parse_key_only_and_key_model() {
         assert_eq!(
             parse_route_target("G.ds", "G."),
-            Some(ParsedRoute { key: "ds".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: None
+            })
         );
         assert_eq!(
             parse_route_target("G.ds:claude-opus-4-8", "G."),
-            Some(ParsedRoute { key: "ds".into(), model_override: Some("claude-opus-4-8".into()) })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: Some("claude-opus-4-8".into())
+            })
         );
         // key 与模型名都可含点，按第一个 `:` 切分
         assert_eq!(
             parse_route_target("G.mini:MiniMax-M2.7-highspeed", "G."),
-            Some(ParsedRoute { key: "mini".into(), model_override: Some("MiniMax-M2.7-highspeed".into()) })
+            Some(ParsedRoute {
+                key: "mini".into(),
+                model_override: Some("MiniMax-M2.7-highspeed".into())
+            })
         );
         // 冒号后为空视同无显式模型（分组默认模型）
         assert_eq!(
             parse_route_target("G.ds:", "G."),
-            Some(ParsedRoute { key: "ds".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: None
+            })
         );
         // key 可含点与连字符
         assert_eq!(
             parse_route_target("G.my-key.v2:sonnet", "G."),
-            Some(ParsedRoute { key: "my-key.v2".into(), model_override: Some("sonnet".into()) })
+            Some(ParsedRoute {
+                key: "my-key.v2".into(),
+                model_override: Some("sonnet".into())
+            })
         );
     }
 
@@ -724,12 +740,18 @@ mod tests {
     fn parse_is_case_insensitive_on_prefix_and_keeps_model_case() {
         assert_eq!(
             parse_route_target("g.DS:DeepSeek-R1", "G."),
-            Some(ParsedRoute { key: "DS".into(), model_override: Some("DeepSeek-R1".into()) })
+            Some(ParsedRoute {
+                key: "DS".into(),
+                model_override: Some("DeepSeek-R1".into())
+            })
         );
         // 自定义前缀
         assert_eq!(
             parse_route_target("@ds", "@"),
-            Some(ParsedRoute { key: "ds".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: None
+            })
         );
     }
 
@@ -738,11 +760,17 @@ mod tests {
         // [1M] 可能被 Claude Code 剥离后再到达代理，两种形态都容忍
         assert_eq!(
             parse_route_target("G.ds[1M]", "G."),
-            Some(ParsedRoute { key: "ds".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: None
+            })
         );
         assert_eq!(
             parse_route_target("G.ds:sonnet[1M]", "G."),
-            Some(ParsedRoute { key: "ds".into(), model_override: Some("sonnet".into()) })
+            Some(ParsedRoute {
+                key: "ds".into(),
+                model_override: Some("sonnet".into())
+            })
         );
         // 直测剥离函数：判定大小写不敏感，小写 "[1m]" 同样剥离
         assert_eq!(split_base_and_one_m("x[1m]"), ("x".to_string(), true));
@@ -755,16 +783,25 @@ mod tests {
         // 保留 key：解析层不特殊处理，由 apply_route 判定解绑语义
         assert_eq!(
             parse_route_target("G.default", "G."),
-            Some(ParsedRoute { key: "default".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "default".into(),
+                model_override: None
+            })
         );
         assert_eq!(
             parse_route_target("@default", "@"),
-            Some(ParsedRoute { key: "default".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "default".into(),
+                model_override: None
+            })
         );
         // 仅前缀本身（key 空）：交给 key 匹配层 fail-closed（报 key 未命中）
         assert_eq!(
             parse_route_target("G.", "G."),
-            Some(ParsedRoute { key: "".into(), model_override: None })
+            Some(ParsedRoute {
+                key: "".into(),
+                model_override: None
+            })
         );
     }
 
@@ -842,10 +879,7 @@ mod tests {
     }
 
     fn all_providers(entries: Vec<Provider>) -> IndexMap<String, Provider> {
-        entries
-            .into_iter()
-            .map(|p| (p.id.clone(), p))
-            .collect()
+        entries.into_iter().map(|p| (p.id.clone(), p)).collect()
     }
 
     #[test]
@@ -893,7 +927,10 @@ mod tests {
         let err = resolve_route_provider(&all, "notexist").expect_err("fail-closed");
         let msg = err.to_string();
         assert!(msg.contains("notexist"), "msg: {msg}");
-        assert!(msg.contains("ds") && msg.contains("glm"), "可用 key 列表缺失: {msg}");
+        assert!(
+            msg.contains("ds") && msg.contains("glm"),
+            "可用 key 列表缺失: {msg}"
+        );
     }
 
     // ---- build_route_models_list（/v1/models 路由模型列表）----
@@ -957,21 +994,11 @@ mod tests {
     #[test]
     fn models_list_groups_mode_returns_group_entries_only() {
         let all = route_list_map(vec![ds_group(), kc_group(), plain_group()]);
-        let entries =
-            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        assert_eq!(
-            entry_ids(&entries),
-            vec!["G.Default", "G.DS[1M]", "G.KC"]
-        );
+        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
+        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS[1M]", "G.KC"]);
         // display_name = id 去掉触发前缀；未开启路由的 p3 不出现
-        assert_eq!(
-            entries[0]["display_name"],
-            serde_json::json!("Default")
-        );
-        assert_eq!(
-            entries[1]["display_name"],
-            serde_json::json!("DS[1M]")
-        );
+        assert_eq!(entries[0]["display_name"], serde_json::json!("Default"));
+        assert_eq!(entries[1]["display_name"], serde_json::json!("DS[1M]"));
     }
 
     #[test]
@@ -979,8 +1006,7 @@ mod tests {
         // sonnet=deepseek-v4-pro[1M]、opus=deepseek-v4-pro（同 base）、
         // default=deepseek-v4-pro[1M] → 仅一条，且带 [1M]（1M 取"或"）
         let all = route_list_map(vec![ds_group(), kc_group()]);
-        let entries =
-            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
+        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
         assert_eq!(
             entry_ids(&entries),
             vec!["G.Default", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
@@ -994,8 +1020,7 @@ mod tests {
     #[test]
     fn models_list_both_mode_groups_first() {
         let all = route_list_map(vec![ds_group(), kc_group()]);
-        let entries =
-            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Both);
+        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Both);
         assert_eq!(
             entry_ids(&entries),
             vec![
@@ -1022,21 +1047,18 @@ mod tests {
                 entry_ids(&entries).first().map(String::as_str),
                 Some("@Default")
             );
-            assert_eq!(
-                entries[0]["display_name"],
-                serde_json::json!("Default")
-            );
+            assert_eq!(entries[0]["display_name"], serde_json::json!("Default"));
         }
     }
 
     #[test]
     fn models_list_skips_dirty_and_duplicate_keys() {
         // route_enabled 但 key 为空（改库脏数据）→ 跳过；key 重复取首现
-        let dirty = route_list_provider("p4", "Dirty", Some("  "), serde_json::json!({ "env": {} }));
+        let dirty =
+            route_list_provider("p4", "Dirty", Some("  "), serde_json::json!({ "env": {} }));
         let dup = route_list_provider("p5", "Dup", Some("ds"), serde_json::json!({ "env": {} }));
         let all = route_list_map(vec![ds_group(), dirty, dup]);
-        let entries =
-            build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
+        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
         // 脏/重复分组被跳过，但存在合规分组 → 回落条目仍输出
         assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS[1M]"]);
     }
@@ -1117,7 +1139,10 @@ mod tests {
         );
         // 无 ANTHROPIC_MODEL → None（沿用原行为）
         let no_model = routed_provider("a", "ds", None);
-        assert_eq!(resolve_route_default_model(&AppType::Claude, &no_model), None);
+        assert_eq!(
+            resolve_route_default_model(&AppType::Claude, &no_model),
+            None
+        );
     }
 
     fn codex_catalog_group(id: &str, key: &str, catalog_models: &[&str]) -> Provider {
@@ -1150,22 +1175,16 @@ mod tests {
     #[test]
     fn codex_models_list_groups_mode_has_no_model_entries() {
         let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
-        let entries = build_route_models_list_for_codex(
-            &all,
-            "G.",
-            crate::settings::RouteModelsMode::Groups,
-        );
+        let entries =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Groups);
         assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS"]);
     }
 
     #[test]
     fn codex_models_list_models_mode_emits_only_mapped_models() {
         let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
-        let entries = build_route_models_list_for_codex(
-            &all,
-            "G.",
-            crate::settings::RouteModelsMode::Models,
-        );
+        let entries =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
         assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS:m1", "G.DS:m2"]);
     }
 
@@ -1189,11 +1208,8 @@ mod tests {
             "DS",
             &["m1", "m1", "m2[1M]", "  m3  "],
         )]);
-        let entries = build_route_models_list_for_codex(
-            &all,
-            "G.",
-            crate::settings::RouteModelsMode::Models,
-        );
+        let entries =
+            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
         assert_eq!(
             entry_ids(&entries),
             vec!["G.Default", "G.DS:m1", "G.DS:m1", "G.DS:m2[1M]", "G.DS:m3"]
@@ -1228,10 +1244,7 @@ mod tests {
         let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1"]), dirty, dup]);
         let entries =
             build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
-        assert_eq!(
-            entry_ids(&entries),
-            vec!["G.Default", "G.DS", "G.DS:m1"]
-        );
+        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS", "G.DS:m1"]);
     }
 
     #[test]

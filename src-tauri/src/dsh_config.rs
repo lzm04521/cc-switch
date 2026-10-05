@@ -47,9 +47,8 @@ pub(crate) fn ensure_secure_home(home: &Path) -> Result<(), String> {
     // builds do not warn about an unused binding.
     #[cfg(unix)]
     let existed = home.exists();
-    fs::create_dir_all(home).map_err(|source| {
-        io_error("create-home-failed", "Failed to create DSH home", source)
-    })?;
+    fs::create_dir_all(home)
+        .map_err(|source| io_error("create-home-failed", "Failed to create DSH home", source))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

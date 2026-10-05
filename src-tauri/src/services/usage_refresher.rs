@@ -46,7 +46,7 @@ pub(crate) fn spawn_usage_refresher(app: tauri::AppHandle) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         interval.tick().await; // 跳过立即触发的首个 tick，避开启动期首轮查询
-        // 任务维度的上次尝试时刻（epoch ms），成功失败都记
+                               // 任务维度的上次尝试时刻（epoch ms），成功失败都记
         let mut last_attempts: HashMap<(String, String), i64> = HashMap::new();
         loop {
             interval.tick().await;
@@ -123,10 +123,7 @@ async fn run_refresh_cycle(
     if due.is_empty() {
         return;
     }
-    log::debug!(
-        "[UsageRefresher] 本轮到期刷新 {} 个供应商用量",
-        due.len()
-    );
+    log::debug!("[UsageRefresher] 本轮到期刷新 {} 个供应商用量", due.len());
 
     let mut futures = Vec::new();
     for (app_type, provider_id) in due {
@@ -148,9 +145,7 @@ async fn run_refresh_cycle(
             )
             .await
             {
-                log::debug!(
-                    "[UsageRefresher] 刷新 {app_str} 供应商 {provider_id} 用量失败: {e}"
-                );
+                log::debug!("[UsageRefresher] 刷新 {app_str} 供应商 {provider_id} 用量失败: {e}");
             }
         });
     }

@@ -7,8 +7,9 @@
 use super::codex_chat_common::{
     append_reasoning_content, extract_reasoning_field_text, extract_reasoning_summary_text,
     response_function_call_item, response_function_call_item_with_namespace,
-    split_leading_think_block,
 };
+use super::codex_compaction;
+use super::inline_think::split_leading_think_block;
 use crate::provider::CodexChatReasoningConfig;
 use crate::proxy::{
     error::ProxyError,
@@ -68,11 +69,17 @@ pub(crate) struct CodexToolContext {
     seen_chat_names: HashSet<String>,
     chat_name_to_spec: HashMap<String, CodexToolSpec>,
     namespace_name_to_chat_name: HashMap<(String, String), String>,
+    /// 这个请求是 Codex 远程压缩（input 里有 `compaction_trigger`），见 `codex_compaction`。
+    compaction_request: bool,
 }
 
 impl CodexToolContext {
     pub(crate) fn chat_tools(&self) -> &[Value] {
         &self.chat_tools
+    }
+
+    pub(crate) fn is_compaction_request(&self) -> bool {
+        self.compaction_request
     }
 
     pub(crate) fn lookup_chat_name(&self, chat_name: &str) -> Option<&CodexToolSpec> {
@@ -249,6 +256,7 @@ pub(crate) fn build_codex_tool_context_from_request(body: &Value) -> CodexToolCo
     if let Some(input) = body.get("input") {
         collect_input_declared_tools(input, &mut context);
     }
+    context.compaction_request = codex_compaction::is_compaction_request(body);
 
     context
 }
@@ -312,8 +320,10 @@ pub fn responses_to_chat_completions_with_reasoning(
 
     apply_reasoning_options(&mut result, &body, model, reasoning_config);
 
+    // 压缩回合只要一段摘要：不带工具和结构化输出，与 Codex 本地压缩请求同形。
+    let compaction = tool_context.is_compaction_request();
     let tools = tool_context.chat_tools();
-    if !tools.is_empty() {
+    if !tools.is_empty() && !compaction {
         result["tools"] = json!(tools);
     }
 
@@ -322,6 +332,9 @@ pub fn responses_to_chat_completions_with_reasoning(
     }
 
     for key in EXTRA_CHAT_PASSTHROUGH_FIELDS {
+        if compaction && *key == "response_format" {
+            continue;
+        }
         if let Some(value) = body.get(*key) {
             result[*key] = value.clone();
         }
@@ -770,6 +783,32 @@ fn append_responses_item_as_chat_message(
             // 真正的尾部剩余由 input 结束时的收尾逻辑、或回合边界消息（user 等）
             // 到达时回溯附挂，见 attach_pending_reasoning_to_previous_assistant。
             append_pending_reasoning(pending_reasoning, responses_reasoning_item_text(item));
+        }
+        // Codex 远程压缩：触发条目换成压缩提示词，历史里的压缩条目换成摘要正文，
+        // 都按一条普通用户消息处理（回合边界、pending reasoning 的附挂规则照旧）。
+        Some("compaction_trigger") => {
+            append_responses_item_as_chat_message(
+                &codex_compaction::compaction_prompt_item(),
+                messages,
+                pending_tool_calls,
+                pending_media,
+                pending_reasoning,
+                last_assistant_index,
+                tool_context,
+            )?;
+        }
+        Some("compaction" | "compaction_summary" | "context_compaction") => {
+            if let Some(text) = codex_compaction::compaction_item_replay_text(item) {
+                append_responses_item_as_chat_message(
+                    &codex_compaction::user_message_item(&text),
+                    messages,
+                    pending_tool_calls,
+                    pending_media,
+                    pending_reasoning,
+                    last_assistant_index,
+                    tool_context,
+                )?;
+            }
         }
         // An `additional_tools` carrier declares tools for this request; its
         // nested tools are lifted via `build_codex_tool_context_from_request`
@@ -2223,7 +2262,10 @@ fn chat_user_content_to_responses_parts(message: &Value) -> Vec<Value> {
 /// chat assistant `tool_calls[]` 条目 → Responses `function_call` input item。
 /// `call_id` 取 tool_call.id（Responses 侧必填），缺失时按序合成 `call_<n>`。
 fn chat_tool_call_to_responses_function_call(tool_call: &Value, fallback_index: usize) -> Value {
-    let function = tool_call.get("function").cloned().unwrap_or_else(|| json!({}));
+    let function = tool_call
+        .get("function")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let call_id = tool_call
         .get("id")
         .and_then(Value::as_str)
@@ -2254,8 +2296,10 @@ fn chat_tool_content_to_string(message: &Value) -> String {
             })
             .collect::<Vec<&str>>()
             .join(""),
-        Some(Value::Object(_)) => serde_json::to_string(message.get("content").unwrap_or(&Value::Null))
-            .unwrap_or_default(),
+        Some(Value::Object(_)) => {
+            serde_json::to_string(message.get("content").unwrap_or(&Value::Null))
+                .unwrap_or_default()
+        }
         _ => String::new(),
     }
 }
@@ -2280,7 +2324,10 @@ pub fn chat_completions_to_responses(body: Value) -> Result<Value, ProxyError> {
     let mut input: Vec<Value> = Vec::new();
     if let Some(messages) = body.get("messages").and_then(Value::as_array) {
         for message in messages {
-            let role = message.get("role").and_then(Value::as_str).unwrap_or("user");
+            let role = message
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("user");
             match role {
                 "system" | "developer" => {
                     if let Some(text) = chat_message_text(message) {
@@ -2468,10 +2515,7 @@ pub(crate) fn responses_usage_to_chat_usage(usage: Option<&Value>) -> Value {
     {
         result["prompt_tokens_details"] = json!({ "cached_tokens": cached });
     }
-    if let Some(details) = usage
-        .get("output_tokens_details")
-        .filter(|v| v.is_object())
-    {
+    if let Some(details) = usage.get("output_tokens_details").filter(|v| v.is_object()) {
         result["completion_tokens_details"] = details.clone();
     }
 
@@ -2631,14 +2675,22 @@ pub fn responses_error_to_chat_error(body: Option<&Value>) -> Value {
         .get("message")
         .and_then(Value::as_str)
         .map(ToString::to_string)
-        .or_else(|| source.get("detail").and_then(Value::as_str).map(ToString::to_string))
+        .or_else(|| {
+            source
+                .get("detail")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
         .unwrap_or_else(|| "Upstream responses error".to_string());
     let error_type = source
         .get("type")
         .and_then(Value::as_str)
         .map(ToString::to_string)
         .unwrap_or_else(|| "upstream_error".to_string());
-    let code = source.get("code").cloned().unwrap_or(serde_json::Value::Null);
+    let code = source
+        .get("code")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     json!({
         "error": { "message": message, "type": error_type, "code": code }
@@ -6093,7 +6145,10 @@ mod tests {
         let responses = chat_completions_to_responses(original).expect("forward");
         let back = responses_to_chat_completions(responses).expect("backward roundtrip");
 
-        assert_eq!(back["messages"][0], json!({"role": "system", "content": "sys"}));
+        assert_eq!(
+            back["messages"][0],
+            json!({"role": "system", "content": "sys"})
+        );
         assert_eq!(back["messages"][1]["content"], json!("hello"));
         assert_eq!(back["messages"][2]["content"], json!("hi there"));
         assert_eq!(back["messages"][3]["content"], json!("and now?"));
@@ -6141,7 +6196,10 @@ mod tests {
         assert_eq!(result["usage"]["prompt_tokens"], json!(7));
         assert_eq!(result["usage"]["completion_tokens"], json!(11));
         assert_eq!(result["usage"]["total_tokens"], json!(18));
-        assert_eq!(result["usage"]["prompt_tokens_details"]["cached_tokens"], json!(3));
+        assert_eq!(
+            result["usage"]["prompt_tokens_details"]["cached_tokens"],
+            json!(3)
+        );
         assert_eq!(
             result["usage"]["completion_tokens_details"]["reasoning_tokens"],
             json!(5)
@@ -6219,5 +6277,56 @@ mod tests {
 
         let empty = responses_error_to_chat_error(None);
         assert_eq!(empty["error"]["type"], json!("upstream_error"));
+    }
+
+    #[test]
+    fn compaction_request_becomes_tool_free_summary_turn() {
+        let own_summary = codex_compaction::encode_compaction_summary("earlier progress");
+        let body = json!({
+            "model": "kimi-k3",
+            "stream": true,
+            "input": [
+                { "type": "compaction", "id": "cmp_1", "encrypted_content": own_summary },
+                { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "fix bug" }] },
+                { "type": "function_call", "call_id": "call_1", "name": "shell", "arguments": "{}" },
+                { "type": "function_call_output", "call_id": "call_1", "output": "ok" },
+                { "type": "compaction_trigger" }
+            ],
+            "tools": [{ "type": "function", "name": "shell", "parameters": { "type": "object" } }],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true
+        });
+        let result = responses_to_chat_completions(body).unwrap();
+        assert!(result.get("tools").is_none());
+        assert!(result.get("tool_choice").is_none());
+        assert!(result.get("parallel_tool_calls").is_none());
+
+        let messages = result["messages"].as_array().unwrap();
+        let first = serde_json::to_string(&messages[0]["content"]).unwrap();
+        assert!(first.contains("earlier progress"));
+        assert!(first.contains("Another language model started to solve this problem"));
+        let last = messages.last().unwrap();
+        assert_eq!(last["role"], "user");
+        assert!(serde_json::to_string(&last["content"])
+            .unwrap()
+            .contains("CONTEXT CHECKPOINT COMPACTION"));
+        // 工具调用历史照常保留（与 Codex 本地压缩请求同形）。
+        assert!(messages.iter().any(|message| message["role"] == "tool"));
+    }
+
+    #[test]
+    fn foreign_compaction_blob_becomes_readable_note_instead_of_vanishing() {
+        let body = json!({
+            "model": "kimi-k3",
+            "input": [
+                { "type": "compaction", "encrypted_content": "gAAAAB-openai-blob" },
+                { "type": "context_compaction" },
+                { "type": "message", "role": "user", "content": "continue" }
+            ]
+        });
+        let result = responses_to_chat_completions(body).unwrap();
+        let rendered = serde_json::to_string(&result["messages"]).unwrap();
+        assert!(rendered.contains(codex_compaction::OPAQUE_COMPACTION_NOTE));
+        assert!(!rendered.contains("gAAAAB-openai-blob"));
     }
 }

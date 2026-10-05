@@ -278,11 +278,9 @@ mod tests {
 
     #[test]
     fn invalid_server_name_is_rejected() {
-        let err = unified_spec_to_dsh_config(
-            "bad name!",
-            &json!({"type": "stdio", "command": "x"}),
-        )
-        .expect_err("spaces and '!' are outside the serverName contract");
+        let err =
+            unified_spec_to_dsh_config("bad name!", &json!({"type": "stdio", "command": "x"}))
+                .expect_err("spaces and '!' are outside the serverName contract");
         assert!(err.to_string().contains("serverName"));
     }
 
@@ -305,9 +303,7 @@ mod tests {
 
     #[test]
     fn dsh_config_with_unknown_transport_is_error() {
-        assert!(
-            dsh_config_to_unified_spec(&json!({"transport": "websocket"})).is_err()
-        );
+        assert!(dsh_config_to_unified_spec(&json!({"transport": "websocket"})).is_err());
     }
 
     #[test]
@@ -315,11 +311,8 @@ mod tests {
     fn import_marks_servers_enabled_for_dsh() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = TestEnvGuard::set(temp.path());
-        dsh_mcp_config::upsert_server(
-            "on",
-            &json!({"transport": "stdio", "command": "a"}),
-        )
-        .expect("seed on");
+        dsh_mcp_config::upsert_server("on", &json!({"transport": "stdio", "command": "a"}))
+            .expect("seed on");
 
         let mut config = MultiAppConfig::default();
         let changed = import_from_dsh(&mut config).expect("import");

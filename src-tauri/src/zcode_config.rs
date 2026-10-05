@@ -181,8 +181,7 @@ mod tests {
 
         set_mcp_server("echo", json!({"command": "npx"})).expect("set must succeed");
 
-        let config =
-            read_cli_config_from_path(&get_zcode_cli_config_path()).expect("reload");
+        let config = read_cli_config_from_path(&get_zcode_cli_config_path()).expect("reload");
         assert_eq!(config["mcp"]["servers"]["echo"]["command"], "npx");
     }
 
@@ -202,8 +201,7 @@ mod tests {
 
         set_mcp_server("echo", json!({"command": "npx"})).expect("set must succeed");
 
-        let config =
-            read_cli_config_from_path(&get_zcode_cli_config_path()).expect("reload");
+        let config = read_cli_config_from_path(&get_zcode_cli_config_path()).expect("reload");
         assert_eq!(
             config["mcp"]["servers"]["echo"]["command"], "npx",
             "server must actually be written"

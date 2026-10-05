@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { failoverApi } from "@/lib/api/failover";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { proxyKeys } from "@/lib/query/proxy";
@@ -131,6 +131,7 @@ export function useAvailableProvidersForFailover(appType: string) {
  */
 export function useAddToFailoverQueue() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   return useMutation({
     mutationFn: ({
@@ -151,6 +152,13 @@ export function useAddToFailoverQueue() {
         queryKey: ["providers", variables.appType],
       });
     },
+    onError: (error: Error) => {
+      toast.error(
+        t("failover.queueAddFailed", {
+          detail: extractErrorMessage(error) || t("common.unknown"),
+        }),
+      );
+    },
   });
 }
 
@@ -159,6 +167,7 @@ export function useAddToFailoverQueue() {
  */
 export function useRemoveFromFailoverQueue() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   return useMutation({
     mutationFn: ({
@@ -190,6 +199,13 @@ export function useRemoveFromFailoverQueue() {
           variables.appType,
         ],
       });
+    },
+    onError: (error: Error) => {
+      toast.error(
+        t("failover.queueRemoveFailed", {
+          detail: extractErrorMessage(error) || t("common.unknown"),
+        }),
+      );
     },
   });
 }

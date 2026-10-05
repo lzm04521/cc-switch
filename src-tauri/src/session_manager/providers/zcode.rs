@@ -185,6 +185,11 @@ pub fn load_messages_sqlite(source: &str) -> Result<Vec<SessionMessage>, String>
             role,
             content,
             ts: Some(ts),
+            id: None,
+            turn_id: None,
+            injected: false,
+            blocks: Vec::new(),
+            meta: None,
         });
     }
 

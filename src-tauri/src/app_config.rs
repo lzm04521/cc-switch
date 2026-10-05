@@ -623,9 +623,9 @@ impl CommonConfigSnippets {
             AppType::Mcode => {}
             AppType::Zcode => self.zcode = snippet,
             // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
-            AppType::Dsh => {},
+            AppType::Dsh => {}
             // workbuddy 的 provider 由 workbuddy 应用内自管，不使用通用配置片段
-            AppType::Workbuddy => {},
+            AppType::Workbuddy => {}
         }
     }
 }

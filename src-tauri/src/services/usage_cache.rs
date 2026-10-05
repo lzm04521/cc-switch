@@ -104,29 +104,19 @@ impl UsageCache {
         provider_id: &str,
         f: impl FnOnce(&UsageResult) -> R,
     ) -> Option<R> {
-        self.script
-            .read()
-            .ok()
-            .and_then(|r| {
-                r.get(&(app_type.clone(), provider_id.to_string()))
-                    .map(|entry| f(&entry.result))
-            })
+        self.script.read().ok().and_then(|r| {
+            r.get(&(app_type.clone(), provider_id.to_string()))
+                .map(|entry| f(&entry.result))
+        })
     }
 
     /// 单键读取脚本缓存的上次查询时刻（毫秒 epoch）；无缓存返回 None。
     /// 后台用量刷新任务判断到期用，避免每轮做全量快照深拷贝。
-    pub fn script_queried_at(
-        &self,
-        app_type: &AppType,
-        provider_id: &str,
-    ) -> Option<i64> {
-        self.script
-            .read()
-            .ok()
-            .and_then(|r| {
-                r.get(&(app_type.clone(), provider_id.to_string()))
-                    .map(|entry| entry.queried_at)
-            })
+    pub fn script_queried_at(&self, app_type: &AppType, provider_id: &str) -> Option<i64> {
+        self.script.read().ok().and_then(|r| {
+            r.get(&(app_type.clone(), provider_id.to_string()))
+                .map(|entry| entry.queried_at)
+        })
     }
 
     /// 全量脚本缓存快照（悬浮球面板一次取走所有 provider 的结果与查询时刻）。
@@ -198,6 +188,7 @@ mod tests {
             success: true,
             tiers: vec![],
             extra_usage: None,
+            reset_credits: None,
             error: None,
             queried_at: Some(0),
         }

@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -536,10 +536,7 @@ fn compact_sse(raw: &str) -> String {
     let mut run: Option<(usize, String, usize, usize)> = None; // (index, delta_type, events, chars)
     let mut out = String::with_capacity(raw.len() / 16);
 
-    fn flush_run(
-        run: &mut Option<(usize, String, usize, usize)>,
-        out: &mut String,
-    ) {
+    fn flush_run(run: &mut Option<(usize, String, usize, usize)>, out: &mut String) {
         if let Some((index, delta_type, events, chars)) = run.take() {
             out.push_str(&format!(
                 "data: {{\"type\":\"_delta_summary\",\"index\":{index},\"delta_type\":\"{delta_type}\",\"events\":{events},\"omitted_chars\":{chars}}}\n"
@@ -560,7 +557,8 @@ fn compact_sse(raw: &str) -> String {
             .map(|p| p.strip_prefix(' ').unwrap_or(p));
         if let Some(payload) = payload {
             if let Ok(mut event) = serde_json::from_str::<serde_json::Value>(payload) {
-                let is_delta = event.get("type").and_then(serde_json::Value::as_str) == Some("content_block_delta");
+                let is_delta = event.get("type").and_then(serde_json::Value::as_str)
+                    == Some("content_block_delta");
                 if is_delta {
                     let index = event
                         .get("index")
@@ -579,9 +577,7 @@ fn compact_sse(raw: &str) -> String {
                             delta
                                 .iter()
                                 .filter(|(k, _)| TEXT_OMIT_KEYS.contains(&k.as_str()))
-                                .map(|(_, v)| {
-                                    v.as_str().map(|s| s.chars().count()).unwrap_or(0)
-                                })
+                                .map(|(_, v)| v.as_str().map(|s| s.chars().count()).unwrap_or(0))
                                 .sum()
                         })
                         .unwrap_or(0);
@@ -601,8 +597,7 @@ fn compact_sse(raw: &str) -> String {
                 }
                 flush_run(&mut run, &mut out);
                 compact_value(&mut event);
-                let compact =
-                    serde_json::to_string(&event).unwrap_or_else(|_| payload.to_string());
+                let compact = serde_json::to_string(&event).unwrap_or_else(|_| payload.to_string());
                 out.push_str("data: ");
                 out.push_str(&compact);
                 out.push('\n');
@@ -647,10 +642,7 @@ mod tests {
         let sanitized = sanitize_headers(&map);
         assert_eq!(sanitized.get("authorization").unwrap(), "***");
         assert_eq!(sanitized.get("x-api-key").unwrap(), "***");
-        assert_eq!(
-            sanitized.get("content-type").unwrap(),
-            "application/json"
-        );
+        assert_eq!(sanitized.get("content-type").unwrap(), "application/json");
         assert_eq!(sanitized.get("anthropic-version").unwrap(), "2023-06-01");
     }
 
@@ -705,7 +697,11 @@ mod tests {
             true,
         );
         capture.record_forward_response_body(b"data: {\"type\":\"message_start\"}\n\n");
-        capture.record_final(None, b"", "passthrough: body identical to last forward response");
+        capture.record_final(
+            None,
+            b"",
+            "passthrough: body identical to last forward response",
+        );
 
         let inner = capture.inner.lock().unwrap();
         let received = inner.received.as_ref().unwrap();
@@ -748,10 +744,8 @@ mod tests {
 
     #[test]
     fn retention_removes_oldest_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "cc-switch-api-log-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("cc-switch-api-log-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         for i in 0..5 {
             std::fs::write(dir.join(format!("20260101_00000{i}.json")), "{}").unwrap();
