@@ -210,7 +210,8 @@ describe("SettingsPage integration", () => {
 
     await screen.findByPlaceholderText("settings.browsePlaceholderZcode");
     // fork：WorkBuddy home 固定 ~/.workbuddy，无输入框，只提示自动识别
-    expect(screen.getByText("WorkBuddy")).toBeInTheDocument();
+    // （块标题与图标 <title> 都含 "WorkBuddy"，用 getAllByText）
+    expect(screen.getAllByText("WorkBuddy").length).toBeGreaterThan(0);
     expect(
       screen.getByText("settings.workbuddyConfigDirHint"),
     ).toBeInTheDocument();

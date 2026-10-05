@@ -20,7 +20,7 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   workbuddy: "WorkBuddy",
 };
 
-const APP_ICON_NAME: Record<AppId, string> = {
+export const APP_ICON_NAME: Record<AppId, string> = {
   claude: "claude",
   "claude-desktop": "claude",
   codex: "openai",
