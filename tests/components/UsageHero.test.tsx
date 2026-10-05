@@ -76,7 +76,7 @@ describe("UsageHero output speed card (fork)", () => {
     });
     renderHero({ appType: "claude" });
 
-    expect(within(speedCard()).getByText("49")).toBeInTheDocument();
+    expect(within(speedCard()).getByText("49 t/s")).toBeInTheDocument();
   });
 
   it("output speed card shows dash when null", () => {

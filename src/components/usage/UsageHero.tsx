@@ -205,6 +205,10 @@ export function UsageHero({
   const hitPercent = Math.max(0, Math.min(100, hitRate * 100));
   const hitPercentLabel = hitPercent.toFixed(hitPercent >= 99.95 ? 0 : 1);
   const placeholder = isLoading ? "…" : undefined;
+  // 第 5 卡数值带 t/s 单位（与缓存命中率卡的 % 后缀同风格）；无值时不带单位
+  const outputSpeed = formatTokensPerSecond(
+    summary?.avgTokensPerSecond ?? null,
+  );
 
   const cacheWriteHelp =
     cacheWriteState === "na"
@@ -262,8 +266,7 @@ export function UsageHero({
               }}
               value={
                 placeholder ??
-                formatTokensPerSecond(summary?.avgTokensPerSecond ?? null) ??
-                "--"
+                (outputSpeed == null ? "--" : `${outputSpeed} t/s`)
               }
             />
           </div>
