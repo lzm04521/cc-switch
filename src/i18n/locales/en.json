@@ -965,6 +965,7 @@
     "browsePlaceholderDsh": "e.g., /home/<your-username>/.dsh",
     "forkGithub": "Fork GitHub",
     "zcodeConfigDir": "ZCode Configuration Directory",
+    "workbuddyConfigDirHint": "Auto-detected by the app (~/.workbuddy); nothing to configure",
     "browsePlaceholderZcode": "e.g., C:\\Users\\<your-username>\\.zcode"
   },
   "apps": {

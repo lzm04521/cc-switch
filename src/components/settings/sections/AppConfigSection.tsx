@@ -183,6 +183,24 @@ export function AppConfigSection({
           </SettingsCard>
         </SettingsBlock>
       ))}
+      {/* fork：WorkBuddy home 固定 ~/.workbuddy（后端 workbuddy_config.rs 解析），
+          无目录可配，只提示自动识别 */}
+      <SettingsBlock
+        title={
+          <span className="flex items-center gap-2">
+            <AppGlyph app="workbuddy" size={16} badgeClassName="bg-app" />
+            {APP_DISPLAY_NAME.workbuddy}
+          </span>
+        }
+      >
+        <SettingsCard>
+          <SettingsRow label={t("settings.appConfig.configDir")}>
+            <span className="text-xs text-fg-3">
+              {t("settings.workbuddyConfigDirHint")}
+            </span>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsBlock>
     </>
   );
 }

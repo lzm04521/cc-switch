@@ -965,6 +965,7 @@
     "browsePlaceholderDsh": "例如：/home/<你的用户名>/.dsh",
     "forkGithub": "Fork GitHub",
     "zcodeConfigDir": "ZCode 配置目录",
+    "workbuddyConfigDirHint": "路径由应用自动识别（~/.workbuddy），无需配置",
     "browsePlaceholderZcode": "例如 C:\\Users\\<用户名>\\.zcode"
   },
   "apps": {

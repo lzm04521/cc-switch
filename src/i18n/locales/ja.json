@@ -965,6 +965,7 @@
     "browsePlaceholderDsh": "例: /home/<your-username>/.dsh",
     "forkGithub": "Fork GitHub",
     "zcodeConfigDir": "ZCode 設定ディレクトリ",
+    "workbuddyConfigDirHint": "パスはアプリが自動識別します（~/.workbuddy）。設定不要です",
     "browsePlaceholderZcode": "例: C:\\Users\\<ユーザー名>\\.zcode"
   },
   "apps": {

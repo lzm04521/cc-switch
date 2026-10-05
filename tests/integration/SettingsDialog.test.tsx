@@ -205,6 +205,17 @@ describe("SettingsPage integration", () => {
     await waitFor(() => expect(claudeInput.value).toBe("/home/mock/.claude"));
   });
 
+  it("shows WorkBuddy with an auto-detected path hint instead of inputs", async () => {
+    renderDialog({ section: "appConfig" });
+
+    await screen.findByPlaceholderText("settings.browsePlaceholderZcode");
+    // fork：WorkBuddy home 固定 ~/.workbuddy，无输入框，只提示自动识别
+    expect(screen.getByText("WorkBuddy")).toBeInTheDocument();
+    expect(
+      screen.getByText("settings.workbuddyConfigDirHint"),
+    ).toBeInTheDocument();
+  });
+
   it("notifies when export fails", async () => {
     renderDialog();
 
