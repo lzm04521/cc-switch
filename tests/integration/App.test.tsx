@@ -15,9 +15,11 @@ import {
   setCurrentProviderId,
   setLiveProviderIds,
   setProviders,
+  setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
 import { server } from "../msw/server";
+import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -763,6 +765,47 @@ describe("App integration with MSW", () => {
         })[0],
       ).toHaveValue("agent notes"),
     );
+  });
+
+  it("keeps the apps page reachable from provider-self-managed apps", async () => {
+    // zcode 默认不进侧栏，先启用它和 dsh，复现「从 zcode/dsh 侧栏进应用管理页被打回」的回归
+    setSettings({
+      sidebarApps: { ...DEFAULT_VISIBLE_APPS, zcode: true, dsh: true },
+    });
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
+    );
+
+    // zcode 的 providers 页只有自管提示
+    fireEvent.click(sidebarApp("ZCode"));
+    expect(
+      await screen.findByText("zcode.providerManagedExternally"),
+    ).toBeInTheDocument();
+
+    // 侧栏「应用」入口：应用管理页是 v4 全局页，不随 activeApp 打回 providers
+    // （checkUpdates 按钮文案随工具检测状态变化，用页头的「从未检查」占位做稳定断言）
+    fireEvent.click(sidebarApp("nav.apps"));
+    expect(
+      await screen.findByText("appsPage.neverChecked"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("zcode.providerManagedExternally"),
+    ).not.toBeInTheDocument();
+
+    // dsh 分支（打回目标原本是 skills）同样放行
+    fireEvent.click(sidebarApp("Deepseek"));
+    expect(
+      await screen.findByText("dsh.providerManagedExternally"),
+    ).toBeInTheDocument();
+    fireEvent.click(sidebarApp("nav.apps"));
+    expect(
+      await screen.findByText("appsPage.neverChecked"),
+    ).toBeInTheDocument();
   });
 
   it("opens the old skillsDiscovery view as the Discover segment", async () => {

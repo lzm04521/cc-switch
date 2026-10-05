@@ -237,7 +237,9 @@ function App() {
   }, [activeApp, currentView]);
 
   // zcode / dsh / workbuddy 的 provider 由应用内自管：切换时把视图重定向到
-  // 允许的功能页（providers 为默认页，仅展示提示；dsh/workbuddy 以 skills 为主入口）
+  // 允许的功能页（providers 为默认页，仅展示提示；dsh/workbuddy 以 skills 为主入口）。
+  // apps / usage / auth 是 v4 全局页（应用管理、用量统计、授权中心），与当前应用
+  // 无关且侧栏入口对所有应用显示，任何应用下都允许停留
   useEffect(() => {
     if (activeApp === "dsh" || activeApp === "workbuddy") {
       const allowed: View[] = [
@@ -246,6 +248,9 @@ function App() {
         "skillsDiscovery",
         "mcp",
         "settings",
+        "apps",
+        "usage",
+        "auth",
       ];
       if (!allowed.includes(currentView)) setCurrentView("skills");
       return;
@@ -259,6 +264,9 @@ function App() {
         "mcp",
         "sessions",
         "settings",
+        "apps",
+        "usage",
+        "auth",
       ];
       if (!allowed.includes(currentView)) setCurrentView("providers");
     }
