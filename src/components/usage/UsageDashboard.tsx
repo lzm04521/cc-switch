@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import {
   Check,
@@ -29,6 +29,7 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   KNOWN_APP_TYPES,
+  type AppType,
   type AppTypeFilter,
   type UsageRangeSelection,
 } from "@/types/usage";
@@ -40,6 +41,9 @@ import {
 } from "@/lib/query/usage";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import { usageApi } from "@/lib/api/usage";
+import { proxyApi } from "@/lib/api/proxy";
+import { useSettingsQuery } from "@/lib/query/queries";
+import { resolveSidebarApps } from "@/config/appConfig";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { cn } from "@/lib/utils";
 import { UsageHero } from "./UsageHero";
@@ -106,6 +110,35 @@ function useMinuteTicker() {
     return () => window.clearInterval(timer);
   }, []);
   return now;
+}
+
+/**
+ * 统计页应用筛选数据源（fork）：侧栏显示开 && 模式 ∈ {route, stack} 才给 chip。
+ * 模式查询 pending 时保守不显示，缓存到达后自然出现；「全部」的汇总口径不受此过滤影响。
+ * pendingApps 是模式查询还没回来的应用：选中态自愈要避开它们（pending ≠ direct）。
+ */
+function useStatsAppTypes(): {
+  appTypes: AppType[];
+  pendingApps: AppType[];
+} {
+  const { data: settings } = useSettingsQuery();
+  const sidebar = resolveSidebarApps(settings);
+  const modeQueries = useQueries({
+    queries: KNOWN_APP_TYPES.map((app) => ({
+      queryKey: ["providers", app, "mode"] as const,
+      queryFn: () => proxyApi.getAppMode(app),
+      enabled: sidebar[app],
+    })),
+  });
+  const appTypes = KNOWN_APP_TYPES.filter((app, i) => {
+    if (!sidebar[app]) return false;
+    const mode = modeQueries[i]?.data?.mode;
+    return mode === "route" || mode === "stack";
+  });
+  const pendingApps = KNOWN_APP_TYPES.filter(
+    (app, i) => sidebar[app] && !modeQueries[i]?.data,
+  );
+  return { appTypes, pendingApps };
 }
 
 const menuContentClass =
@@ -188,6 +221,7 @@ export function UsageDashboard({
   );
   const { data: lastScanAt } = useSessionUsageLastSync();
   const lastSyncAt = Math.max(lastManualSyncAt ?? 0, lastScanAt ?? 0) || null;
+  const { appTypes: statsAppTypes, pendingApps } = useStatsAppTypes();
   const [containerRef, measuredWidth] = useContainerWidth<HTMLDivElement>();
   const now = useMinuteTicker();
 
@@ -221,6 +255,14 @@ export function UsageDashboard({
       setModel(undefined);
     }
   };
+
+  // 选中应用被侧栏 / 模式过滤淘汰（如切回直连）时回到「全部」，避免幽灵筛选；
+  // 该应用的模式查询还没回来时先不动（pending ≠ direct），免得把合法选中闪掉
+  useEffect(() => {
+    if (appType === "all" || statsAppTypes.includes(appType)) return;
+    if (pendingApps.includes(appType)) return;
+    changeAppType("all");
+  }, [statsAppTypes, pendingApps, appType]);
 
   // 后端写入新日志时 emit `usage-log-recorded`，立刻 invalidate 所有 usage 查询
   useUsageEventBridge();
@@ -499,8 +541,8 @@ export function UsageDashboard({
         >
           {t("usage.appFilter.all")}
         </button>
-        {/* 应用只露图标，名字放悬停提示和 aria-label */}
-        {KNOWN_APP_TYPES.map((app) => (
+        {/* 应用只露图标，名字放悬停提示和 aria-label；来源按侧栏+模式过滤（fork） */}
+        {statsAppTypes.map((app) => (
           <HoverTip key={app} content={APP_DISPLAY_NAME[app]}>
             <button
               type="button"

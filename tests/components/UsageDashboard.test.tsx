@@ -3,10 +3,44 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import {
   UsageDashboard,
   resetUsageSyncClockForTests,
 } from "@/components/usage/UsageDashboard";
+import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import { KNOWN_APP_TYPES } from "@/types/usage";
+import { server } from "../msw/server";
+
+const TAURI_ENDPOINT = "http://tauri.local";
+
+/** 按应用返回模式（attached 随 mode 推导）；未覆盖的应用 direct。 */
+function mockAppModes(
+  modes: Record<string, string>,
+  pending: string[] = [],
+) {
+  server.use(
+    http.post(`${TAURI_ENDPOINT}/get_app_mode`, async ({ request }) => {
+      const { appType } = (await request.json()) as { appType: string };
+      if (pending.includes(appType)) return new Promise<never>(() => {});
+      const mode = modes[appType] ?? "direct";
+      return HttpResponse.json({
+        mode,
+        attached: mode !== "direct",
+        routeProviderId: null,
+        directProviderId: null,
+      });
+    }),
+  );
+}
+
+function mockSettings(settings: Record<string, unknown>) {
+  server.use(
+    http.post(`${TAURI_ENDPOINT}/get_settings`, () =>
+      HttpResponse.json(settings),
+    ),
+  );
+}
 
 const useProviderStatsMock = vi.hoisted(() => vi.fn());
 const useModelStatsMock = vi.hoisted(() => vi.fn());
@@ -150,6 +184,10 @@ const renderDashboard = (props: ComponentProps<typeof UsageDashboard> = {}) => {
 describe("UsageDashboard", () => {
   beforeEach(() => {
     resetUsageSyncClockForTests();
+    // 应用 chips 默认全可见（全 route）；新过滤用例按需覆盖
+    mockAppModes(
+      Object.fromEntries(KNOWN_APP_TYPES.map((app) => [app, "route"])),
+    );
     useProviderStatsMock.mockReset();
     useModelStatsMock.mockReset();
     useSummaryByAppMock.mockReset();
@@ -224,7 +262,8 @@ describe("UsageDashboard", () => {
     const user = userEvent.setup();
     renderDashboard();
 
-    await user.click(screen.getByRole("button", { name: "Pi" }));
+    // chips 需等模式查询回来才渲染
+    await user.click(await screen.findByRole("button", { name: "Pi" }));
 
     await waitFor(() =>
       expect(useProviderStatsMock).toHaveBeenLastCalledWith(
@@ -247,11 +286,12 @@ describe("UsageDashboard", () => {
     ).toBeInTheDocument();
   });
 
-  it("starts with the app filter passed in from an app page", () => {
+  it("starts with the app filter passed in from an app page", async () => {
     renderDashboard({ initialAppType: "codex" });
 
+    // 模式查询解析前不重置合法选中（pending ≠ direct），解析后 codex chip 按下
     expect(
-      screen.getByRole("button", { name: /Codex/, pressed: true }),
+      await screen.findByRole("button", { name: /Codex/, pressed: true }),
     ).toBeInTheDocument();
     expect(usageHeroMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ appType: "codex" }),
@@ -513,5 +553,108 @@ describe("UsageDashboard", () => {
     ).toHaveAttribute("aria-selected", "true");
     // 空库里没有可看的概览，不画全是 0 的卡
     expect(screen.queryByTestId("usage-hero")).not.toBeInTheDocument();
+  });
+});
+
+describe("UsageDashboard app chips filter (sidebar + mode)", () => {
+  beforeEach(() => {
+    resetUsageSyncClockForTests();
+    mockAppModes(
+      Object.fromEntries(KNOWN_APP_TYPES.map((app) => [app, "route"])),
+    );
+  });
+
+  it("app chips hidden for apps not in sidebar or in direct mode", async () => {
+    // claude=route、gemini=stack，其余 direct（mockAppModes 兜底）
+    mockAppModes({ claude: "route", gemini: "stack" });
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Claude Code" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Gemini CLI" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Codex" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pi" })).not.toBeInTheDocument();
+    // 「全部」恒显
+    expect(
+      screen.getByRole("button", { name: "usage.appFilter.all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("sidebar-off app chip hidden even when routed", async () => {
+    mockAppModes({ claude: "route", gemini: "route" });
+    mockSettings({
+      visibleApps: { ...DEFAULT_VISIBLE_APPS },
+      sidebarApps: { ...DEFAULT_VISIBLE_APPS, gemini: false },
+    });
+    renderDashboard();
+
+    // claude chip 出现说明模式查询已解析；gemini 虽在路由也被侧栏开关过滤
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Claude Code" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Gemini CLI" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("selected appType resets to all when filtered out", async () => {
+    const modes = new Map<string, string>([["claude", "route"]]);
+    server.use(
+      http.post(`${TAURI_ENDPOINT}/get_app_mode`, async ({ request }) => {
+        const { appType } = (await request.json()) as { appType: string };
+        const mode = modes.get(appType) ?? "direct";
+        return HttpResponse.json({
+          mode,
+          attached: mode !== "direct",
+          routeProviderId: null,
+          directProviderId: null,
+        });
+      }),
+    );
+    const view = renderDashboard({ initialAppType: "claude" });
+    expect(
+      await screen.findByRole("button", { name: "Claude Code" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // claude 切回直连后重挂载（新 QueryClient 重新查询）：选中项被过滤，自动回「全部」
+    modes.set("claude", "direct");
+    view.unmount();
+    renderDashboard({ initialAppType: "claude" });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "usage.appFilter.all" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(
+      screen.queryByRole("button", { name: "Claude Code" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mode query pending keeps chip hidden without breaking render", async () => {
+    const user = userEvent.setup();
+    mockAppModes({}, ["gemini"]);
+    renderDashboard();
+
+    expect(
+      screen.getByRole("button", { name: "usage.appFilter.all" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Gemini CLI" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "usage.appFilter.all" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "usage.appFilter.all" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 });

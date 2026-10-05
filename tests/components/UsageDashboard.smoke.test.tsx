@@ -47,6 +47,13 @@ vi.mock("@/lib/api/proxy", () => ({
   proxyApi: {
     getPricingModelSource: vi.fn().mockResolvedValue("response"),
     setPricingModelSource: vi.fn().mockResolvedValue(undefined),
+    // 应用 chips 的模式查询（侧栏+路由过滤）：统一按 route 返回，chips 全渲染
+    getAppMode: vi.fn().mockResolvedValue({
+      mode: "route",
+      attached: true,
+      routeProviderId: null,
+      directProviderId: null,
+    }),
   },
 }));
 
