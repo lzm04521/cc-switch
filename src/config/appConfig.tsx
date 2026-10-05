@@ -48,6 +48,20 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
 };
 
+/**
+ * 侧栏显示集合（fork）：逐 app 取 `sidebarApps ?? visibleApps ?? DEFAULT_VISIBLE_APPS`。
+ * 展开链天然实现逐键兜底；sidebarApps 为新增字段，旧库无此字段时整体回落 visibleApps。
+ */
+export function resolveSidebarApps(
+  settings?: { visibleApps?: VisibleApps; sidebarApps?: VisibleApps } | null,
+): VisibleApps {
+  return {
+    ...DEFAULT_VISIBLE_APPS,
+    ...settings?.visibleApps,
+    ...settings?.sidebarApps,
+  };
+}
+
 /** App IDs shown in Skills panels. */
 export const SKILLS_APP_IDS: AppId[] = [
   "claude",
