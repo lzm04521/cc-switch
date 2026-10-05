@@ -43,7 +43,7 @@ import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import { usageApi } from "@/lib/api/usage";
 import { proxyApi } from "@/lib/api/proxy";
 import { useSettingsQuery } from "@/lib/query/queries";
-import { resolveSidebarApps } from "@/config/appConfig";
+import { isProxyAppId, resolveSidebarApps } from "@/config/appConfig";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { cn } from "@/lib/utils";
 import { UsageHero } from "./UsageHero";
@@ -116,6 +116,8 @@ function useMinuteTicker() {
  * 统计页应用筛选数据源（fork）：侧栏显示开 && 模式 ∈ {route, stack} 才给 chip。
  * 模式查询 pending 时保守不显示，缓存到达后自然出现；「全部」的汇总口径不受此过滤影响。
  * pendingApps 是模式查询还没回来的应用：选中态自愈要避开它们（pending ≠ direct）。
+ * 非代理应用（opencode/pi/mcode…）的 get_app_mode 会直接报错，视作 direct：
+ * 不查询（省 IPC 噪音）、不进 pendingApps（报错 ≠ 未决，选中它们时允许自愈回「全部」）。
  */
 function useStatsAppTypes(): {
   appTypes: AppType[];
@@ -123,19 +125,20 @@ function useStatsAppTypes(): {
 } {
   const { data: settings } = useSettingsQuery();
   const sidebar = resolveSidebarApps(settings);
+  const candidates = KNOWN_APP_TYPES.filter((app) => isProxyAppId(app));
   const modeQueries = useQueries({
-    queries: KNOWN_APP_TYPES.map((app) => ({
+    queries: candidates.map((app) => ({
       queryKey: ["providers", app, "mode"] as const,
       queryFn: () => proxyApi.getAppMode(app),
       enabled: sidebar[app],
     })),
   });
-  const appTypes = KNOWN_APP_TYPES.filter((app, i) => {
+  const appTypes = candidates.filter((app, i) => {
     if (!sidebar[app]) return false;
     const mode = modeQueries[i]?.data?.mode;
     return mode === "route" || mode === "stack";
   });
-  const pendingApps = KNOWN_APP_TYPES.filter(
+  const pendingApps = candidates.filter(
     (app, i) => sidebar[app] && !modeQueries[i]?.data,
   );
   return { appTypes, pendingApps };

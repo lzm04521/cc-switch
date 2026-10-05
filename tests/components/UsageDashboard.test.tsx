@@ -262,27 +262,27 @@ describe("UsageDashboard", () => {
     const user = userEvent.setup();
     renderDashboard();
 
-    // chips 需等模式查询回来才渲染
-    await user.click(await screen.findByRole("button", { name: "Pi" }));
+    // chips 需等模式查询回来才渲染（Pi 等非代理应用没有 chip，用 Codex）
+    await user.click(await screen.findByRole("button", { name: "Codex" }));
 
     await waitFor(() =>
       expect(useProviderStatsMock).toHaveBeenLastCalledWith(
         expect.anything(),
-        { appType: "pi" },
+        { appType: "codex" },
         expect.anything(),
       ),
     );
     expect(useModelStatsMock).toHaveBeenLastCalledWith(
       expect.anything(),
-      { appType: "pi", providerName: undefined },
+      { appType: "codex", providerName: undefined },
       expect.anything(),
     );
     expect(usageHeroMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ appType: "pi" }),
+      expect.objectContaining({ appType: "codex" }),
     );
     // 芯片只有图标，名字由 aria-label 提供
     expect(
-      screen.getByRole("button", { name: "Pi", pressed: true }),
+      screen.getByRole("button", { name: "Codex", pressed: true }),
     ).toBeInTheDocument();
   });
 
@@ -656,5 +656,37 @@ describe("UsageDashboard app chips filter (sidebar + mode)", () => {
     expect(
       screen.getByRole("button", { name: "usage.appFilter.all" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("non-proxy apps never query mode and their hidden selection resets to all", async () => {
+    // 真实后端 get_app_mode 对不支持本地代理的应用直接报错；
+    // 这些应用不该被查询（IPC 噪音），也不该因报错卡在 pending 里留下幽灵筛选
+    const calls: string[] = [];
+    server.use(
+      http.post(`${TAURI_ENDPOINT}/get_app_mode`, async ({ request }) => {
+        const { appType } = (await request.json()) as { appType: string };
+        calls.push(appType);
+        if (appType === "claude" || appType === "codex") {
+          return HttpResponse.json({
+            mode: "route",
+            attached: true,
+            routeProviderId: null,
+            directProviderId: null,
+          });
+        }
+        return new HttpResponse("not supported", { status: 500 });
+      }),
+    );
+    // 应用页「查看此应用的用量」会带着 opencode 进统计页
+    renderDashboard({ initialAppType: "opencode" });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "usage.appFilter.all" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(calls).not.toContain("opencode");
+    expect(calls).not.toContain("pi");
+    expect(calls).not.toContain("mcode");
   });
 });
