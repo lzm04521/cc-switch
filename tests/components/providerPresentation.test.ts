@@ -467,6 +467,37 @@ describe("buildSwitchSections — stack", () => {
   });
 });
 
+describe("buildSwitchSections — session route chip (fork)", () => {
+  const routed = provider("routed", {
+    meta: { route_enabled: true, route_key: "BMAX" },
+  });
+
+  it("keeps the chip out of the direct view while needsRoute stays", () => {
+    const { sections } = build({
+      active: "direct",
+      view: "direct",
+      providers: [relay, routed],
+    });
+    const keys = item(sections, "routed").chips.map((c) => c.key);
+    expect(keys).toContain("needsRoute");
+    expect(keys).not.toContain("sessionRoute");
+  });
+
+  it("shows the route-toned chip on the failover queue card after priority", () => {
+    const { sections } = build({
+      active: "route",
+      view: "route",
+      routeId: "routed",
+      failoverOn: true,
+      queue: ["routed"],
+      providers: [routed, backup],
+    });
+    const chips = item(sections, "routed").chips;
+    expect(chips.map((c) => c.key)).toEqual(["priority", "sessionRoute"]);
+    expect(chips[1]!.tone).toBe("route");
+  });
+});
+
 describe("buildDesktopSections", () => {
   it("colors the current card by whether it uses model mapping", () => {
     const mapped = provider("mapped", { meta: { claudeDesktopMode: "proxy" } });

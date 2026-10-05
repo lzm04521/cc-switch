@@ -192,19 +192,21 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
     const chips: CardChip[] = [];
     if (official(p)) chips.push(chip.official());
     if (providerNeedsRouting(app, p)) chips.push(chip.needsRoute(p));
-    // fork：会话级路由分组 chip（G.<key>），仅 route_enabled 供应商显示
-    if (p.meta?.route_enabled === true) {
-      chips.push({
-        key: "sessionRoute",
-        label: t("provider.sessionRouteKey", {
-          defaultValue: "会话路由：{{prefix}}{{routeKey}}",
-          prefix: input.routePrefix || "G.",
-          routeKey: p.meta?.route_key ?? "",
-        }),
-        tone: "success",
-      });
-    }
     return chips;
+  };
+  // fork：会话级路由分组 chip（G.<key>），只挂路由视图的非 blocked 卡；
+  // 会话路由本身就要走本地代理，直连视图不标（那里的「需要路由」已提示）
+  const sessionRouteChip = (p: Provider): CardChip | null => {
+    if (p.meta?.route_enabled !== true) return null;
+    return {
+      key: "sessionRoute",
+      label: t("provider.sessionRouteKey", {
+        defaultValue: "会话路由：{{prefix}}{{routeKey}}",
+        prefix: input.routePrefix || "G.",
+        routeKey: p.meta?.route_key ?? "",
+      }),
+      tone: "route",
+    };
   };
   const officialOnly = (p: Provider) => (official(p) ? [chip.official()] : []);
   const blocked = (p: Provider, label: string, reason: string) => ({
@@ -296,6 +298,8 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
             if (blockedFromRouting(app, p))
               return blocked(p, t("providerCard.action.routeHere"), noRoute);
             const chips = officialOnly(p);
+            const sessionRoute = sessionRouteChip(p);
+            if (sessionRoute) chips.push(sessionRoute);
             if (p.id === routeId) {
               return {
                 provider: p,
@@ -339,6 +343,15 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
         const p = byId.get(id);
         if (!p) return [];
         const current = id === routing;
+        const queueChips: CardChip[] = [
+          {
+            key: "priority",
+            label: `P${index + 1}`,
+            tone: "outline" as const,
+          },
+        ];
+        const sessionRoute = sessionRouteChip(p);
+        if (sessionRoute) queueChips.push(sessionRoute);
         return [
           {
             provider: p,
@@ -350,13 +363,7 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
                     dot: "route" as const,
                   }
                 : undefined,
-              chips: [
-                {
-                  key: "priority",
-                  label: `P${index + 1}`,
-                  tone: "outline" as const,
-                },
-              ],
+              chips: queueChips,
               showHealth: input.serviceRunning,
               buttons: [
                 {
@@ -391,7 +398,12 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
           return {
             provider: p,
             presentation: {
-              chips: officialOnly(p),
+              chips: (() => {
+                const chips = officialOnly(p);
+                const sessionRoute = sessionRouteChip(p);
+                if (sessionRoute) chips.push(sessionRoute);
+                return chips;
+              })(),
               buttons: [
                 {
                   key: "queueAdd",
@@ -440,7 +452,12 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
           return {
             provider: p,
             presentation: {
-              chips: officialOnly(p),
+              chips: (() => {
+                const chips = officialOnly(p);
+                const sessionRoute = sessionRouteChip(p);
+                if (sessionRoute) chips.push(sessionRoute);
+                return chips;
+              })(),
               buttons: [],
             } satisfies CardPresentation,
           };
