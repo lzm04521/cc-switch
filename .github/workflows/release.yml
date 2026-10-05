@@ -150,11 +150,12 @@ jobs:
           WINDOWS_RELEASE_ARCH: ${{ matrix.arch || 'x86_64' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # 只发布 MSI（和便携版 exe），不打用不上的 NSIS 安装包
+          # fork：x64 保持全量构建（MSI + NSIS exe），Prepare Windows Assets 的 NSIS
+          # 收集块依赖它；上游 v4.0.1 已改 --bundles msi 并删除 NSIS 收集，merge 时勿带入
           if ($env:WINDOWS_RELEASE_ARCH -eq 'arm64') {
             pnpm tauri build --target aarch64-pc-windows-msvc --bundles msi
           } else {
-            pnpm tauri build --bundles msi
+            pnpm tauri build
           }
 
       - name: Build Tauri App (Linux)
