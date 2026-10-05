@@ -951,6 +951,13 @@ describe("AppsPage dual switches (manage + sidebar)", () => {
     expect(
       claude.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
     ).toBeInTheDocument();
+    // 两个开关各有可见的小字标签（不能只靠悬停提示区分）
+    expect(
+      claude.getByText("appsPage.manageSwitchLabel"),
+    ).toBeInTheDocument();
+    expect(
+      claude.getByText("appsPage.sidebarSwitchLabel"),
+    ).toBeInTheDocument();
   });
 
   it("sidebar switch falls back to visibleApps when sidebarApps unset", async () => {

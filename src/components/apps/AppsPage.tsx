@@ -166,28 +166,41 @@ export function AppsPage() {
   };
 
   const switchesFor = (app: AppId) => (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex items-start justify-end gap-2">
       <HoverTip content={t("appsPage.manageAppHint")}>
-        <Switch
-          size="sm"
-          tone="neutral"
-          checked={visibleApps[app]}
-          disabled={!settings}
-          onCheckedChange={(checked) => setManaged(app, checked)}
-          aria-label={t("appsPage.manageApp", { name: APP_DISPLAY_NAME[app] })}
-        />
+        <span className="flex flex-col items-center gap-1">
+          <Switch
+            size="sm"
+            tone="neutral"
+            checked={visibleApps[app]}
+            disabled={!settings}
+            onCheckedChange={(checked) => setManaged(app, checked)}
+            aria-label={t("appsPage.manageApp", {
+              name: APP_DISPLAY_NAME[app],
+            })}
+          />
+          {/* 可见小字标签：两个开关不能只靠悬停提示区分 */}
+          <span className="text-badge text-fg-3">
+            {t("appsPage.manageSwitchLabel")}
+          </span>
+        </span>
       </HoverTip>
       <HoverTip content={t("appsPage.showInSidebarHint")}>
-        <Switch
-          size="sm"
-          tone="neutral"
-          checked={sidebarApps[app]}
-          disabled={!settings || (sidebarApps[app] && sidebarCount <= 1)}
-          onCheckedChange={(checked) => setSidebar(app, checked)}
-          aria-label={t("appsPage.showInSidebar", {
-            name: APP_DISPLAY_NAME[app],
-          })}
-        />
+        <span className="flex flex-col items-center gap-1">
+          <Switch
+            size="sm"
+            tone="neutral"
+            checked={sidebarApps[app]}
+            disabled={!settings || (sidebarApps[app] && sidebarCount <= 1)}
+            onCheckedChange={(checked) => setSidebar(app, checked)}
+            aria-label={t("appsPage.showInSidebar", {
+              name: APP_DISPLAY_NAME[app],
+            })}
+          />
+          <span className="text-badge text-fg-3">
+            {t("appsPage.sidebarSwitchLabel")}
+          </span>
+        </span>
       </HoverTip>
     </div>
   );
@@ -297,7 +310,7 @@ export function AppsPage() {
               {t("appsPage.columnVersion")}
             </span>
             <span className="w-[104px]" />
-            <span className="flex w-[104px] items-center justify-end gap-0.5">
+            <span className="flex w-[120px] items-center justify-end gap-0.5">
               {t("appsPage.columnVisible")}
               <HelpTip title={t("appsPage.columnVisible")} align="end">
                 {t("appsPage.visibleHelp")}
@@ -442,7 +455,7 @@ function AppRow({
         </div>
         <div className="w-[168px] shrink-0 text-end">{version}</div>
         <div className="flex w-[104px] shrink-0 justify-end">{action}</div>
-        <div className="flex w-[104px] shrink-0 justify-end">{switches}</div>
+        <div className="flex w-[120px] shrink-0 justify-end">{switches}</div>
       </div>
       {footer && <div className="ms-9 mt-2">{footer}</div>}
     </div>

@@ -3963,6 +3963,8 @@
     "showInSidebarHint": "サイドバーへの表示切替（最低 1 つは必須）",
     "manageApp": "{{name}} を管理に参加",
     "manageAppHint": "Skills・MCP・セッション・プロンプト管理への表示切替。設定ファイル同期には影響しません",
+    "manageSwitchLabel": "管理",
+    "sidebarSwitchLabel": "表示",
     "lastChecked": "最終確認 {{time}}",
     "neverChecked": "まだ更新を確認していません",
     "helpTitle": "アプリ",

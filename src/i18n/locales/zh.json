@@ -3963,6 +3963,8 @@
     "showInSidebarHint": "控制是否出现在左侧应用栏（至少保留一个应用）",
     "manageApp": "参与管理 {{name}}",
     "manageAppHint": "控制在 Skills、MCP、会话、提示词的管理界面中出现；不影响配置文件同步",
+    "manageSwitchLabel": "管理",
+    "sidebarSwitchLabel": "侧栏",
     "lastChecked": "上次检查 {{time}}",
     "neverChecked": "还没检查过更新",
     "helpTitle": "应用",
