@@ -447,6 +447,7 @@ command = "say"
                 zcode: false,
                 dsh: false,
                 workbuddy: false,
+                pi: false,
             },
             description: None,
             homepage: None,

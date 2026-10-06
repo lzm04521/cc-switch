@@ -13,6 +13,7 @@ import { useSettingsQuery } from "@/lib/query";
 import { resolveDisplayRoutePrefix } from "@/lib/routePrefix";
 import {
   proxyKeys,
+  useAdoptCodexStackCatalog,
   useAppMode,
   useProxyStack,
   useProxyStatusQuery,
@@ -26,7 +27,6 @@ import {
   useSetAutoFailoverEnabled,
 } from "@/lib/query/failover";
 import { useModeActions } from "@/hooks/useModeActions";
-import { useStackModelsChangedHint } from "@/hooks/useStackModelsChangedHint";
 import { getRoutingReason } from "@/utils/routingReason";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,8 @@ interface SwitchModePanelProps extends ListCallbacks {
   /** 托盘里点了直连下需要路由的那家：到这页后弹同一个「需要路由」对话框 */
   needsRouteRequest?: { providerId: string; nonce: number };
   onNeedsRouteHandled?: () => void;
+  /** 正在看的那格变了：新增 / 编辑供应商按它选表单布局。需要是稳定的回调 */
+  onViewChange?: (app: ProxyAppId, view: AppMode) => void;
 }
 
 /** Gemini CLI、Grok Build 没有聚合模式（Q6）：那一格隐藏，前两格位置不变。 */
@@ -89,6 +91,7 @@ export function SwitchModePanel({
   onDismissStartupFailure,
   needsRouteRequest,
   onNeedsRouteHandled,
+  onViewChange,
   ...listCallbacks
 }: SwitchModePanelProps) {
   const { t } = useTranslation();
@@ -107,6 +110,9 @@ export function SwitchModePanel({
   useEffect(() => {
     setView(active);
   }, [app, active]);
+  useEffect(() => {
+    onViewChange?.(app, view);
+  }, [app, view, onViewChange]);
 
   const { data: proxyStatus } = useProxyStatusQuery();
   const serviceRunning = proxyStatus?.running ?? false;
@@ -116,16 +122,9 @@ export function SwitchModePanel({
   const setFailover = useSetAutoFailoverEnabled();
   const addToQueue = useAddToFailoverQueue();
   const removeFromQueue = useRemoveFromFailoverQueue();
-  const { data: stack, dataUpdatedAt: stackUpdatedAt } = useProxyStack(
-    app,
-    isStackAppId(app),
-  );
+  const { data: stack } = useProxyStack(app, isStackAppId(app));
   const setStackMember = useSetProxyStackMember();
-  const skipNextStackHint = useStackModelsChangedHint(
-    app,
-    active === "stack" ? stack : undefined,
-    stackUpdatedAt,
-  );
+  const adoptCatalog = useAdoptCodexStackCatalog();
   const modeActions = useModeActions(app);
 
   const [dialog, setDialog] = useState<ModeDialogState | null>(null);
@@ -252,7 +251,6 @@ export function SwitchModePanel({
       queueMove: (provider: Provider, delta: -1 | 1) =>
         void queueMove(provider, delta),
       stackAdd: (provider: Provider) => {
-        skipNextStackHint();
         setStackMember.mutate({
           appType: app,
           providerId: provider.id,
@@ -260,7 +258,6 @@ export function SwitchModePanel({
         });
       },
       stackRemove: (provider: Provider) => {
-        skipNextStackHint();
         setStackMember.mutate({
           appType: app,
           providerId: provider.id,
@@ -436,6 +433,18 @@ export function SwitchModePanel({
         key="stackNotice"
         tone="warning"
         title={t(`provider.${stack.notice}`)}
+        actions={
+          stack.notice === "routeOwnsCatalog" ? (
+            <Button
+              variant="neutral"
+              size="compact"
+              disabled={adoptCatalog.isPending}
+              onClick={() => adoptCatalog.mutate()}
+            >
+              {t("provider.adoptCatalog")}
+            </Button>
+          ) : undefined
+        }
       />,
     );
   }

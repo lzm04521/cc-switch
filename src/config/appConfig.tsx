@@ -135,8 +135,8 @@ export function usesEditorView(appId: AppId): boolean {
   return EDITOR_VIEW_APP_IDS.includes(appId);
 }
 
-/** Pi has no native MCP registry; do not manufacture a disabled mirror. */
-export type McpAppId = Exclude<AppId, "claude-desktop" | "openclaw" | "pi">;
+/** Claude Desktop、OpenClaw 不由 CC Switch 管理 MCP；Pi 1.0 起内置 MCP（`~/.pi/agent/mcp.json`） */
+export type McpAppId = Exclude<AppId, "claude-desktop" | "openclaw">;
 export const MCP_APP_IDS: McpAppId[] = [
   "claude",
   "codex",
@@ -144,6 +144,7 @@ export const MCP_APP_IDS: McpAppId[] = [
   "grokbuild",
   "opencode",
   "hermes",
+  "pi",
   "mcode",
   "zcode",
   "dsh",
