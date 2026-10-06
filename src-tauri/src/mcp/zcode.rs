@@ -80,6 +80,7 @@ pub fn import_from_zcode(config: &mut MultiAppConfig) -> Result<usize, AppError>
                         zcode: true,
                         dsh: false,
                         workbuddy: false,
+                        pi: false,
                     },
                     description: None,
                     homepage: None,

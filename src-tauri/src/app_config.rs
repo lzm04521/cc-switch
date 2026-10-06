@@ -21,6 +21,7 @@ pub struct McpApps {
     pub opencode: bool,
     #[serde(default)]
     pub hermes: bool,
+    #[serde(default)]
     pub zcode: bool,
     #[serde(default)]
     pub dsh: bool,

@@ -241,7 +241,7 @@ impl McpService {
                     &server.server,
                 )?;
             }
-          }
+        }
         Ok(())
     }
 

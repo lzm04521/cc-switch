@@ -4739,19 +4739,16 @@ mod tests {
 
         {
             let conn = lock_conn!(db.conn);
-            let insert =
-                |id: &str, model: &str, output: i64, latency: i64, first: Option<i64>| {
-                    conn.execute(
-                        "INSERT INTO proxy_request_logs (
+            let insert = |id: &str, model: &str, output: i64, latency: i64, first: Option<i64>| {
+                conn.execute(
+                    "INSERT INTO proxy_request_logs (
                             request_id, provider_id, app_type, model,
                             input_tokens, output_tokens, total_cost_usd,
                             latency_ms, first_token_ms, status_code, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        params![
-                            id, "p1", "claude", model, 10, output, "0", latency, first, 200, 1000
-                        ],
-                    )
-                };
+                    params![id, "p1", "claude", model, 10, output, "0", latency, first, 200, 1000],
+                )
+            };
             // fast-model 计入：1000 token / (11000 - 1000) ms
             insert("fast-a", "fast-model", 1000, 11_000, Some(1_000))?;
             // fast-model 计入：300 token / (4000 - 1000) ms
@@ -4795,9 +4792,8 @@ mod tests {
 
         {
             let conn = lock_conn!(db.conn);
-            let insert_rollup =
-                |date: &str, model: &str, stream_tokens: i64, stream_ms: i64| {
-                    conn.execute(
+            let insert_rollup = |date: &str, model: &str, stream_tokens: i64, stream_ms: i64| {
+                conn.execute(
                         "INSERT INTO usage_daily_rollups (
                             date, app_type, provider_id, model,
                             request_count, success_count, input_tokens, output_tokens,
@@ -4811,7 +4807,7 @@ mod tests {
                             stream_tokens, stream_ms
                         ],
                     )
-                };
+            };
             // 2024-02-02 是范围内唯一完整覆盖的本地日；02-01 / 02-03 是边界日不计
             insert_rollup("2024-02-01", "m1", 999_999, 999_999)?;
             insert_rollup("2024-02-02", "m1", 700, 7_000)?;
@@ -4941,7 +4937,9 @@ mod tests {
         assert_eq!(summary.total_requests, 5);
         assert_eq!(summary.stream_output_tokens, 1_300);
         assert_eq!(summary.stream_gen_ms, 13_000);
-        let avg = summary.avg_tokens_per_second.expect("avg over eligible rows");
+        let avg = summary
+            .avg_tokens_per_second
+            .expect("avg over eligible rows");
         assert!((avg - 100.0).abs() < 1e-9, "1300 token / 13 s = 100 t/s");
 
         Ok(())
@@ -4965,7 +4963,19 @@ mod tests {
                     input_tokens, output_tokens, total_cost_usd,
                     latency_ms, first_token_ms, status_code, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params!["ineligible", "p1", "claude", "m", 10, 50, "0", 2_000, Some(100), 200, 1000],
+                params![
+                    "ineligible",
+                    "p1",
+                    "claude",
+                    "m",
+                    10,
+                    50,
+                    "0",
+                    2_000,
+                    Some(100),
+                    200,
+                    1000
+                ],
             )?;
         }
         let all_ineligible = db.get_usage_summary(None, None, None, None, None)?;
@@ -4994,10 +5004,20 @@ mod tests {
                         stream_output_tokens, stream_gen_ms
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     params![
-                        date, "claude", "p-rollup", "m",
-                        5, 5, 500, 250,
-                        0, 0, "0.50", 100,
-                        stream_tokens, stream_ms
+                        date,
+                        "claude",
+                        "p-rollup",
+                        "m",
+                        5,
+                        5,
+                        500,
+                        250,
+                        0,
+                        0,
+                        "0.50",
+                        100,
+                        stream_tokens,
+                        stream_ms
                     ],
                 )
             };
@@ -5076,7 +5096,17 @@ mod tests {
                     latency_ms, status_code, created_at, session_id, data_source
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
-                    "s-1", "p1", "claude", "m", 10, 200, "0", 3_000, 200, 1000, "sess-1",
+                    "s-1",
+                    "p1",
+                    "claude",
+                    "m",
+                    10,
+                    200,
+                    "0",
+                    3_000,
+                    200,
+                    1000,
+                    "sess-1",
                     "session_log"
                 ],
             )?;

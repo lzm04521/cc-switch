@@ -1005,6 +1005,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
                 zcode: false,
                 dsh: false,
                 workbuddy: false, // 初始未启用
+                pi: false,
             },
             description: None,
             homepage: None,

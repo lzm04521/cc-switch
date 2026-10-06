@@ -72,6 +72,7 @@ pub fn import_from_workbuddy(config: &mut MultiAppConfig) -> Result<usize, AppEr
                         zcode: false,
                         dsh: false,
                         workbuddy: true,
+                        pi: false,
                     },
                     description: None,
                     homepage: None,
