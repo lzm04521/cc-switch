@@ -77,6 +77,7 @@ exports[`ProviderForm 预设新增行金标 > claude > E-FlowCode 1`] = `
       "env": {
         "ANTHROPIC_AUTH_TOKEN": "sk-golden-test",
         "ANTHROPIC_BASE_URL": "https://e-flowcode.cc",
+        "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
         "ENABLE_TOOL_SEARCH": "true",
       },
     },
@@ -111,6 +112,7 @@ exports[`ProviderForm 预设新增行金标 > claude > Kimi For Coding 1`] = `
         "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-for-coding",
         "ANTHROPIC_MODEL": "kimi-for-coding",
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "262144",
+        "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144",
       },
     },
@@ -144,6 +146,7 @@ exports[`ProviderForm 预设新增行金标 > claude > Nvidia 1`] = `
         "ANTHROPIC_DEFAULT_OPUS_MODEL": "moonshotai/kimi-k3",
         "ANTHROPIC_DEFAULT_SONNET_MODEL": "moonshotai/kimi-k3",
         "ANTHROPIC_MODEL": "moonshotai/kimi-k3",
+        "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
       },
     },
     "websiteUrl": "https://build.nvidia.com",
@@ -172,6 +175,7 @@ exports[`ProviderForm 预设新增行金标 > claude > RelaxyCode 1`] = `
       "env": {
         "ANTHROPIC_AUTH_TOKEN": "sk-golden-test",
         "ANTHROPIC_BASE_URL": "https://www.relaxycode.com",
+        "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
       },
     },
     "websiteUrl": "https://www.relaxycode.com",

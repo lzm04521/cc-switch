@@ -121,6 +121,7 @@ export interface ProviderStats {
   providerId: string;
   providerName: string;
   requestCount: number;
+  /** 真实消耗 Tokens（新增输入 + 输出 + 缓存写入 + 缓存命中），与指标卡同口径 */
   totalTokens: number;
   totalCost: string;
   successRate: number;
@@ -138,15 +139,17 @@ export interface ProviderStats {
 export interface ModelStats {
   model: string;
   requestCount: number;
+  /** 真实消耗 Tokens（新增输入 + 输出 + 缓存写入 + 缓存命中），与指标卡同口径 */
   totalTokens: number;
   totalCost: string;
   avgCostPerRequest: string;
-  /** t/s 分子/分母（仅 speed-eligible 行，与 UsageSummary 同口径）：
-   *  加权平均 = streamOutputTokens ÷ (streamGenMs / 1000)。 */
-  streamOutputTokens?: number;
-  streamGenMs?: number;
-  /** 加权平均输出速度（t/s）；null = 该模型无可计算请求。 */
-  avgTokensPerSecond?: number | null;
+  successRate: number;
+  /** 速度分子分母，口径同 ProviderStats 的四个速度字段。
+   *  fork 增强：rollup 分支的 speed 两列累加落库 stream 列，历史数据 t/s 不丢。 */
+  speedOutputTokens?: number;
+  speedGenerationMs?: number;
+  estSpeedOutputTokens?: number;
+  estSpeedDurationMs?: number;
 }
 
 export interface LogFilters {
