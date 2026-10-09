@@ -94,11 +94,13 @@ pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
 /// fork: 校验并归一化用户自定义 key（doc/20261009-设计文档 §6、实施计划-聚合模式五项
 /// 优化）：输入经 slug 规则归一化（`[a-zA-Z0-9-]`、连续横线合并、首尾横线去掉、超长
 /// 截断），之后仍须非空、不撞保留字 `default`（忽略大小写——decode 端解绑判断本就
-/// 忽略，精确匹配会让 `Default` 绕过校验却被代理当解绑 id）、不与登记簿/墓簿冲突
-/// （同样忽略大小写：`Zhipu` 与 `zhipu` 并存会在模型列表里视觉重复）。
-/// `self_provider_id` 是正在改名的成员：登记簿里指向它的条目是它自己的现 key，
-/// 仅大小写变化（`zhipupro` → `ZhiPuPro`）不算冲突。墓簿不豁免——旧 id 一经释放
-/// 就不再分给任何人（含原主，防止 id 语义复用）。
+/// 忽略，精确匹配会让 `Default` 绕过校验却被代理当解绑 id）、不与登记簿/墓簿冲突。
+/// 冲突判定的两种口径（真机验收两轮打回后收敛）：
+/// - 登记簿：忽略大小写 + 豁免 `self_provider_id` 自己的条目——防模型列表里
+///   `Zhipu`/`zhipu` 视觉重复，同时允许成员把自己的 key 升级大小写；
+/// - 墓簿：**精确匹配**。墓碑不在模型列表发布（无视觉重复问题），decode/resolve
+///   又是精确字符串匹配——大小写变体复用不会让旧 id 错误路由，精确挡即可；
+///   若忽略大小写会把 `zhipumax`→`zhipu-max`→`ZhiPuMax` 这类改名的路全堵死。
 /// 返回归一化后的 key。
 pub fn validate_member_key(
     stack: &StackState,
@@ -134,17 +136,15 @@ fn key_taken(stack: &StackState, key: &str) -> bool {
         .any(|existing| existing.eq_ignore_ascii_case(key))
 }
 
-/// [`key_taken`] 的改名视角：豁免登记簿里指向 `self_id` 的条目（成员自己的现 key），
-/// 大小写重排不算冲突；墓簿照旧全挡。
+/// [`key_taken`] 的改名视角：登记簿豁免指向 `self_id` 的条目（成员自己的现 key，
+/// 大小写重排不算冲突）、其余条目仍忽略大小写（防视觉重复）；墓簿只挡**精确**复用
+/// （见 `validate_member_key` 的口径说明）。
 fn key_taken_except_self(stack: &StackState, key: &str, self_id: &str) -> bool {
     stack
         .keys
         .iter()
         .any(|(k, v)| v != self_id && k.eq_ignore_ascii_case(key))
-        || stack
-            .reserved_keys
-            .iter()
-            .any(|k| k.eq_ignore_ascii_case(key))
+        || stack.reserved_keys.contains(key)
 }
 
 /// ASCII 字母数字（大小写均可），其余字符（含 `.`）换成 `-`，连续的 `-` 合并，首尾的
@@ -1631,7 +1631,7 @@ mod tests {
         );
 
         // 归一化后为空 / 保留字（忽略大小写——decode 端解绑判断本就忽略）/
-        // 与登记簿或墓碑冲突（同样忽略大小写，避免视觉重复分组）
+        // 与登记簿冲突（忽略大小写，避免视觉重复分组）/ 与墓碑精确冲突
         assert!(validate_member_key(&stack, "", self_id).is_err());
         assert!(validate_member_key(&stack, "///", self_id).is_err());
         assert!(validate_member_key(&stack, "default", self_id).is_err());
@@ -1639,29 +1639,45 @@ mod tests {
         assert!(validate_member_key(&stack, "Kimi", self_id).is_err());
         assert!(validate_member_key(&stack, "KIMI", self_id).is_err());
         assert!(validate_member_key(&stack, "old", self_id).is_err());
-        assert!(validate_member_key(&stack, "Old", self_id).is_err());
+        // 墓碑只挡精确复用：大小写变体 Old 允许
+        assert_eq!(
+            validate_member_key(&stack, "Old", self_id),
+            Ok("Old".to_string())
+        );
     }
 
     #[test]
     fn renaming_to_a_case_variant_of_ones_own_key_is_allowed() {
         // 用户把 key 从旧 slug 时代的小写升级成大小写（zhipupro → ZhiPuPro）：
         // 登记簿里指向自己的条目豁免，仅大小写变化不算冲突；别人用同形仍被挡；
-        // 墓簿不豁免（旧 id 释放后不再分给任何人，含原主）
+        // 墓簿只挡精确复用——大小写变体允许（decode/resolve 精确匹配，旧 id 不会
+        // 错误路由；墓碑不发布无视觉重复）
         let mut stack = StackState::default();
         stack.keys.insert("zhipupro".to_string(), "zhipu".to_string());
         stack.keys.insert("kimi".to_string(), "kimi".to_string());
         stack.reserved_keys.insert("oldkey".to_string());
+        stack.reserved_keys.insert("zhipumax".to_string());
 
         // 自己改大小写变体：通过
         assert_eq!(
             validate_member_key(&stack, "ZhiPuPro", "zhipu"),
             Ok("ZhiPuPro".to_string())
         );
-        // 别人用同样的大小写变体：挡（撞 zhipu 的现 key）
+        // 别人用同样的大小写变体：挡（撞 zhipu 的现 key，防模型列表视觉重复）
         assert!(validate_member_key(&stack, "ZhiPuPro", "kimi").is_err());
-        // 原主改回已墓碑化的旧 key：挡
+        // 墓碑精确挡：改回一模一样的旧 key 不行
         assert!(validate_member_key(&stack, "oldkey", "zhipu").is_err());
-        assert!(validate_member_key(&stack, "OldKey", "zhipu").is_err());
+        assert!(validate_member_key(&stack, "zhipumax", "zhipu").is_err());
+        // 墓碑大小写变体允许（真机验收第二轮回归：zhipu-max → ZhiPuMax 曾被
+        // 忽略大小写的墓碑 zhipumax 误挡）
+        assert_eq!(
+            validate_member_key(&stack, "OldKey", "zhipu"),
+            Ok("OldKey".to_string())
+        );
+        assert_eq!(
+            validate_member_key(&stack, "ZhiPuMax", "zhipu"),
+            Ok("ZhiPuMax".to_string())
+        );
     }
 
     #[test]
