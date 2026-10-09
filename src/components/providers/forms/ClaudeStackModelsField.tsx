@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
 import { Download, Loader2, Plus, Star, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormLabel } from "@/components/ui/form";
 import { ImeSafeInput } from "@/components/ui/ime-safe-input";
 import { Input } from "@/components/ui/input";
+import { useSettingsQuery } from "@/lib/query";
+import { resolveDisplayRoutePrefix } from "@/lib/routePrefix";
 import type { FetchedModel } from "@/lib/api/model-fetch";
 import type { ClaudeStackModel } from "@/types";
 import { FetchedModelPicker } from "./FetchedModelPicker";
@@ -94,6 +97,10 @@ interface ClaudeStackModelsFieldProps {
   fetchedModels: FetchedModel[];
   onFetchModels: () => void;
   isFetchingModels: boolean;
+  /** fork 五项优化：分组 key（归一化后的预览值），只读列生成聚合 id 用；缺省不显示预览。 */
+  previewKey?: string;
+  /** fork 五项优化：供应商名（表单当前名称），只读列显示名用。 */
+  providerName?: string;
 }
 
 /**
@@ -106,8 +113,32 @@ export function ClaudeStackModelsField({
   fetchedModels,
   onFetchModels,
   isFetchingModels,
+  previewKey,
+  providerName,
 }: ClaudeStackModelsFieldProps) {
   const { t } = useTranslation();
+  // fork 五项优化：只读预览列的前缀取设置（react-query 缓存共享，无额外请求），
+  // 经 resolveDisplayRoutePrefix 归一化——与代理实际生效的前缀一致
+  const { data: settings } = useSettingsQuery();
+  const previewPrefix = previewKey
+    ? resolveDisplayRoutePrefix(settings?.routePrefix)
+    : "";
+  const showPreviewColumns = Boolean(previewKey);
+
+  /** 与后端 stack::encode 一致的聚合模型 id（Claude：`<prefix>claude.<key>.<model>[1M]?`）。 */
+  const selectorId = (row: ClaudeStackModelRow): string => {
+    const model = stripClaudeOneMMarker(row.model).trim();
+    if (!model) return "";
+    const oneM = row.oneM === true || hasClaudeOneMMarker(row.model);
+    return `${previewPrefix}claude.${previewKey}.${model}${oneM ? "[1M]" : ""}`;
+  };
+
+  /** 与后端 stack::display_name 一致的选择器显示名（`<显示名|模型名>（<供应商名>）`）。 */
+  const selectorName = (row: ClaudeStackModelRow): string => {
+    const model = stripClaudeOneMMarker(row.model).trim();
+    if (!model) return "";
+    return `${row.displayName?.trim() || model}（${providerName ?? ""}）`;
+  };
 
   const updateRow = (rowId: string, patch: Partial<ClaudeStackModel>) =>
     onRowsChange(
@@ -194,7 +225,30 @@ export function ClaudeStackModelsField({
         </p>
       ) : (
         <div className="space-y-2">
-          <div className="hidden grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px] gap-2 px-1 text-xs font-medium text-fg-2 md:grid">
+          {/* fork 五项优化：最前两列只读预览（选择器 id / 选择器显示名），有分组 key
+              才显示；窄列 truncate + title 悬停看全 */}
+          <div
+            className={cn(
+              "hidden gap-2 px-1 text-xs font-medium text-fg-2 md:grid",
+              showPreviewColumns
+                ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_36px_1fr_minmax(0,1fr)_64px_36px]"
+                : "grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px]",
+            )}
+          >
+            {showPreviewColumns && (
+              <>
+                <span>
+                  {t("providerForm.selectorIdLabel", {
+                    defaultValue: "选择器 id",
+                  })}
+                </span>
+                <span>
+                  {t("providerForm.selectorNameLabel", {
+                    defaultValue: "选择器显示名",
+                  })}
+                </span>
+              </>
+            )}
             <span />
             <span>
               {t("providerForm.modelDisplayNameLabel", {
@@ -224,8 +278,33 @@ export function ClaudeStackModelsField({
             return (
               <div
                 key={row.rowId}
-                className="grid grid-cols-1 gap-2 md:grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px]"
+                className={cn(
+                  "grid grid-cols-1 gap-2",
+                  showPreviewColumns
+                    ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_36px_1fr_minmax(0,1fr)_64px_36px]"
+                    : "md:grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px]",
+                )}
               >
+                {showPreviewColumns && (
+                  <>
+                    <div
+                      className="flex h-9 min-w-0 items-center"
+                      title={selectorId(row)}
+                    >
+                      <span className="truncate text-xs text-fg-2">
+                        {selectorId(row) || "—"}
+                      </span>
+                    </div>
+                    <div
+                      className="flex h-9 min-w-0 items-center"
+                      title={selectorName(row)}
+                    >
+                      <span className="truncate text-xs text-fg-2">
+                        {selectorName(row) || "—"}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <HoverTip content={defaultLabel}>
                   <Button
                     type="button"

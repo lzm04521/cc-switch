@@ -495,6 +495,14 @@
         "both": "分组 + 模型",
         "groups": "仅分组（短形式，选中走默认模型）",
         "models": "仅模型（完整条目）"
+      },
+      "aggregateMode": {
+        "title": "聚合模式设置",
+        "help": "聚合模式下模型 id 形如 \"<前缀>claude.<分组>.<模型>\"（Codex 为 \"<前缀><分组>.<模型>\"）；短形式 \"<前缀>claude.<分组>\" 走该分组默认模型，\"<前缀>claude.default\" 解绑会话。粘性会话关闭后，不带聚合 id 的请求一律走默认成员。"
+      },
+      "routeStickySession": {
+        "title": "粘性会话",
+        "description": "开启后，会话中选中某个分组，该会话后续请求即使不带聚合模型 id 也继续走这个分组。例如 Claude Code 主会话选了智谱分组后，Task 工具拉起的 subagent 不指定模型，请求仍发给智谱，而不是回落到默认供应商。关闭后，不带聚合 id 的请求一律走当前默认供应商。"
       }
     },
     "language": "界面语言",
@@ -1531,7 +1539,8 @@
   "providerForm": {
     "stackKey": {
       "label": "分组 key",
-      "hint": "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。"
+      "hint": "字母/数字/横线（大小写保留）；「.」与其他符号自动转为横线；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。",
+      "normalizedPreview": "将保存为 {{key}}"
     },
     "supplierName": "供应商名称",
     "supplierNameRequired": "供应商名称 *",
@@ -1731,7 +1740,9 @@
     "fetchModelsNotSupported": "该供应商不支持获取模型列表",
     "fetchModelsEndpointNotFound": "未找到可用的模型列表端点，请检查 Base URL 或确认供应商是否开放该接口",
     "fetchModelsTimeout": "请求超时，请检查网络连接",
-    "requiredFields": "请填写供应商名称、API 地址、API Key 和模型"
+    "requiredFields": "请填写供应商名称、API 地址、API Key 和模型",
+    "selectorIdLabel": "选择器 id",
+    "selectorNameLabel": "选择器显示名"
   },
   "copilot": {
     "authSection": "GitHub Copilot 认证",
@@ -4177,7 +4188,7 @@
     },
     "stackKeyDialog": {
       "title": "改分组 key",
-      "hint": "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字",
+      "hint": "字母/数字/横线（大小写保留）；「.」与其他符号自动转为横线；改名后旧模型 id 失效需重新选择；default 为保留字",
       "label": "分组 key"
     }
   },

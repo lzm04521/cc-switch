@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
+import { normalizeStackKey } from "@/lib/routePrefix";
 import { Button } from "@/components/ui/button";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { ImeSafeInput } from "@/components/ui/ime-safe-input";
@@ -922,6 +923,46 @@ function ProviderFormFull({
   useEffect(() => {
     setStackKeyDraft(stackMemberKey ?? "");
   }, [stackMemberKey]);
+  // fork 五项优化：key 输入框经插槽渲染在模型列表上方；归一化预览让 `.` 等
+  // 非法字符的替换可见（后端 slug 静默替换曾是隐形行为）。previewKey 用归一化
+  // 结果——模型列表只读列展示的是保存后真正生成的 id。
+  const stackKeyDraftTrimmed = stackKeyDraft.trim();
+  const stackKeyPreviewKey = stackKeyDraftTrimmed
+    ? normalizeStackKey(stackKeyDraftTrimmed)
+    : (stackMemberKey ?? "");
+  const stackKeyFieldNode = isStackMember ? (
+    <div className="space-y-1.5">
+      <label
+        className="text-sm font-medium leading-none"
+        htmlFor="stack-member-key"
+      >
+        {t("providerForm.stackKey.label", {
+          defaultValue: "分组 key",
+        })}
+      </label>
+      <ImeSafeInput
+        id="stack-member-key"
+        value={stackKeyDraft}
+        onValueChange={setStackKeyDraft}
+        className="max-w-64"
+      />
+      <p className="text-xs text-muted-foreground">
+        {t("providerForm.stackKey.hint", {
+          defaultValue:
+            "字母/数字/横线（大小写保留）；「.」与其他符号自动转为横线；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。",
+        })}
+      </p>
+      {stackKeyDraftTrimmed !== stackKeyPreviewKey &&
+        stackKeyPreviewKey !== "" && (
+          <p className="text-xs text-yellow-600 dark:text-yellow-400">
+            {t("providerForm.stackKey.normalizedPreview", {
+              defaultValue: "将保存为 {{key}}",
+              key: stackKeyPreviewKey,
+            })}
+          </p>
+        )}
+    </div>
+  ) : null;
   const maybeSaveStackMemberKey = async () => {
     if (!isStackMember || !providerId) return;
     const next = stackKeyDraft.trim();
@@ -2586,6 +2627,9 @@ function ProviderFormFull({
               variant={useStackLayout ? "stack" : "classic"}
               stackModelRows={shownClaudeStackRows}
               onStackModelRowsChange={handleClaudeStackRowsChange}
+              stackKeyField={stackKeyFieldNode}
+              stackPreviewKey={stackKeyPreviewKey}
+              stackProviderName={form.watch("name")}
             />
           )}
 
@@ -2662,6 +2706,8 @@ function ProviderFormFull({
               localProxyBodyOverride={localProxyBodyOverride}
               onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
               variant={useStackLayout ? "stack" : "classic"}
+              stackKeyField={stackKeyFieldNode}
+              stackPreviewKey={stackKeyPreviewKey}
             />
           )}
 
@@ -2785,33 +2831,7 @@ function ProviderFormFull({
 
           {/* 配置编辑器：Codex、Claude、Gemini 分别使用不同的编辑器 */}
           {useStackLayout ? (
-            <>
-              {isStackMember && (
-                <div className="space-y-1.5">
-                  <label
-                    className="text-sm font-medium leading-none"
-                    htmlFor="stack-member-key"
-                  >
-                    {t("providerForm.stackKey.label", {
-                      defaultValue: "分组 key",
-                    })}
-                  </label>
-                  <ImeSafeInput
-                    id="stack-member-key"
-                    value={stackKeyDraft}
-                    onValueChange={setStackKeyDraft}
-                    className="max-w-64"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("providerForm.stackKey.hint", {
-                      defaultValue:
-                        "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。",
-                    })}
-                  </p>
-                </div>
-              )}
-              {settingsConfigErrorField}
-            </>
+            <>{settingsConfigErrorField}</>
           ) : appId === "codex" ? (
             <>
               <CodexConfigEditor

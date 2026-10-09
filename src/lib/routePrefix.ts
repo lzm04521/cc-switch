@@ -5,6 +5,33 @@ export type RoutePrefixValidation =
       reason: "empty" | "length" | "charset" | "colon" | "boundary";
     };
 
+/** 分组 key 的最大长度（与后端 stack::KEY_MAX_LEN 一致）。 */
+export const STACK_KEY_MAX_LEN = 24;
+
+/**
+ * 分组 key 归一化预览（与后端 stack::slug 同规则，fork 五项优化）：ASCII 字母数字
+ * （大小写保留）之外的字符——含 `.`（id 的 key↔模型分隔符）——换成 `-`，连续 `-`
+ * 合并、首尾去掉、超长截断。仅用于输入框实时展示「将保存为 xxx」；保留字/查重的
+ * 权威校验仍在后端 validate_member_key。
+ */
+export function normalizeStackKey(raw: string): string {
+  let out = "";
+  for (const c of raw) {
+    const code = c.charCodeAt(0);
+    const isAsciiAlnum =
+      (code >= 0x41 && code <= 0x5a) || // A-Z
+      (code >= 0x61 && code <= 0x7a) || // a-z
+      (code >= 0x30 && code <= 0x39); // 0-9
+    if (isAsciiAlnum) {
+      out += c;
+    } else if (out !== "" && !out.endsWith("-")) {
+      out += "-";
+    }
+    if (out.length >= STACK_KEY_MAX_LEN) break;
+  }
+  return out.replace(/-+$/, "");
+}
+
 /**
  * 默认聚合模型 id 前缀（与后端 route_prefix::DEFAULT_ROUTE_PREFIX 一致）。
  * fork: 会话路由改造为聚合模式后默认对齐上游 "ccs-"（doc/20261009-设计文档）。

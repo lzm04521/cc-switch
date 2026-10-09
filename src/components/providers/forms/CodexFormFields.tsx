@@ -57,6 +57,8 @@ import { CustomUserAgentField } from "./CustomUserAgentField";
 import { FetchedModelPicker } from "./FetchedModelPicker";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import { cn } from "@/lib/utils";
+import { useSettingsQuery } from "@/lib/query";
+import { resolveDisplayRoutePrefix } from "@/lib/routePrefix";
 import { useCommittableRef } from "@/hooks/useLatestRef";
 import { useModelMetadataFill } from "@/hooks/useModelMetadataFill";
 import { codexPresetModelSources } from "@/config/presetModelMetadata";
@@ -165,6 +167,10 @@ interface CodexFormFieldsProps {
    * 模型列表 + 高级），没有默认模型字段，列表第一行就是默认模型。
    */
   variant?: "classic" | "stack";
+  /** fork 五项优化：分组 key 输入框（渲染在模型列表上方，ProviderForm 提供）。 */
+  stackKeyField?: ReactNode;
+  /** fork 五项优化：分组 key 归一化后的预览值（stack 布局只读列生成 id 用）。 */
+  stackPreviewKey?: string;
 }
 
 type CodexCatalogRow = CodexCatalogModel & { rowId: string };
@@ -494,6 +500,8 @@ export function CodexFormFields({
   localProxyBodyOverride,
   onLocalProxyBodyOverrideChange,
   variant = "classic",
+  stackKeyField,
+  stackPreviewKey,
 }: CodexFormFieldsProps) {
   const { t } = useTranslation();
 
@@ -1216,17 +1224,51 @@ export function CodexFormFields({
   };
 
   // 模型映射 / 模型列表的行。Stack 布局多一列 ★（见 renderDefaultStar）。
+  // fork 五项优化：stack 布局模型列表最前的两个只读预览列（选择器 id / 选择器显示名）。
+  // 前缀经 resolveDisplayRoutePrefix 归一化，与代理实际生效的前缀一致；classic 布局不显示。
+  const { data: stackSettings } = useSettingsQuery();
+  const codexPreviewPrefix = stackPreviewKey
+    ? resolveDisplayRoutePrefix(stackSettings?.routePrefix)
+    : "";
+  const showPreviewColumns = variant === "stack" && Boolean(stackPreviewKey);
+  const previewSelectorId = (model: string): string =>
+    model.trim()
+      ? `${codexPreviewPrefix}${stackPreviewKey}.${model.trim()}`
+      : "";
+  const previewSelectorName = (model: string): string =>
+    model.trim() ? `${stackPreviewKey}.${model.trim()}` : "";
+
+  const catalogGridTemplate = (withDefault: boolean) =>
+    showPreviewColumns && withDefault
+      ? // fork 五项优化：预览列 + 星标 + 4 个编辑列 + 删除
+        "grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+      : withDefault
+        ? "grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+        : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]";
+
   const renderCatalogRows = (withDefault: boolean) => (
     <div className="space-y-2">
       {/* 列头：md+ 显示 */}
       <div
         className={cn(
           "hidden gap-2 px-1 text-xs font-medium text-fg-2 md:grid",
-          withDefault
-            ? "grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
-            : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]",
+          catalogGridTemplate(withDefault),
         )}
       >
+        {showPreviewColumns && withDefault && (
+          <>
+            <span>
+              {t("providerForm.selectorIdLabel", {
+                defaultValue: "选择器 id",
+              })}
+            </span>
+            <span>
+              {t("providerForm.selectorNameLabel", {
+                defaultValue: "选择器显示名",
+              })}
+            </span>
+          </>
+        )}
         {withDefault && <span />}
         <span>
           {t("codexConfig.catalogColumnDisplay", {
@@ -1256,11 +1298,33 @@ export function CodexFormFields({
           key={row.rowId}
           className={cn(
             "grid grid-cols-1 gap-2",
-            withDefault
-              ? "md:grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
-              : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]",
+            showPreviewColumns && withDefault
+              ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+              : withDefault
+                ? "md:grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+                : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]",
           )}
         >
+          {showPreviewColumns && withDefault && (
+            <>
+              <div
+                className="flex h-9 min-w-0 items-center"
+                title={previewSelectorId(row.model)}
+              >
+                <span className="truncate text-xs text-fg-2">
+                  {previewSelectorId(row.model) || "—"}
+                </span>
+              </div>
+              <div
+                className="flex h-9 min-w-0 items-center"
+                title={previewSelectorName(row.model)}
+              >
+                <span className="truncate text-xs text-fg-2">
+                  {previewSelectorName(row.model) || "—"}
+                </span>
+              </div>
+            </>
+          )}
           {withDefault && renderDefaultStar(index)}
           <Input
             value={row.displayName ?? ""}
@@ -1464,6 +1528,9 @@ export function CodexFormFields({
         {apiKeySection}
         {showFormatFields && isAnthropicFormat && anthropicAuthFieldSelect}
         {endpointSection}
+
+        {/* fork 五项优化：分组 key 输入框在模型列表上方（从表单底部配置区迁入） */}
+        {stackKeyField}
 
         {canEditCatalog && (
           <div className="space-y-3">

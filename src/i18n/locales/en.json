@@ -495,6 +495,14 @@
         "both": "Groups + models",
         "groups": "Groups only (short form, uses the default model)",
         "models": "Models only (full entries)"
+      },
+      "aggregateMode": {
+        "title": "Aggregate mode settings",
+        "help": "In aggregate mode, model ids look like \"<prefix>claude.<key>.<model>\" (Codex: \"<prefix><key>.<model>\"); the short form \"<prefix>claude.<key>\" uses that group's default model, and \"<prefix>claude.default\" unbinds the session. With sticky sessions off, requests without an aggregate id always go to the default member."
+      },
+      "routeStickySession": {
+        "title": "Sticky sessions",
+        "description": "When on, once a session selects a group, later requests in that session keep using it even without an aggregate model id. For example, after the Claude Code main session selects the Zhipu group, subagents launched via the Task tool that do not specify a model still send requests to Zhipu instead of falling back to the default provider. When off, requests without an aggregate id always go to the current default provider."
       }
     },
     "language": "Language",
@@ -1531,7 +1539,8 @@
   "providerForm": {
     "stackKey": {
       "label": "Group key",
-      "hint": "Lowercase letters/digits/hyphens (input is lowercased automatically); renaming invalidates previously selected model ids; \"default\" is reserved. Saved together with the form."
+      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids; \"default\" is reserved. Applied when the form is saved.",
+      "normalizedPreview": "Will be saved as {{key}}"
     },
     "supplierName": "Provider Name",
     "supplierNameRequired": "Provider Name *",
@@ -1731,7 +1740,9 @@
     "fetchModelsNotSupported": "This provider does not support fetching model list",
     "fetchModelsEndpointNotFound": "No reachable models endpoint found. Please check the Base URL or confirm whether the provider exposes this API.",
     "fetchModelsTimeout": "Request timed out, please check network connection",
-    "requiredFields": "Please fill in provider name, API endpoint, API Key and model"
+    "requiredFields": "Please fill in provider name, API endpoint, API Key and model",
+    "selectorIdLabel": "Selector id",
+    "selectorNameLabel": "Selector display name"
   },
   "copilot": {
     "authSection": "GitHub Copilot Authentication",
@@ -4177,7 +4188,7 @@
     },
     "stackKeyDialog": {
       "title": "Rename group key",
-      "hint": "lowercase letters / digits / dashes (input is lowercased); renaming invalidates previously selected model ids; \"default\" is reserved",
+      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids; \"default\" is reserved",
       "label": "Group key"
     }
   },
