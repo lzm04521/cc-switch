@@ -1539,7 +1539,7 @@
   "providerForm": {
     "stackKey": {
       "label": "Group key",
-      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids; \"default\" is reserved. Applied when the form is saved.",
+      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids, and reusing an old key sends sessions still carrying the old id to this provider; \"default\" is reserved. Applied when the form is saved.",
       "normalizedPreview": "Will be saved as {{key}}"
     },
     "supplierName": "Provider Name",
@@ -4188,7 +4188,7 @@
     },
     "stackKeyDialog": {
       "title": "Rename group key",
-      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids; \"default\" is reserved",
+      "hint": "Letters, digits and hyphens (case is preserved); \".\" and other symbols become hyphens; renaming invalidates previously selected model ids, and reusing an old key sends sessions still carrying the old id to this provider; \"default\" is reserved",
       "label": "Group key"
     }
   },

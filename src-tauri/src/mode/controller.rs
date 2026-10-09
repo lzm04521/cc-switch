@@ -1261,6 +1261,9 @@ async fn set_stack_member_key_locked(
     let mut next = current.clone();
     next.keys.remove(&old_key);
     next.reserved_keys.insert(old_key);
+    // 手动复用墓碑里的旧 key：从墓碑取出（fork 五项优化后墓碑只防自动分配，
+    // 手动改名用户自负责；留在墓碑会让自动分配永远避让一个已复活的 key）
+    next.reserved_keys.remove(&new_key);
     next.keys.insert(new_key, provider_id.to_string());
 
     match attached_route(state, app)? {
@@ -6283,11 +6286,15 @@ model_provider = "c"
             "{ids:?}"
         );
 
-        // 重复改回旧 key：墓簿挡住
-        let error = set_stack_member_key(&state, &AppType::Codex, "deepseek", &old_key)
+        // 改回旧 key：允许复用（fork 五项优化后墓碑只防自动分配，手动改名用户
+        // 自负责）；复用的 key 从墓碑取出，旧 id 重新指向这家
+        set_stack_member_key(&state, &AppType::Codex, "deepseek", &old_key)
             .await
-            .expect_err("tombstoned key must be rejected");
-        assert!(!error.partial, "{error:?}");
+            .expect("renaming back to the old key is allowed");
+        let stack = settled_stack(&AppType::Codex).unwrap();
+        assert_eq!(stack.key_of("deepseek"), Some(old_key.as_str()));
+        assert!(stack.reserved_keys.contains("CommandCode"));
+        assert!(!stack.reserved_keys.contains(&old_key));
     }
 
     /// 提示上的「改用 CC Switch 的模型目录」：去掉路由那家行里的指针，契约带进 live 的那份

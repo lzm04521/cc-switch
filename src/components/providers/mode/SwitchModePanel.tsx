@@ -644,7 +644,7 @@ export function SwitchModePanel({
                   {keyEdit.provider.name} ·{" "}
                   {t("mode.stackKeyDialog.hint", {
                     defaultValue:
-                      "字母/数字/横线（大小写保留）；「.」与其他符号自动转为横线；改名后旧模型 id 失效需重新选择；default 为保留字",
+                      "字母/数字/横线（大小写保留）；「.」等符号自动转为横线；改名后旧模型 id 失效需重新选择，复用旧 key 会让仍带旧 id 的会话转投这家；default 为保留字",
                   })}
                 </p>
                 <Label htmlFor="stack-member-key" className="text-xs">

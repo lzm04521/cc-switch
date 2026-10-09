@@ -129,9 +129,10 @@ pub struct StackState {
     /// 客户端会一直带着选中过的 id，key 改了指向，旧 id 就会被悄悄发到另一家。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: BTreeMap<String, String>,
-    /// fork: 墓碑 key（改名留下的旧 key）。与登记簿同一不变量——永不重新分配，
-    /// 旧 id 不会悄悄指向另一家；不指向任何供应商（解析按未登记报错）。
-    /// （doc/20261009-设计文档-会话路由改造为聚合模式 §6）
+    /// fork: 墓碑 key（改名留下的旧 key）。**只防 `allocate_key` 自动分配**：自动
+    /// 起名没有用户认知机会，必须避开一切历史 id，防止旧会话带的 id 静默换主
+    /// （doc/20261009-设计文档 §6；五项优化验收后收敛——手动改名不查墓碑，
+    /// 用户明确复用旧 key 由用户自负责，复用时从墓碑取出）。
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub reserved_keys: BTreeSet<String>,
     #[serde(flatten)]
