@@ -60,18 +60,20 @@ pub fn supports_stack(app: &AppType) -> bool {
 /// 没有就按图标、名称生成一个新的写进登记簿。
 ///
 /// 新 key 和登记簿里所有的 key 去重，不只是当前成员：已移除、已删除的供应商的 key 也
-/// 占着位置，旧 id 才不会被发给新来的这家。
+/// 占着位置，旧 id 才不会被发给新来的这家。自动分配的 key 保持小写（历史 key 全小写，
+/// 视觉一致）；大写仅由用户手动改名引入。去重忽略大小写（`key_taken`）。
 pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
     if let Some(key) = stack.key_of(&provider.id) {
         return key.to_string();
     }
+    let lower_slug = |text: &str| slug(text).to_ascii_lowercase();
     let base = [provider.icon.as_deref(), Some(provider.name.as_str())]
         .into_iter()
         .flatten()
-        .map(slug)
+        .map(lower_slug)
         .find(|candidate| !candidate.is_empty())
         .unwrap_or_else(|| {
-            let id: String = slug(&provider.id)
+            let id: String = lower_slug(&provider.id)
                 .chars()
                 .filter(|c| *c != '-')
                 .take(6)
@@ -81,7 +83,7 @@ pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
     let mut key = base.clone();
     let mut suffix = 2;
     // fork: 墓碑 key 同样占位——旧 id 不能被发给新来的这家（与登记簿同一不变量）
-    while stack.keys.contains_key(&key) || stack.reserved_keys.contains(&key) {
+    while key_taken(stack, &key) {
         key = format!("{base}-{suffix}");
         suffix += 1;
     }
@@ -89,9 +91,12 @@ pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
     key
 }
 
-/// fork: 校验并归一化用户自定义 key（doc/20261009-设计文档 §6）：输入经 slug 规则
-/// 归一化（小写 `[a-z0-9-]`、连续横线合并、首尾横线去掉、超长截断），之后仍须
-/// 非空、不撞保留字 `default`、不与登记簿/墓簿冲突。返回归一化后的 key。
+/// fork: 校验并归一化用户自定义 key（doc/20261009-设计文档 §6、实施计划-聚合模式五项
+/// 优化）：输入经 slug 规则归一化（`[a-zA-Z0-9-]`、连续横线合并、首尾横线去掉、超长
+/// 截断），之后仍须非空、不撞保留字 `default`（忽略大小写——decode 端解绑判断本就
+/// 忽略，精确匹配会让 `Default` 绕过校验却被代理当解绑 id）、不与登记簿/墓簿冲突
+/// （同样忽略大小写：`Zhipu` 与 `zhipu` 并存会在模型列表里视觉重复）。
+/// 返回归一化后的 key。
 pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, String> {
     let normalized = slug(raw);
     if normalized.is_empty() {
@@ -99,13 +104,13 @@ pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, Stri
             "分组 key「{raw}」归一化后为空，请使用字母/数字 (Key normalizes to empty; use letters or digits)"
         ));
     }
-    if normalized == crate::proxy::route_prefix::RESERVED_ROUTE_KEY {
+    if normalized.eq_ignore_ascii_case(crate::proxy::route_prefix::RESERVED_ROUTE_KEY) {
         return Err(
             "分组 key 不能是保留字 default（解绑语义）(Key \"default\" is reserved for unbinding)"
                 .to_string(),
         );
     }
-    if stack.keys.contains_key(&normalized) || stack.reserved_keys.contains(&normalized) {
+    if key_taken(stack, &normalized) {
         return Err(format!(
             "分组 key「{normalized}」已被使用（含改名留下的旧 key）(Key \"{normalized}\" is already taken)"
         ));
@@ -113,13 +118,21 @@ pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, Stri
     Ok(normalized)
 }
 
-/// 小写 ASCII，只保留 `[a-z0-9-]`，其余字符换成 `-`，连续的 `-` 合并，首尾的 `-` 去掉。
-/// 结果里不会有 `.`（Claude/Codex id 的 key↔模型分隔符）。
+/// key 是否已被占用（大小写不敏感）。登记簿、墓簿统一走这里。
+fn key_taken(stack: &StackState, key: &str) -> bool {
+    stack
+        .keys
+        .keys()
+        .chain(stack.reserved_keys.iter())
+        .any(|existing| existing.eq_ignore_ascii_case(key))
+}
+
+/// ASCII 字母数字（大小写均可），其余字符（含 `.`）换成 `-`，连续的 `-` 合并，首尾的
+/// `-` 去掉。结果里不会有 `.`（Claude/Codex id 的 key↔模型分隔符）。
 fn slug(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
-        let c = c.to_ascii_lowercase();
-        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+        if c.is_ascii_alphanumeric() {
             out.push(c);
         } else if !out.is_empty() && !out.ends_with('-') {
             out.push('-');
@@ -807,7 +820,9 @@ mod tests {
             );
             assert!(key.len() <= KEY_MAX_LEN, "{text} → {key}");
         }
-        assert_eq!(slug("UPPER__lower"), "upper-lower");
+        // 大小写保留；`.`（id 的 key↔模型分隔符）归一化为横线
+        assert_eq!(slug("UPPER__lower"), "UPPER-lower");
+        assert_eq!(slug("my.key"), "my-key");
     }
 
     #[test]
@@ -1569,25 +1584,41 @@ mod tests {
         stack.keys.insert("kimi".to_string(), "kimi".to_string());
         stack.reserved_keys.insert("old".to_string());
 
-        // 归一化：大小写、非法字符、连续横线
+        // 归一化：大小写保留、非法字符换横线、连续横线合并（doc/20261009-五项优化）
         assert_eq!(
             validate_member_key(&stack, "CommandCode"),
-            Ok("commandcode".to_string())
+            Ok("CommandCode".to_string())
         );
         assert_eq!(validate_member_key(&stack, "a--b"), Ok("a-b".to_string()));
-        assert_eq!(validate_member_key(&stack, "A_B"), Ok("a-b".to_string()));
+        assert_eq!(validate_member_key(&stack, "A_B"), Ok("A-B".to_string()));
+        // `.` 是 id 的 key↔模型分隔符，归一化为横线
+        assert_eq!(validate_member_key(&stack, "my.key"), Ok("my-key".to_string()));
         // 超长由 slug 截断到 24 位，不报错
         assert_eq!(
             validate_member_key(&stack, &"x".repeat(40)),
             Ok("x".repeat(24))
         );
 
-        // 归一化后为空 / 保留字 / 与登记簿或墓碑冲突
+        // 归一化后为空 / 保留字（忽略大小写——decode 端解绑判断本就忽略）/
+        // 与登记簿或墓碑冲突（同样忽略大小写，避免视觉重复分组）
         assert!(validate_member_key(&stack, "").is_err());
         assert!(validate_member_key(&stack, "///").is_err());
         assert!(validate_member_key(&stack, "default").is_err());
+        assert!(validate_member_key(&stack, "Default").is_err());
         assert!(validate_member_key(&stack, "Kimi").is_err());
+        assert!(validate_member_key(&stack, "KIMI").is_err());
         assert!(validate_member_key(&stack, "old").is_err());
+        assert!(validate_member_key(&stack, "Old").is_err());
+    }
+
+    #[test]
+    fn auto_allocated_keys_stay_lowercase_even_amid_uppercase_ones() {
+        // 手动改出的大写 key 占位后，自动分配同名小写 key 要顺延（去重忽略大小写），
+        // 且自动分配本身永远产小写（与历史 key 风格一致）
+        let mut stack = StackState::default();
+        stack.keys.insert("Zhipu".to_string(), "zhipu".to_string());
+        let provider = Provider::with_id("zhipu2".to_string(), "Zhipu".to_string(), json!({}), None);
+        assert_eq!(allocate_key(&mut stack, &provider), "zhipu-2");
     }
 
     #[test]

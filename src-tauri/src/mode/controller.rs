@@ -6258,7 +6258,8 @@ model_provider = "c"
             .expect("rename");
 
         let stack = settled_stack(&AppType::Codex).unwrap();
-        assert_eq!(stack.key_of("deepseek"), Some("commandcode"));
+        // 大小写保留（doc/20261009-五项优化：slug 不再强制小写）
+        assert_eq!(stack.key_of("deepseek"), Some("CommandCode"));
         assert!(stack.reserved_keys.contains("deepseek"));
 
         // 发布的模型 id 换新 key（前缀取自 settings，测试环境为默认 ccs-）
@@ -6273,7 +6274,7 @@ model_provider = "c"
             .collect();
         assert!(
             ids.iter()
-                .any(|id| id.starts_with(&format!("{prefix}commandcode."))),
+                .any(|id| id.starts_with(&format!("{prefix}CommandCode."))),
             "{ids:?}"
         );
         assert!(
