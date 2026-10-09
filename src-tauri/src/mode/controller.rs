@@ -1254,7 +1254,7 @@ async fn set_stack_member_key_locked(
         .key_of(provider_id)
         .ok_or_else(|| format!("供应商没有登记的 key: {provider_id}"))?
         .to_string();
-    let new_key = stack::validate_member_key(&current, key)?;
+    let new_key = stack::validate_member_key(&current, key, provider_id)?;
     if new_key == old_key {
         return Ok(());
     }

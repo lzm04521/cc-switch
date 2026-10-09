@@ -96,8 +96,15 @@ pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
 /// 截断），之后仍须非空、不撞保留字 `default`（忽略大小写——decode 端解绑判断本就
 /// 忽略，精确匹配会让 `Default` 绕过校验却被代理当解绑 id）、不与登记簿/墓簿冲突
 /// （同样忽略大小写：`Zhipu` 与 `zhipu` 并存会在模型列表里视觉重复）。
+/// `self_provider_id` 是正在改名的成员：登记簿里指向它的条目是它自己的现 key，
+/// 仅大小写变化（`zhipupro` → `ZhiPuPro`）不算冲突。墓簿不豁免——旧 id 一经释放
+/// 就不再分给任何人（含原主，防止 id 语义复用）。
 /// 返回归一化后的 key。
-pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, String> {
+pub fn validate_member_key(
+    stack: &StackState,
+    raw: &str,
+    self_provider_id: &str,
+) -> Result<String, String> {
     let normalized = slug(raw);
     if normalized.is_empty() {
         return Err(format!(
@@ -110,7 +117,7 @@ pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, Stri
                 .to_string(),
         );
     }
-    if key_taken(stack, &normalized) {
+    if key_taken_except_self(stack, &normalized, self_provider_id) {
         return Err(format!(
             "分组 key「{normalized}」已被使用（含改名留下的旧 key）(Key \"{normalized}\" is already taken)"
         ));
@@ -125,6 +132,19 @@ fn key_taken(stack: &StackState, key: &str) -> bool {
         .keys()
         .chain(stack.reserved_keys.iter())
         .any(|existing| existing.eq_ignore_ascii_case(key))
+}
+
+/// [`key_taken`] 的改名视角：豁免登记簿里指向 `self_id` 的条目（成员自己的现 key），
+/// 大小写重排不算冲突；墓簿照旧全挡。
+fn key_taken_except_self(stack: &StackState, key: &str, self_id: &str) -> bool {
+    stack
+        .keys
+        .iter()
+        .any(|(k, v)| v != self_id && k.eq_ignore_ascii_case(key))
+        || stack
+            .reserved_keys
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case(key))
 }
 
 /// ASCII 字母数字（大小写均可），其余字符（含 `.`）换成 `-`，连续的 `-` 合并，首尾的
@@ -1583,32 +1603,65 @@ mod tests {
         let mut stack = StackState::default();
         stack.keys.insert("kimi".to_string(), "kimi".to_string());
         stack.reserved_keys.insert("old".to_string());
+        // 视角：改名者是 deepseek（登记簿/墓簿里没有它的条目，所有冲突都是别人的）
+        let self_id = "deepseek";
 
         // 归一化：大小写保留、非法字符换横线、连续横线合并（doc/20261009-五项优化）
         assert_eq!(
-            validate_member_key(&stack, "CommandCode"),
+            validate_member_key(&stack, "CommandCode", self_id),
             Ok("CommandCode".to_string())
         );
-        assert_eq!(validate_member_key(&stack, "a--b"), Ok("a-b".to_string()));
-        assert_eq!(validate_member_key(&stack, "A_B"), Ok("A-B".to_string()));
+        assert_eq!(
+            validate_member_key(&stack, "a--b", self_id),
+            Ok("a-b".to_string())
+        );
+        assert_eq!(
+            validate_member_key(&stack, "A_B", self_id),
+            Ok("A-B".to_string())
+        );
         // `.` 是 id 的 key↔模型分隔符，归一化为横线
-        assert_eq!(validate_member_key(&stack, "my.key"), Ok("my-key".to_string()));
+        assert_eq!(
+            validate_member_key(&stack, "my.key", self_id),
+            Ok("my-key".to_string())
+        );
         // 超长由 slug 截断到 24 位，不报错
         assert_eq!(
-            validate_member_key(&stack, &"x".repeat(40)),
+            validate_member_key(&stack, &"x".repeat(40), self_id),
             Ok("x".repeat(24))
         );
 
         // 归一化后为空 / 保留字（忽略大小写——decode 端解绑判断本就忽略）/
         // 与登记簿或墓碑冲突（同样忽略大小写，避免视觉重复分组）
-        assert!(validate_member_key(&stack, "").is_err());
-        assert!(validate_member_key(&stack, "///").is_err());
-        assert!(validate_member_key(&stack, "default").is_err());
-        assert!(validate_member_key(&stack, "Default").is_err());
-        assert!(validate_member_key(&stack, "Kimi").is_err());
-        assert!(validate_member_key(&stack, "KIMI").is_err());
-        assert!(validate_member_key(&stack, "old").is_err());
-        assert!(validate_member_key(&stack, "Old").is_err());
+        assert!(validate_member_key(&stack, "", self_id).is_err());
+        assert!(validate_member_key(&stack, "///", self_id).is_err());
+        assert!(validate_member_key(&stack, "default", self_id).is_err());
+        assert!(validate_member_key(&stack, "Default", self_id).is_err());
+        assert!(validate_member_key(&stack, "Kimi", self_id).is_err());
+        assert!(validate_member_key(&stack, "KIMI", self_id).is_err());
+        assert!(validate_member_key(&stack, "old", self_id).is_err());
+        assert!(validate_member_key(&stack, "Old", self_id).is_err());
+    }
+
+    #[test]
+    fn renaming_to_a_case_variant_of_ones_own_key_is_allowed() {
+        // 用户把 key 从旧 slug 时代的小写升级成大小写（zhipupro → ZhiPuPro）：
+        // 登记簿里指向自己的条目豁免，仅大小写变化不算冲突；别人用同形仍被挡；
+        // 墓簿不豁免（旧 id 释放后不再分给任何人，含原主）
+        let mut stack = StackState::default();
+        stack.keys.insert("zhipupro".to_string(), "zhipu".to_string());
+        stack.keys.insert("kimi".to_string(), "kimi".to_string());
+        stack.reserved_keys.insert("oldkey".to_string());
+
+        // 自己改大小写变体：通过
+        assert_eq!(
+            validate_member_key(&stack, "ZhiPuPro", "zhipu"),
+            Ok("ZhiPuPro".to_string())
+        );
+        // 别人用同样的大小写变体：挡（撞 zhipu 的现 key）
+        assert!(validate_member_key(&stack, "ZhiPuPro", "kimi").is_err());
+        // 原主改回已墓碑化的旧 key：挡
+        assert!(validate_member_key(&stack, "oldkey", "zhipu").is_err());
+        assert!(validate_member_key(&stack, "OldKey", "zhipu").is_err());
     }
 
     #[test]
