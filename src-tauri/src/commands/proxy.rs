@@ -186,6 +186,26 @@ pub async fn adopt_codex_stack_catalog(
     crate::mode::controller::adopt_codex_stack_catalog(state.inner()).await
 }
 
+/// fork: 改聚合成员的分组 key（doc/20261009-设计文档-会话路由改造为聚合模式 §6）。
+/// 旧 key 墓碑化（旧 id 失效报 Unknown），新 key 即时重发布。失败语义同 set_proxy_stack_member。
+#[tauri::command]
+pub async fn set_proxy_stack_member_key(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+    provider_id: String,
+    key: String,
+) -> Result<Option<&'static str>, crate::mode::controller::StackWriteError> {
+    let app = require_proxy_app(&app_type)
+        .map_err(crate::mode::controller::StackWriteError::unchanged)?;
+    let result =
+        crate::mode::controller::set_stack_member_key(state.inner(), &app, &provider_id, &key)
+            .await;
+    // key 改名同样改变发布内容与托盘聚合子菜单，与增删成员同一刷新口径
+    crate::tray::refresh_tray_menu(&app_handle);
+    result
+}
+
 /// 获取代理服务器状态
 #[tauri::command]
 pub async fn get_proxy_status(state: tauri::State<'_, AppState>) -> Result<ProxyStatus, String> {

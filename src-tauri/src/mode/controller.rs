@@ -1201,6 +1201,86 @@ async fn set_stack_member_locked(
     }
 }
 
+/// fork: 改成员的分组 key（doc/20261009-设计文档-会话路由改造为聚合模式 §6）。
+/// 旧 key 进墓簿（永不再分配，旧 id 解析按未登记报错），新 key 即时生效——
+/// 契约与客户端文件（Codex 目录等）随同一次操作重发布，与增删成员同一提交模式。
+/// 失败语义同 [`set_stack_member`]（见 [`StackWriteError::partial`]）。
+pub async fn set_stack_member_key(
+    state: &AppState,
+    app: &AppType,
+    provider_id: &str,
+    key: &str,
+) -> Result<Option<&'static str>, StackWriteError> {
+    if !stack::supports_stack(app) {
+        return Err(StackWriteError::unchanged(format!(
+            "{} 不支持聚合的模型 ({} does not support aggregated models)",
+            app.as_str(),
+            app.as_str()
+        )));
+    }
+    let _guard = lock_settled(state, app)
+        .await
+        .map_err(|error| StackWriteError::unchanged(error.to_string()))?;
+    if let Err(message) = set_stack_member_key_locked(state, app, provider_id, key).await {
+        let partial = operation::pending_published(&DeviceStore::for_device(), app.as_str())
+            .unwrap_or_else(|error| {
+                log::warn!("读取 {} 的写前意图失败: {error}", app.as_str());
+                None
+            })
+            == Some(true);
+        return Err(StackWriteError { partial, message });
+    }
+    Ok(match app {
+        AppType::Codex => settled_stack(app)
+            .ok()
+            .and_then(|stack| codex_stack_notice(state, &stack)),
+        _ => None,
+    })
+}
+
+async fn set_stack_member_key_locked(
+    state: &AppState,
+    app: &AppType,
+    provider_id: &str,
+    key: &str,
+) -> Result<(), String> {
+    let current = settled_stack(app)?;
+    if !current.is_member(provider_id) {
+        return Err(format!(
+            "只有聚合名单里的供应商才能改分组 key (Only aggregated members can rename their key): {provider_id}"
+        ));
+    }
+    let old_key = current
+        .key_of(provider_id)
+        .ok_or_else(|| format!("供应商没有登记的 key: {provider_id}"))?
+        .to_string();
+    let new_key = stack::validate_member_key(&current, key)?;
+    if new_key == old_key {
+        return Ok(());
+    }
+    let mut next = current.clone();
+    next.keys.remove(&old_key);
+    next.reserved_keys.insert(old_key);
+    next.keys.insert(new_key, provider_id.to_string());
+
+    match attached_route(state, app)? {
+        Some((mode, route)) => {
+            let live_now = LiveNow::of(state, app, &mode)?;
+            write_proxy(state, app, op::STACK, &route, &live_now, mode, Some(next))
+                .await
+                .map(|_| ())
+        }
+        None => commit_state(
+            state,
+            app,
+            &PendingTarget {
+                stack: Some(next),
+                ..PendingTarget::default()
+            },
+        ),
+    }
+}
+
 /// Stack 模式的状态、名单里的每一家和它发布的模型 id（给前端）。
 pub fn stack_views(state: &AppState, app: &AppType) -> Result<StackView, String> {
     if !stack::supports_stack(app) {
@@ -6142,6 +6222,57 @@ model_provider = "c"
             codex_doc()["model_catalog_json"].as_str(),
             Some(crate::codex_config::CC_SWITCH_CODEX_MODEL_CATALOG_FILENAME)
         );
+    }
+
+    /// fork Task 5: 改成员 key——旧 key 进墓簿、新 key 即时生效并随同一操作重发布
+    /// （目录条目换成新 key 的 id）。
+    #[tokio::test]
+    #[serial]
+    async fn renaming_a_member_key_updates_the_registry_and_published_ids() {
+        let _home = Home::new();
+        seed_codex("", None);
+        let state = state_with(AppType::Codex, &codex_stack_rows(), "a").await;
+        enter(&state, &AppType::Codex, true).await.expect("enter");
+        set_codex_member(&state, "deepseek", true).await;
+        let old_key = settled_stack(&AppType::Codex)
+            .unwrap()
+            .key_of("deepseek")
+            .unwrap()
+            .to_string();
+        assert_eq!(old_key, "deepseek");
+
+        set_stack_member_key(&state, &AppType::Codex, "deepseek", "CommandCode")
+            .await
+            .expect("rename");
+
+        let stack = settled_stack(&AppType::Codex).unwrap();
+        assert_eq!(stack.key_of("deepseek"), Some("commandcode"));
+        assert!(stack.reserved_keys.contains("deepseek"));
+
+        // 发布的模型 id 换新 key（前缀取自 settings，测试环境为默认 ccs-）
+        let prefix = stack::configured_prefix();
+        let view = stack_view_with_clients(&state, &AppType::Codex)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = view
+            .members
+            .iter()
+            .flat_map(|member| member.model_ids.iter().map(String::as_str))
+            .collect();
+        assert!(
+            ids.iter().any(|id| id.starts_with(&format!("{prefix}commandcode/"))),
+            "{ids:?}"
+        );
+        assert!(
+            !ids.iter().any(|id| id.starts_with(&format!("{prefix}deepseek/"))),
+            "{ids:?}"
+        );
+
+        // 重复改回旧 key：墓簿挡住
+        let error = set_stack_member_key(&state, &AppType::Codex, "deepseek", &old_key)
+            .await
+            .expect_err("tombstoned key must be rejected");
+        assert!(!error.partial, "{error:?}");
     }
 
     /// 提示上的「改用 CC Switch 的模型目录」：去掉路由那家行里的指针，契约带进 live 的那份

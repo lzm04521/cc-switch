@@ -80,12 +80,36 @@ pub fn allocate_key(stack: &mut StackState, provider: &Provider) -> String {
         });
     let mut key = base.clone();
     let mut suffix = 2;
-    while stack.keys.contains_key(&key) {
+    // fork: 墓碑 key 同样占位——旧 id 不能被发给新来的这家（与登记簿同一不变量）
+    while stack.keys.contains_key(&key) || stack.reserved_keys.contains(&key) {
         key = format!("{base}-{suffix}");
         suffix += 1;
     }
     stack.keys.insert(key.clone(), provider.id.clone());
     key
+}
+
+/// fork: 校验并归一化用户自定义 key（doc/20261009-设计文档 §6）：输入经 slug 规则
+/// 归一化（小写 `[a-z0-9-]`、连续横线合并、首尾横线去掉、超长截断），之后仍须
+/// 非空、不撞保留字 `default`、不与登记簿/墓簿冲突。返回归一化后的 key。
+pub fn validate_member_key(stack: &StackState, raw: &str) -> Result<String, String> {
+    let normalized = slug(raw);
+    if normalized.is_empty() {
+        return Err(format!(
+            "分组 key「{raw}」归一化后为空，请使用字母/数字 (Key normalizes to empty; use letters or digits)"
+        ));
+    }
+    if normalized == crate::proxy::route_prefix::RESERVED_ROUTE_KEY {
+        return Err(
+            "分组 key 不能是保留字 default（解绑语义）(Key \"default\" is reserved for unbinding)".to_string(),
+        );
+    }
+    if stack.keys.contains_key(&normalized) || stack.reserved_keys.contains(&normalized) {
+        return Err(format!(
+            "分组 key「{normalized}」已被使用（含改名留下的旧 key）(Key \"{normalized}\" is already taken)"
+        ));
+    }
+    Ok(normalized)
 }
 
 /// 小写 ASCII，只保留 `[a-z0-9-]`，其余字符换成 `-`，连续的 `-` 合并，首尾的 `-` 去掉。
@@ -1518,5 +1542,63 @@ mod tests {
             miss(resolve_in(&fx, AppType::Claude, "ccs-claude-kimi")),
             StackMiss::StackOff
         );
+    }
+
+    // fork Task 5: 自定义 key（改名 + 墓碑）
+
+    #[test]
+    fn validate_member_key_matrix() {
+        let mut stack = StackState::default();
+        stack.keys.insert("kimi".to_string(), "kimi".to_string());
+        stack.reserved_keys.insert("old".to_string());
+
+        // 归一化：大小写、非法字符、连续横线
+        assert_eq!(
+            validate_member_key(&stack, "CommandCode"),
+            Ok("commandcode".to_string())
+        );
+        assert_eq!(validate_member_key(&stack, "a--b"), Ok("a-b".to_string()));
+        assert_eq!(validate_member_key(&stack, "A_B"), Ok("a-b".to_string()));
+        // 超长由 slug 截断到 24 位，不报错
+        assert_eq!(
+            validate_member_key(&stack, &"x".repeat(40)),
+            Ok("x".repeat(24))
+        );
+
+        // 归一化后为空 / 保留字 / 与登记簿或墓碑冲突
+        assert!(validate_member_key(&stack, "").is_err());
+        assert!(validate_member_key(&stack, "///").is_err());
+        assert!(validate_member_key(&stack, "default").is_err());
+        assert!(validate_member_key(&stack, "Kimi").is_err());
+        assert!(validate_member_key(&stack, "old").is_err());
+    }
+
+    #[test]
+    fn renamed_key_tombstones_the_old_one() {
+        // 模拟 controller 改名后的登记簿：新 key 指向成员，旧 key 进墓碑
+        let mut stack = StackState::default();
+        stack.members = vec!["kimi".to_string()];
+        stack.keys.insert("code".to_string(), "kimi".to_string());
+        stack.reserved_keys.insert("kimi".to_string());
+
+        let db = Database::memory().unwrap();
+        db.save_provider(
+            "claude",
+            &provider("kimi", "Kimi", Some("kimi"), json!({ "ANTHROPIC_MODEL": "m" })),
+        )
+        .unwrap();
+        // 旧 key 解析不到（Unknown），新 key 正常
+        assert!(matches!(
+            resolve_member(&db, &stack, &AppType::Claude, "kimi"),
+            Ok(Err(StackMiss::Unknown))
+        ));
+        assert!(matches!(
+            resolve_member(&db, &stack, &AppType::Claude, "code"),
+            Ok(Ok(_))
+        ));
+
+        // 墓碑 key 不被 allocate_key 再分配：同图标的新家拿 kimi-2
+        let other = provider("b", "Kimi 2", Some("kimi"), json!({}));
+        assert_eq!(allocate_key(&mut stack, &other), "kimi-2");
     }
 }

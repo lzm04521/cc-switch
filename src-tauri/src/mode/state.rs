@@ -10,7 +10,7 @@
 //!
 //! 文件是设备本地的（0600，不同步），路径见 [`DeviceStore`]。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -129,13 +129,22 @@ pub struct StackState {
     /// 客户端会一直带着选中过的 id，key 改了指向，旧 id 就会被悄悄发到另一家。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: BTreeMap<String, String>,
+    /// fork: 墓碑 key（改名留下的旧 key）。与登记簿同一不变量——永不重新分配，
+    /// 旧 id 不会悄悄指向另一家；不指向任何供应商（解析按未登记报错）。
+    /// （doc/20261009-设计文档-会话路由改造为聚合模式 §6）
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub reserved_keys: BTreeSet<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
 impl StackState {
     pub fn is_empty(&self) -> bool {
-        !self.enabled && self.members.is_empty() && self.keys.is_empty() && self.extra.is_empty()
+        !self.enabled
+            && self.members.is_empty()
+            && self.keys.is_empty()
+            && self.reserved_keys.is_empty()
+            && self.extra.is_empty()
     }
 
     /// 这家在登记簿里的 key。
