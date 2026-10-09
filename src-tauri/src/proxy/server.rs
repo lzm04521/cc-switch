@@ -477,6 +477,7 @@ mod tests {
     use crate::AppError;
     use axum::http::{header, HeaderMap, StatusCode};
     use serde_json::{json, Value};
+    use serial_test::serial;
     use tokio::sync::Mutex;
 
     #[derive(Debug)]
@@ -1306,5 +1307,227 @@ mod tests {
             full_url_request.body["commands"]["search_query"][0]["q"],
             "full URL"
         );
+    }
+
+    /// fork Task 4 终审修复（F1）：短形式聚合 id 的端到端归因——session 钩子先于
+    /// Stack 解析、锁定成员、model 改写为成员默认模型；默认成员不接请求。
+    /// CC_SWITCH_TEST_HOME 隔离 for_device() 的 live-state 与设置（不读真实 ~/.cc-switch）。
+    #[tokio::test]
+    #[serial]
+    async fn short_form_stack_id_routes_to_member_with_default_model() {
+        let previous = std::env::var_os("CC_SWITCH_TEST_HOME");
+        let temp = tempfile::tempdir().expect("temporary home");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        struct RestoreHome(Option<std::ffi::OsString>);
+        impl Drop for RestoreHome {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+                    None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+                }
+            }
+        }
+        let _restore = RestoreHome(previous);
+
+        let spawn_chat_mock = |captured: Arc<Mutex<Vec<CapturedRequest>>>| {
+            let mock_app = axum::Router::new().route(
+                "/v1/chat/completions",
+                post({
+                    let captured = captured.clone();
+                    move |request: axum::extract::Request| {
+                        let captured = captured.clone();
+                        async move {
+                        let (parts, body) = request.into_parts();
+                        let body =
+                            axum::body::to_bytes(body, 1024 * 1024)
+                                .await
+                                .expect("read mock request body");
+                        captured.lock().await.push(CapturedRequest {
+                            path_and_query: parts
+                                .uri
+                                .path_and_query()
+                                .map(|value| value.as_str().to_string())
+                                .unwrap_or_else(|| parts.uri.path().to_string()),
+                            authorization: parts
+                                .headers
+                                .get(header::AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(ToString::to_string),
+                            body: serde_json::from_slice(&body)
+                                .expect("parse mock request body"),
+                        });
+                        (
+                            StatusCode::OK,
+                            [(header::CONTENT_TYPE, "application/json")],
+                            r#"{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}"#,
+                        )
+                    }
+                }}),
+            );
+            async move {
+                let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                    .await
+                    .expect("bind mock upstream");
+                let addr = listener.local_addr().expect("mock upstream address");
+                let handle = tokio::spawn(async move {
+                    axum::serve(listener, mock_app)
+                        .await
+                        .expect("serve mock upstream");
+                });
+                (addr, handle)
+            }
+        };
+
+        let (captured_default, captured_route) = (
+            Arc::new(Mutex::new(Vec::<CapturedRequest>::new())),
+            Arc::new(Mutex::new(Vec::<CapturedRequest>::new())),
+        );
+        let (default_addr, default_handle) = spawn_chat_mock(captured_default.clone()).await;
+        let (route_addr, route_handle) = spawn_chat_mock(captured_route.clone()).await;
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+        let default_provider = Provider::with_id(
+            "default-upstream".to_string(),
+            "Default Upstream".to_string(),
+            json!({
+                "base_url": format!("http://{default_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "default-secret"},
+                "model": "default-model"
+            }),
+            None,
+        );
+        let member = Provider::with_id(
+            "member-ds".to_string(),
+            "Member DS".to_string(),
+            json!({
+                "base_url": format!("http://{route_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "route-secret"},
+                "model": "member-default-model"
+            }),
+            None,
+        );
+        db.save_provider("codex", &default_provider).unwrap();
+        db.set_current_provider("codex", &default_provider.id).unwrap();
+        db.save_provider("codex", &member).unwrap();
+
+        // 临时 home 下的 live-state：codex 代理 + 聚合开 + 成员名单与 key
+        crate::mode::state::update(&crate::live::engine::DeviceStore::for_device(), |live| {
+            let codex = live.apps.entry("codex".to_string()).or_default();
+            codex.mode = Some(crate::mode::state::Mode::Proxy);
+            codex.proxy_route = Some("default-upstream".to_string());
+            let stack = &mut codex.stack;
+            stack.enabled = true;
+            stack.members = ["default-upstream", "member-ds"].map(str::to_string).to_vec();
+            stack.keys.insert("default".to_string(), "default-upstream".to_string());
+            stack.keys.insert("ds".to_string(), "member-ds".to_string());
+        })
+        .unwrap();
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+
+        // 前缀取自设置（临时 home 下为默认 ccs-；动态取值保证任何机器配置下都成立）
+        let prefix = crate::settings::get_route_prefix();
+        let response = client
+            .post(format!(
+                "http://127.0.0.1:{}/codex/v1/chat/completions",
+                proxy_info.port
+            ))
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .header("session_id", "sticky-session-0123456789abcdef")
+            .json(&json!({
+                "model": format!("{prefix}ds"),
+                "messages": [{"role": "user", "content": "route me"}]
+            }))
+            .send()
+            .await
+            .expect("send short-form request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 归因：成员上游收到请求，model 已改写为成员默认模型；默认上游零请求
+        let routed = captured_route.lock().await;
+        assert_eq!(routed.len(), 1, "member upstream must receive the request");
+        assert_eq!(routed[0].body["model"], json!("member-default-model"));
+        assert_eq!(
+            routed[0].authorization.as_deref(),
+            Some("Bearer route-secret")
+        );
+        drop(routed);
+        assert!(
+            captured_default.lock().await.is_empty(),
+            "default upstream must not receive short-form requests"
+        );
+
+        // 同 session 裸模型名（subagent 形态）：粘性跟随绑定成员 ds（顺序反了绑定
+        // 无法建立、裸名会落到默认成员——这是钩子必须先于 Stack 解析的判别场景）
+        let response = client
+            .post(format!(
+                "http://127.0.0.1:{}/codex/v1/chat/completions",
+                proxy_info.port
+            ))
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .header("session_id", "sticky-session-0123456789abcdef")
+            .json(&json!({
+                "model": "bare-haiku-alias",
+                "messages": [{"role": "user", "content": "sticky follow"}]
+            }))
+            .send()
+            .await
+            .expect("send bare-model request");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            captured_route.lock().await.len(),
+            2,
+            "bare model must follow the bound member (sticky)"
+        );
+        assert_eq!(
+            captured_default.lock().await.len(),
+            0,
+            "bare model must not fall back to the default member while bound"
+        );
+
+        // 同 session 发默认成员的全 id（带客户端 session 头建立粘性绑定）：
+        // 显式全 id 必须优先于绑定（选中谁走谁）——这是「钩子先于 Stack 解析」
+        // 顺序契约的判别性场景（顺序反了会被粘性锁定覆盖）
+        let full_id = format!("{prefix}default/default-model");
+        let response = client
+            .post(format!(
+                "http://127.0.0.1:{}/codex/v1/chat/completions",
+                proxy_info.port
+            ))
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .header("session_id", "sticky-session-0123456789abcdef")
+            .json(&json!({
+                "model": full_id,
+                "messages": [{"role": "user", "content": "explicit wins"}]
+            }))
+            .send()
+            .await
+            .expect("send full-id request");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            captured_route.lock().await.len(),
+            2,
+            "member upstream must not receive the explicit default-member request"
+        );
+        assert_eq!(
+            captured_default.lock().await.len(),
+            1,
+            "explicit full id must reach the default member despite the ds binding"
+        );
+
+        proxy.stop().await.expect("stop test proxy");
+        default_handle.abort();
+        route_handle.abort();
     }
 }
