@@ -266,13 +266,21 @@ fn rewrite_label(rewritten: bool) -> &'static str {
 }
 
 /// 发布 Stack 模型的成员（见 [`stack::published_members`]）。
+/// fork: 模型 id 前缀可配置，在此统一取值一次传入（doc/20261009-设计文档-会话路由改造为聚合模式）。
 fn published_members(
     state: &AppState,
     app: &AppType,
     stack: &StackState,
     route: &Provider,
 ) -> Result<Vec<stack::Member>, String> {
-    stack::published_members(&state.db, app, stack, Some(route.id.as_str())).map_err(err)
+    stack::published_members(
+        &stack::configured_prefix(),
+        &state.db,
+        app,
+        stack,
+        Some(route.id.as_str()),
+    )
+    .map_err(err)
 }
 
 /// 只落定状态，不碰客户端文件（未接上时换路由、故障转移记下新路由等）。
@@ -312,8 +320,9 @@ async fn write_proxy(
     let unchanged = match app {
         AppType::Claude => {
             let members = published_members(state, app, &stack, route)?;
-            let published = stack::claude_published(&members);
-            let stack_default = stack::claude_route_default(&members);
+            let prefix = stack::configured_prefix();
+            let published = stack::claude_published(&prefix, &members);
+            let stack_default = stack::claude_route_default(&prefix, &members);
             let (projection, contract) =
                 claude_contract(route, &proxy_url, &published, stack_default.as_ref());
             let unchanged = !force && live_now.has_contract(&contract.key);
@@ -1200,7 +1209,8 @@ pub fn stack_views(state: &AppState, app: &AppType) -> Result<StackView, String>
     let stack = settled_stack(app)?;
     let mode = current::mode_state(app);
     let route = mode.proxy_route.as_deref().filter(|_| mode.is_proxy());
-    let members = stack::members(&state.db, app, &stack, route).map_err(err)?;
+    let members =
+        stack::members(&stack::configured_prefix(), &state.db, app, &stack, route).map_err(err)?;
     let notice = match app {
         AppType::Codex => codex_stack_notice(state, &stack),
         _ => None,
@@ -1238,8 +1248,14 @@ fn codex_publishes_stack_models(state: &AppState, stack: &StackState) -> bool {
         .ok()
         .flatten()
         .is_some_and(|(_, route)| {
-            stack::published_members(&state.db, &AppType::Codex, stack, Some(&route.id))
-                .is_ok_and(|published| !published.is_empty())
+            stack::published_members(
+                &stack::configured_prefix(),
+                &state.db,
+                &AppType::Codex,
+                stack,
+                Some(&route.id),
+            )
+            .is_ok_and(|published| !published.is_empty())
         })
 }
 
@@ -1247,8 +1263,14 @@ fn codex_publishes_stack_models(state: &AppState, stack: &StackState) -> bool {
 /// 目录文件（Stack 模型不发布）；或者官方做默认、最近一次写目录时没拿到官方列表。
 fn codex_stack_notice(state: &AppState, stack: &StackState) -> Option<&'static str> {
     let (_, route) = attached_route(state, &AppType::Codex).ok()??;
-    let published =
-        stack::published_members(&state.db, &AppType::Codex, stack, Some(&route.id)).ok()?;
+    let published = stack::published_members(
+        &stack::configured_prefix(),
+        &state.db,
+        &AppType::Codex,
+        stack,
+        Some(&route.id),
+    )
+    .ok()?;
     if published.is_empty() {
         return None;
     }

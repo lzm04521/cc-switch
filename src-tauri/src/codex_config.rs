@@ -2424,6 +2424,8 @@ pub(crate) fn plan_codex_stack_catalog(
             obj.insert(
                 "slug".to_string(),
                 json!(crate::mode::stack::encode(
+                    // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
+                    &crate::mode::stack::configured_prefix(),
                     &crate::app_config::AppType::Codex,
                     member.key,
                     &model,
@@ -2693,7 +2695,12 @@ fn build_simplified_catalog_from_texts(config_text: &str, catalog_text: &str) ->
         };
         // Stack 模型的行（保留前缀）不属于路由那家，不能进它的编辑表单、再被保存回库里。
         if !matches!(
-            crate::mode::stack::decode(&crate::app_config::AppType::Codex, model),
+            // fork: 前缀可配置；短形式 id（前缀+key 无分隔符）同样视为 Stack 管理的行
+            crate::mode::stack::decode(
+                &crate::mode::stack::configured_prefix(),
+                &crate::app_config::AppType::Codex,
+                model,
+            ),
             crate::mode::stack::Decoded::Plain
         ) {
             continue;

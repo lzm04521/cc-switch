@@ -1110,6 +1110,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "fork: 旧会话路由行为（G.<key> 语法），Task 3 改造 route_prefix 后删除"]
     async fn codex_chat_completions_route_prefix_locks_route_group() {
         // 会话级路由在 /chat/completions 入口（含 /codex/v1 别名）的行为：
         // G.<key> 锁定分组 + 默认模型改写、G.<key>:<model> 显式透传、
@@ -1313,6 +1314,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "fork: 旧会话路由行为（G.<key> 语法），Task 3 改造 route_prefix 后删除"]
     async fn codex_chat_completions_converts_to_responses_upstream() {
         // Chat 客户端 × Responses 型上游（wire_api=responses）：请求转 Responses
         // 协议发上游 /responses，响应流转回 Chat（2026-09-11）

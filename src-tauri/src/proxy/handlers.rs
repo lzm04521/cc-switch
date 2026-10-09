@@ -328,10 +328,13 @@ fn is_claude_model_discovery(uri: &axum::http::Uri, headers: &axum::http::Header
 /// Claude Code 的 Stack 模型列表（Anthropic 形状）。只读数据库和 `live-state.json`，不做网络
 /// 请求：客户端只等 3 秒。不在代理模式、名单为空时返回空列表。
 fn claude_model_discovery(state: &ProxyState) -> Value {
-    let models = crate::mode::stack::claude_published_now(&state.db).unwrap_or_else(|error| {
-        log::warn!("[Claude] 读取 Stack 模型失败，返回空列表: {error}");
-        Vec::new()
-    });
+    // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
+    let prefix = crate::mode::stack::configured_prefix();
+    let models =
+        crate::mode::stack::claude_published_now(&prefix, &state.db).unwrap_or_else(|error| {
+            log::warn!("[Claude] 读取 Stack 模型失败，返回空列表: {error}");
+            Vec::new()
+        });
     let data: Vec<Value> = models
         .into_iter()
         .map(|model| {
@@ -367,11 +370,14 @@ fn resolve_stack_target(
     let Some(model) = body.get("model").and_then(Value::as_str) else {
         return Ok(None);
     };
-    if matches!(stack::decode(app_type, model), Decoded::Plain) {
+    // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
+    let prefix = stack::configured_prefix();
+    if matches!(stack::decode(&prefix, app_type, model), Decoded::Plain) {
         return Ok(None);
     }
     let model = model.to_string();
     let resolved = stack::resolve(
+        &prefix,
         &state.db,
         &crate::live::engine::DeviceStore::for_device(),
         app_type,

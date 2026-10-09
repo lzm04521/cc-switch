@@ -970,8 +970,8 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 读取会话级路由触发前缀（DB 值非法时回退默认 "G." 并 warn，fail-safe，
-/// 设计 §3.9 运行时兜底）
+/// 读取聚合模型 id 前缀（settings 值非法时回退默认 "ccs-" 并 warn，fail-safe；
+/// fork: 会话路由改造为聚合模式后此设置即聚合前缀）
 pub fn get_route_prefix() -> String {
     crate::proxy::route_prefix::normalize_route_prefix(get_settings().route_prefix.as_deref())
 }

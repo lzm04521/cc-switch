@@ -19,8 +19,9 @@ use crate::proxy::model_mapper::{strip_one_m_suffix_for_upstream, ModelMapping};
 use crate::proxy::server::ProxyState;
 use serde_json::Value;
 
-/// 默认路由触发前缀（完整触发串，含边界符）
-pub const DEFAULT_ROUTE_PREFIX: &str = "G.";
+/// 默认模型 id 前缀（fork: 与上游 Stack 一致为 "ccs-"；完整触发串，含边界符。
+/// doc/20261009-设计文档-会话路由改造为聚合模式）
+pub const DEFAULT_ROUTE_PREFIX: &str = "ccs-";
 
 /// 保留路由 key：任意触发前缀下 `<prefix>default` 恒为解绑语义，
 /// 不查分组表、禁止被分组占用
@@ -807,10 +808,11 @@ mod tests {
 
     #[test]
     fn normalize_falls_back_to_default_on_invalid() {
-        assert_eq!(normalize_route_prefix(None), "G.");
-        assert_eq!(normalize_route_prefix(Some("")), "G.");
-        assert_eq!(normalize_route_prefix(Some("  ")), "G.");
-        assert_eq!(normalize_route_prefix(Some("G")), "G."); // 裸字母结尾（改库绕过校验）
+        // fork: 默认前缀随聚合模式对齐上游（"G." → "ccs-"）
+        assert_eq!(normalize_route_prefix(None), "ccs-");
+        assert_eq!(normalize_route_prefix(Some("")), "ccs-");
+        assert_eq!(normalize_route_prefix(Some("  ")), "ccs-");
+        assert_eq!(normalize_route_prefix(Some("G")), "ccs-"); // 裸字母结尾（改库绕过校验）
         assert_eq!(normalize_route_prefix(Some("@")), "@");
     }
 
