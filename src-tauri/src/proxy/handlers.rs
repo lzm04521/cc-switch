@@ -47,7 +47,7 @@ use super::{
     ProxyError,
 };
 use crate::app_config::AppType;
-use crate::database::PRICING_SOURCE_REQUEST;
+use crate::database::{Database, PRICING_SOURCE_REQUEST};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bytes::Bytes;
 use futures::StreamExt;
@@ -99,11 +99,13 @@ pub async fn handle_models(
     if is_claude_model_discovery(&uri, &headers) {
         return Ok(Json(claude_model_discovery(&state)));
     }
-    let catalog = read_active_codex_catalog();
+    let mut catalog = read_active_codex_catalog();
 
-    // fork Task 6: 旧路由分组条目构建器已随会话路由体系删除；
-    // 此处暂不合并条目，聚合成员模型条目在 Task 6 接入
-    let _ = &state;
+    // fork Task 6: 非发现路径合并 codex 形态聚合条目（完整 + 每成员短形式）
+    // （doc/20261009-设计文档-会话路由改造为聚合模式 §7）
+    let store = crate::live::engine::DeviceStore::for_device();
+    let data = codex_stack_entries_for(&state.db, &store);
+    merge_stack_models_into_catalog(&mut catalog, data);
     Ok(Json(catalog))
 }
 
@@ -137,10 +139,10 @@ fn read_active_codex_catalog() -> Value {
     }
 }
 
-/// 会话级路由 /v1/models 合并层（纯函数）：把路由条目合并进 catalog JSON
+/// fork Task 6: /v1/models 聚合条目合并层（纯函数）：把聚合条目合并进 catalog JSON
 /// 的 Anthropic 风格 `data`/`has_more`/`first_id`/`last_id` 字段；catalog 为
-/// 非 object JSON（如 null）时原样返回。开关关闭路径不经过本函数。
-fn merge_route_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
+/// 非 object JSON（如 null）时原样返回。
+fn merge_stack_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
     if let Some(obj) = catalog.as_object_mut() {
         // 先提取 owned 首尾 id 再 move data 进 Value::Array（避免借用冲突）
         let ids: Vec<String> = data
@@ -167,21 +169,117 @@ fn merge_route_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
     }
 }
 
-/// `/claude/v1/models`：claude 命名空间专属模型列表——仅会话级路由分组
-/// 条目（`G.<key>` / `G.<key>:<model>`，与 `/v1/models` 的 `data` 部分同源
-/// 同规则），不含 Codex 目录（那是 `/v1/models` 与 `/codex/v1/models` 的
-/// 职责）。跟随 `route_models_endpoint` 开关，关闭时 `data` 为空。
+/// fork Task 6: claude 形态聚合条目（完整模型条目 + 每成员一条短形式，
+/// doc/20261009-设计文档-会话路由改造为聚合模式 §7）。不在代理模式 /
+/// 聚合未开时为空。读失败按空处理（客户端只等 3 秒，不因状态文件坏掉而 500）。
+fn claude_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceStore) -> Vec<Value> {
+    let prefix = stack_configured_prefix();
+    let mut entries = Vec::new();
+    let mut build = || -> Result<(), crate::error::AppError> {
+        let app = AppType::Claude;
+        let mode = crate::mode::state::mode_state(store, app.as_str())?;
+        if !mode.is_proxy() {
+            return Ok(());
+        }
+        let stack_state = crate::mode::state::stack(store, app.as_str())?;
+        let members = crate::mode::stack::published_members(
+            &prefix,
+            db,
+            &app,
+            &stack_state,
+            mode.proxy_route.as_deref(),
+        )?;
+        for model in crate::mode::stack::claude_published(&prefix, &members) {
+            entries.push(json!({
+                "type": "model",
+                "id": model.id,
+                "display_name": model.display_name,
+                "description": model.description,
+            }));
+        }
+        for member in &members {
+            let default_model =
+                crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
+            entries.push(json!({
+                "type": "model",
+                "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
+                "display_name": member.provider.name.clone(),
+                "description": default_model
+                    .map(|model| format!("默认模型 {model} (default model)"))
+                    .unwrap_or_default(),
+            }));
+        }
+        Ok(())
+    };
+    if let Err(error) = build() {
+        log::warn!("[Claude] 读取 Stack 聚合条目失败，返回空列表: {error}");
+    }
+    entries
+}
+
+/// fork Task 6: codex 形态聚合条目（成员发布的完整模型 id + 每成员短形式）。
+fn codex_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceStore) -> Vec<Value> {
+    let prefix = stack_configured_prefix();
+    let mut entries = Vec::new();
+    let mut build = || -> Result<(), crate::error::AppError> {
+        let app = AppType::Codex;
+        let mode = crate::mode::state::mode_state(store, app.as_str())?;
+        if !mode.is_proxy() {
+            return Ok(());
+        }
+        let stack_state = crate::mode::state::stack(store, app.as_str())?;
+        let members = crate::mode::stack::published_members(
+            &prefix,
+            db,
+            &app,
+            &stack_state,
+            mode.proxy_route.as_deref(),
+        )?;
+        for member in &members {
+            for id in &member.model_ids {
+                entries.push(json!({
+                    "type": "model",
+                    "id": id,
+                    "display_name": id.strip_prefix(prefix.as_str()).unwrap_or(id),
+                }));
+            }
+            let default_model =
+                crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
+            entries.push(json!({
+                "type": "model",
+                "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
+                "display_name": member.provider.name.clone(),
+                "description": default_model
+                    .map(|model| format!("默认模型 {model} (default model)"))
+                    .unwrap_or_default(),
+            }));
+        }
+        Ok(())
+    };
+    if let Err(error) = build() {
+        log::warn!("[Codex] 读取 Stack 聚合条目失败，返回空列表: {error}");
+    }
+    entries
+}
+
+/// fork Task 6: 前缀取设置的薄别名（让条目构建器可读性更好）
+fn stack_configured_prefix() -> String {
+    crate::mode::stack::configured_prefix()
+}
+
+/// `/claude/v1/models`：claude 命名空间专属模型列表——claude 形态聚合条目
+/// （完整 + 每成员短形式），聚合关 / 不在代理模式时 `data` 为空。
+/// 不含 Codex 目录（那是 `/v1/models` 与 `/codex/v1/models` 的职责）。
 pub async fn handle_claude_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
-    // fork Task 6: 旧路由分组条目构建器已删除；聚合成员模型条目在 Task 6 接入
-    let _ = &state;
-    let data = Vec::new();
+    let store = crate::live::engine::DeviceStore::for_device();
+    let data = claude_stack_entries_for(&state.db, &store);
     Ok(Json(build_anthropic_models_response(data)))
 }
 
-/// 把路由分组条目包装成 Anthropic 风格 models 响应。包装字段与
-/// `merge_route_models_into_catalog` 保持一致（data/has_more/first_id/last_id），
+/// 把聚合条目包装成 Anthropic 风格 models 响应。包装字段与
+/// `merge_stack_models_into_catalog` 保持一致（data/has_more/first_id/last_id），
 /// 但独立构造（无 catalog 合并、无顶层 `models`）。
 fn build_anthropic_models_response(data: Vec<Value>) -> Value {
     let ids: Vec<String> = data
@@ -199,20 +297,18 @@ fn build_anthropic_models_response(data: Vec<Value>) -> Value {
 
 /// `/codex/v1/models`：codex 命名空间专属模型列表——Codex 模型目录
 /// （顶层 `models` 原样保留 + OpenAI list 风格 `data` 投影，通用 OpenAI
-/// 客户端读 `data[].id`，id 取目录条目的 `slug`），跟随
-/// `route_models_endpoint` 开关控制 **codex 分组**的路由条目（Task 3b，
-/// 2026-09-10；与 `/v1/models` 一样只放本 app 的分组，不含 claude 分组）。
-/// 存在合规分组时 `data` 整体替换为路由条目（目录投影条目被丢弃——纯
-/// 模型名条目在 session 粘性绑定建立后跟随绑定分组，语义不稳定且误导，
-/// 用户决策 2026-09-10）；开关关闭或无合规分组时与改动前完全一致（仅
-/// 目录投影——此时绑定不会建立，纯名条目语义清晰）。
+/// 客户端读 `data[].id`，id 取目录条目的 `slug`）。
+/// fork Task 6: 聚合激活时 `data` 整体替换为 codex 形态聚合条目（完整 +
+/// 每成员短形式；沿用 v3.20.2-11 的整体替换语义——纯模型名条目在粘性绑定
+/// 建立后跟随绑定成员，语义不稳定且误导）；聚合关 / 条目为空时与现状一致。
 pub async fn handle_codex_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
-    let catalog = project_catalog_to_openai_list(read_active_codex_catalog());
+    let mut catalog = project_catalog_to_openai_list(read_active_codex_catalog());
 
-    // fork Task 6: 旧路由分组条目构建器已删除；聚合成员模型条目在 Task 6 接入
-    let _ = &state;
+    let store = crate::live::engine::DeviceStore::for_device();
+    let data = codex_stack_entries_for(&state.db, &store);
+    apply_stack_models_to_openai_list(&mut catalog, data);
     Ok(Json(catalog))
 }
 
@@ -263,7 +359,7 @@ fn project_catalog_to_openai_list(catalog: Value) -> Value {
 /// 不追加 `has_more`/`first_id`/`last_id`——保持 OpenAI list 形态
 /// （`object` + `data`），区别于 `/v1/models` 的 Anthropic 四件套。
 /// catalog 非 object 时原样返回（投影层保证 object，防御）。
-fn apply_codex_route_models_to_openai_list(catalog: &mut Value, data: Vec<Value>) {
+fn apply_stack_models_to_openai_list(catalog: &mut Value, data: Vec<Value>) {
     let Some(obj) = catalog.as_object_mut() else {
         return;
     };
@@ -304,24 +400,9 @@ fn is_claude_model_discovery(uri: &axum::http::Uri, headers: &axum::http::Header
 /// Claude Code 的 Stack 模型列表（Anthropic 形状）。只读数据库和 `live-state.json`，不做网络
 /// 请求：客户端只等 3 秒。不在代理模式、名单为空时返回空列表。
 fn claude_model_discovery(state: &ProxyState) -> Value {
-    // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
-    let prefix = crate::mode::stack::configured_prefix();
-    let models =
-        crate::mode::stack::claude_published_now(&prefix, &state.db).unwrap_or_else(|error| {
-            log::warn!("[Claude] 读取 Stack 模型失败，返回空列表: {error}");
-            Vec::new()
-        });
-    let data: Vec<Value> = models
-        .into_iter()
-        .map(|model| {
-            json!({
-                "type": "model",
-                "id": model.id,
-                "display_name": model.display_name,
-                "description": model.description,
-            })
-        })
-        .collect();
+    // fork Task 6: claude form aggregation entries (full + short form per member)
+    let store = crate::live::engine::DeviceStore::for_device();
+    let data = claude_stack_entries_for(&state.db, &store);
     json!({
         "data": data,
         "has_more": false,
@@ -474,34 +555,6 @@ pub async fn handle_claude_desktop_models(
     Ok(Json(response))
 }
 
-/// Claude Desktop models 追加合并层（纯函数）：把路由分组条目追加到现有
-/// models response 的 `data` 尾部并重算 `first_id`/`last_id`；data 为空
-/// （或首尾条目无 id）时保留 `model_list_response` 原值。response 为非
-/// object 或无 `data` 数组时原样返回。
-fn append_route_groups_to_models_response(response: &mut Value, group_entries: Vec<Value>) {
-    if let Some(obj) = response.as_object_mut() {
-        if let Some(data) = obj.get_mut("data").and_then(|d| d.as_array_mut()) {
-            data.extend(group_entries);
-            // 追加后重算首尾 id；data 为空时保留 model_list_response 原值
-            let first_id = data
-                .first()
-                .and_then(|e| e.get("id"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let last_id = data
-                .last()
-                .and_then(|e| e.get("id"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            if let Some(id) = first_id {
-                obj.insert("first_id".to_string(), Value::String(id));
-            }
-            if let Some(id) = last_id {
-                obj.insert("last_id".to_string(), Value::String(id));
-            }
-        }
-    }
-}
 
 async fn handle_messages_for_app(
     state: ProxyState,
@@ -3712,9 +3765,9 @@ async fn log_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_route_groups_to_models_response, apply_codex_route_models_to_openai_list,
+        apply_stack_models_to_openai_list,
         body_looks_like_sse, build_anthropic_models_response, chat_sse_to_response_value,
-        classify_body_for_diagnostics, codex_proxy_error_json, merge_route_models_into_catalog,
+        classify_body_for_diagnostics, codex_proxy_error_json, merge_stack_models_into_catalog,
         project_catalog_to_openai_list, responses_sse_stream_to_anthropic_message,
         responses_sse_to_response_value, rewritten_sse_response_builder,
         should_use_claude_transform_streaming, transform, upstream_body_parse_error,
@@ -3752,7 +3805,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_route_models_into_catalog_sets_anthropic_fields() {
+    fn merge_stack_models_into_catalog_sets_anthropic_fields() {
         // catalog 为正常 object + 非空 entries：data/has_more/first_id/last_id
         // 正确写入，Codex 只读的顶层 models 字段保留不动
         let mut catalog = serde_json::json!({"models": [{"id": "gpt-5"}]});
@@ -3760,7 +3813,7 @@ mod tests {
             serde_json::json!({"type": "model", "id": "G.ds"}),
             serde_json::json!({"type": "model", "id": "G.mini"}),
         ];
-        merge_route_models_into_catalog(&mut catalog, data);
+        merge_stack_models_into_catalog(&mut catalog, data);
         assert_eq!(
             catalog["data"],
             serde_json::json!([
@@ -3775,10 +3828,10 @@ mod tests {
     }
 
     #[test]
-    fn merge_route_models_into_catalog_empty_entries_null_ids() {
+    fn merge_stack_models_into_catalog_empty_entries_null_ids() {
         // entries 为空：data 为空数组，first_id/last_id 为 null
         let mut catalog = serde_json::json!({"models": []});
-        merge_route_models_into_catalog(&mut catalog, Vec::new());
+        merge_stack_models_into_catalog(&mut catalog, Vec::new());
         assert_eq!(catalog["data"], serde_json::json!([]));
         assert_eq!(catalog["has_more"], serde_json::json!(false));
         assert_eq!(catalog["first_id"], serde_json::Value::Null);
@@ -3786,14 +3839,14 @@ mod tests {
     }
 
     #[test]
-    fn merge_route_models_into_catalog_non_object_unchanged() {
+    fn merge_stack_models_into_catalog_non_object_unchanged() {
         // catalog 为非 object JSON（如 null / 数组）时原样返回，不 panic
         let mut catalog = serde_json::Value::Null;
-        merge_route_models_into_catalog(&mut catalog, vec![serde_json::json!({"id": "G.ds"})]);
+        merge_stack_models_into_catalog(&mut catalog, vec![serde_json::json!({"id": "G.ds"})]);
         assert_eq!(catalog, serde_json::Value::Null);
 
         let mut array_catalog = serde_json::json!([{"models": []}]);
-        merge_route_models_into_catalog(&mut array_catalog, Vec::new());
+        merge_stack_models_into_catalog(&mut array_catalog, Vec::new());
         assert_eq!(array_catalog, serde_json::json!([{"models": []}]));
     }
 
@@ -3811,7 +3864,7 @@ mod tests {
             serde_json::json!({"type": "model", "id": "G.DS", "display_name": "DS"}),
             serde_json::json!({"type": "model", "id": "G.DS:m1", "display_name": "DS:m1"}),
         ];
-        apply_codex_route_models_to_openai_list(&mut catalog, data);
+        apply_stack_models_to_openai_list(&mut catalog, data);
 
         let merged = catalog["data"].as_array().unwrap();
         assert_eq!(merged.len(), 2);
@@ -3842,7 +3895,7 @@ mod tests {
             "object": "list",
             "data": [{"id": "gpt-5", "object": "model", "created": 0, "owned_by": "cc-switch"}],
         });
-        apply_codex_route_models_to_openai_list(&mut catalog, Vec::new());
+        apply_stack_models_to_openai_list(&mut catalog, Vec::new());
         assert_eq!(catalog["data"].as_array().unwrap().len(), 1);
         assert_eq!(catalog["data"][0]["id"], serde_json::json!("gpt-5"));
     }
@@ -3851,14 +3904,14 @@ mod tests {
     fn codex_route_apply_non_object_unchanged_and_missing_data_inserted() {
         // 非 object（如 null）：原样返回，不 panic
         let mut null_catalog = serde_json::Value::Null;
-        apply_codex_route_models_to_openai_list(
+        apply_stack_models_to_openai_list(
             &mut null_catalog,
             vec![serde_json::json!({"id": "G.DS"})],
         );
         assert_eq!(null_catalog, serde_json::Value::Null);
         // object 但无 data 字段（防御；投影层保证存在）：直接插入路由条目
         let mut no_data = serde_json::json!({"object": "list"});
-        apply_codex_route_models_to_openai_list(
+        apply_stack_models_to_openai_list(
             &mut no_data,
             vec![serde_json::json!({"id": "G.DS"})],
         );
@@ -3867,41 +3920,7 @@ mod tests {
         assert_eq!(no_data["object"], serde_json::json!("list"));
     }
 
-    #[test]
-    fn desktop_append_entries_recomputes_first_last_id() {
-        // 已有 data + entries：分组条目追加到 data 尾部，first_id/last_id 重算
-        let mut response = serde_json::json!({
-            "object": "list",
-            "data": [{"type": "model", "id": "claude-sonnet-4-5"}],
-            "first_id": "claude-sonnet-4-5",
-            "last_id": "claude-sonnet-4-5",
-        });
-        append_route_groups_to_models_response(
-            &mut response,
-            vec![serde_json::json!({"type": "model", "id": "G.ds[1M]"})],
-        );
-        let data = response["data"].as_array().unwrap();
-        assert_eq!(data.len(), 2);
-        assert_eq!(data[0]["id"], serde_json::json!("claude-sonnet-4-5"));
-        assert_eq!(data[1]["id"], serde_json::json!("G.ds[1M]"));
-        assert_eq!(response["first_id"], serde_json::json!("claude-sonnet-4-5"));
-        assert_eq!(response["last_id"], serde_json::json!("G.ds[1M]"));
-    }
 
-    #[test]
-    fn desktop_append_empty_to_empty_data_keeps_original_ids() {
-        // data 为空 + entries 为空：first_id/last_id 保留原值
-        let mut response = serde_json::json!({
-            "object": "list",
-            "data": [],
-            "first_id": "orig-first",
-            "last_id": "orig-last",
-        });
-        append_route_groups_to_models_response(&mut response, Vec::new());
-        assert_eq!(response["data"], serde_json::json!([]));
-        assert_eq!(response["first_id"], serde_json::json!("orig-first"));
-        assert_eq!(response["last_id"], serde_json::json!("orig-last"));
-    }
 
     #[test]
     fn body_looks_like_sse_detects_unlabeled_sse_prefixes() {
@@ -4880,5 +4899,134 @@ mod stack_tests {
         .await
         .expect("models");
         assert_eq!(body, json!({ "data": [], "has_more": false }));
+    }
+
+    // ========================================================================
+    // fork Task 6: 聚合条目构建器（临时 DeviceStore 隔离，不读真实 live-state）
+    // ========================================================================
+
+    fn stack_env_provider(id: &str, env: Value) -> crate::provider::Provider {
+        let mut provider = crate::provider::Provider::with_id(
+            id.to_string(),
+            format!("P-{id}"),
+            json!({ "env": env }),
+            None,
+        );
+        provider.icon = Some(id.to_string());
+        provider
+    }
+
+    fn stack_entries_fixture() -> (
+        tempfile::TempDir,
+        crate::live::engine::DeviceStore,
+        Database,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::live::engine::DeviceStore::at(dir.path());
+        let db = Database::memory().unwrap();
+        for row in [
+            stack_env_provider("kimi", json!({ "ANTHROPIC_MODEL": "kimi-k3" })),
+            stack_env_provider("zhipu", json!({ "ANTHROPIC_MODEL": "glm-5.2[1M]" })),
+        ] {
+            db.save_provider("claude", &row).unwrap();
+        }
+        let mut codex = stack_env_provider("ds", json!({}));
+        codex.settings_config = json!({
+            "auth": {},
+            "config": "model = \"deepseek-v4-flash\"\n",
+            "modelCatalog": { "models": [{ "model": "deepseek-v4-pro" }] },
+        });
+        db.save_provider("codex", &codex).unwrap();
+        crate::mode::state::update(&store, |live| {
+            let claude = live.apps.entry("claude".to_string()).or_default();
+            claude.mode = Some(crate::mode::state::Mode::Proxy);
+            claude.proxy_route = Some("kimi".to_string());
+            claude.stack.enabled = true;
+            claude.stack.members = ["kimi", "zhipu"].map(str::to_string).to_vec();
+            claude.stack.keys.insert("kimi".to_string(), "kimi".to_string());
+            claude.stack.keys.insert("zhipu".to_string(), "zhipu".to_string());
+            let codex = live.apps.entry("codex".to_string()).or_default();
+            codex.mode = Some(crate::mode::state::Mode::Proxy);
+            codex.stack.enabled = true;
+            codex.stack.members = vec!["ds".to_string()];
+            codex.stack.keys.insert("ds".to_string(), "ds".to_string());
+        })
+        .unwrap();
+        (dir, store, db)
+    }
+
+    fn ids_of(entries: &[Value]) -> Vec<String> {
+        entries
+            .iter()
+            .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn claude_stack_entries_include_full_and_short() {
+        let (_dir, store, db) = stack_entries_fixture();
+        let entries = claude_stack_entries_for(&db, &store);
+        let prefix = stack_configured_prefix();
+        let ids = ids_of(&entries);
+        assert!(
+            ids.contains(&format!("{prefix}claude-zhipu--glm-5.2[1M]")),
+            "{ids:?}"
+        );
+        // 每成员一条短形式，display_name 为成员名，description 标默认模型
+        let short = entries
+            .iter()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some(&format!("{prefix}claude-zhipu")))
+            .expect("short entry for zhipu");
+        assert_eq!(short["display_name"], json!("P-zhipu"));
+        assert!(
+            short["description"].as_str().unwrap().contains("glm-5.2[1M]"),
+            "{}",
+            short["description"]
+        );
+    }
+
+    #[test]
+    fn claude_stack_entries_empty_outside_proxy_mode() {
+        let (_dir, store, db) = stack_entries_fixture();
+        crate::mode::state::update(&store, |live| {
+            live.apps.get_mut("claude").unwrap().mode = Some(crate::mode::state::Mode::Direct);
+        })
+        .unwrap();
+        assert!(claude_stack_entries_for(&db, &store).is_empty());
+    }
+
+    #[test]
+    fn claude_stack_entries_empty_when_stack_disabled() {
+        let (_dir, store, db) = stack_entries_fixture();
+        crate::mode::state::update(&store, |live| {
+            live.apps.get_mut("claude").unwrap().stack.enabled = false;
+        })
+        .unwrap();
+        assert!(claude_stack_entries_for(&db, &store).is_empty());
+    }
+
+    #[test]
+    fn codex_stack_entries_include_full_and_short() {
+        let (_dir, store, db) = stack_entries_fixture();
+        let entries = codex_stack_entries_for(&db, &store);
+        let prefix = stack_configured_prefix();
+        let ids = ids_of(&entries);
+        // 完整条目（modelCatalog 的 deepseek-v4-pro）+ 每成员短形式
+        assert!(
+            ids.contains(&format!("{prefix}ds/deepseek-v4-pro")),
+            "{ids:?}"
+        );
+        assert!(ids.contains(&format!("{prefix}ds")), "{ids:?}");
+    }
+
+    #[test]
+    fn codex_stack_entries_empty_when_stack_disabled() {
+        let (_dir, store, db) = stack_entries_fixture();
+        crate::mode::state::update(&store, |live| {
+            live.apps.get_mut("codex").unwrap().stack.enabled = false;
+        })
+        .unwrap();
+        assert!(codex_stack_entries_for(&db, &store).is_empty());
     }
 }
