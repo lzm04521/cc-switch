@@ -115,7 +115,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   // fork 定制：会话级路由前缀 + 路由模型列表接口（原 ProxyTabContent 迁入）
   const saveRouteSettings = async (updates: {
     routePrefix?: string;
-    routeModelsEndpoint?: Settings["routeModelsEndpoint"];
   }): Promise<boolean> => {
     try {
       return await settingsApi.save({
@@ -495,7 +494,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
       >
         <RoutePrefixSettings
           routePrefix={settings?.routePrefix}
-          routeModelsEndpoint={settings?.routeModelsEndpoint}
           onAutoSave={saveRouteSettings}
         />
       </SettingsBlock>

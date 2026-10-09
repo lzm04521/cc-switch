@@ -5,8 +5,11 @@ export type RoutePrefixValidation =
       reason: "empty" | "length" | "charset" | "colon" | "boundary";
     };
 
-/** 默认路由触发前缀（与后端 route_prefix::DEFAULT_ROUTE_PREFIX 一致）。 */
-export const DEFAULT_ROUTE_PREFIX = "G.";
+/**
+ * 默认聚合模型 id 前缀（与后端 route_prefix::DEFAULT_ROUTE_PREFIX 一致）。
+ * fork: 会话路由改造为聚合模式后默认对齐上游 "ccs-"（doc/20261009-设计文档）。
+ */
+export const DEFAULT_ROUTE_PREFIX = "ccs-";
 
 /**
  * 展示层前缀归一化（与后端 normalize_route_prefix 的 fail-safe 一致）：

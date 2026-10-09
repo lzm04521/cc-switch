@@ -205,9 +205,7 @@
     "editCurrentNoticeFile": "This is the provider in use. Saving writes it to",
     "editCurrentNoticeFileEnd": " right away; the next request uses it.",
     "editCurrentNotice": "This is the provider in use. Saving takes effect right away; the next request uses the new settings.",
-    "defaultInUse": "Default",
-    "sessionRouteKey": "Session Route: {{prefix}}{{routeKey}}",
-    "duplicateRouteDisabled": "Session routing is disabled on the copy. Reconfigure the route key in edit if needed."
+    "defaultInUse": "Default"
   },
   "claudeCode": {
     "needsRouting": "Needs Routing",
@@ -478,31 +476,16 @@
         }
       },
       "routePrefix": {
-        "title": "Session route prefix",
-        "description": "Route requests with --model \"<prefix><key>\" to routed providers; <prefix>default unbinds the session. Empty restores default G.",
-        "conflictHint": "Hint: this prefix resembles common model names and may mis-trigger; consider another (e.g. G., @)",
+        "title": "Aggregated model id prefix",
+        "description": "In Stack mode, model ids look like \"<prefix>claude-<key>--<model>\" (Codex: \"<prefix><key>/<model>\"); the short form \"<prefix>claude-<key>\" uses that member's default model, and \"<prefix>claude-default\" unbinds the session. Empty restores the default ccs-.",
+        "conflictHint": "Hint: this prefix resembles common model names and may mis-match; consider another (e.g. G., @)",
+        "changedNotice": "Prefix changed: every selected aggregated model id is now invalid — pick models from the client's list again.",
         "invalid": {
           "empty": "Prefix cannot be empty",
           "length": "Prefix must be 1–8 characters",
-          "charset": "Prefix may only contain printable ASCII characters (no whitespace)",
-          "colon": "Prefix cannot contain a colon (: separates key from model)",
-          "boundary": "Prefix must end with a non-alphanumeric character (e.g. G., @)"
-        }
-      },
-      "routeModelsEndpoint": {
-        "title": "/v1/models model list",
-        "description": "When enabled, route group entries appear at three endpoints: /claude/v1/models, /codex/v1/models and /v1/models. Only groups joined to session routing are listed, and entry ids work directly with --model (e.g. G.DS, G.DS:glm-5.3).",
-        "endpointRules": {
-          "claude": "/claude/v1/models: claude group entries only",
-          "codex": "/codex/v1/models: Codex model catalog plus codex group entries and the model mapping list",
-          "v1": "/v1/models: Codex catalog + claude group entries",
-          "disabled": "When disabled, none of the three endpoints includes route entries"
-        },
-        "modeLabel": "Response type",
-        "mode": {
-          "groups": "Groups only",
-          "models": "Models",
-          "both": "Groups + models"
+          "charset": "Prefix may only contain printable ASCII (no whitespace)",
+          "colon": "Prefix cannot contain a colon",
+          "boundary": "Prefix must end with a non-alphanumeric character (e.g. G., @, ccs-)"
         }
       }
     },
@@ -4759,17 +4742,7 @@
     }
   },
   "providers": {
-    "form": {
-      "route": {
-        "title": "Join session routing",
-        "description": "Route requests to this provider with --model \"<prefix><key>\" (default prefix G.)",
-        "keyLabel": "Route key",
-        "keyPlaceholder": "e.g. ds (letters/digits/._-, 1–100 chars)",
-        "keyInvalid": "Invalid route key: letters, digits and . _ - only, 1–100 chars",
-        "keyReserved": "\"default\" is reserved (always unbinds), pick another",
-        "keyDuplicate": "Route key already used by another provider in this app"
-      }
-    }
+    "form": {}
   },
   "dsh": {
     "providerManagedExternally": "DSH providers are managed inside the Deepseek app. Add, switch, or configure providers there."

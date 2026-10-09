@@ -183,10 +183,6 @@ export interface ProviderMeta {
   claudeDesktopModelRoutes?: Record<string, ClaudeDesktopModelRoute>;
   // 用量查询脚本配置
   usage_script?: UsageScript;
-  // 会话级模型路由：是否加入 G. 前缀路由（仅 Claude / Claude Desktop 生效）
-  route_enabled?: boolean;
-  // 路由 key（route_enabled 时必填；同 app 内唯一；保留字 default 禁用）
-  route_key?: string;
   // 请求地址管理：测速后自动选择最佳端点
   endpointAutoSelect?: boolean;
   // 是否为官方合作伙伴
@@ -375,11 +371,6 @@ export interface RemoteSnapshotInfo {
 
 // 应用设置类型（用于设置对话框与 Tauri API）
 // 存储在本地 ~/.cc-switch/settings.json，不随数据库同步
-export interface RouteModelsEndpoint {
-  enabled: boolean;
-  mode: "groups" | "models" | "both";
-}
-
 export interface Settings {
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
@@ -412,10 +403,9 @@ export interface Settings {
   // User has confirmed the usage query first-run notice
   usageConfirmed?: boolean;
   usageDashboardRefreshIntervalMs?: number;
-  // 会话级路由触发前缀（完整触发串，如 "G."、"@"；仅 Claude / Claude Desktop 代理链路）
+  // 聚合模型 id 前缀（完整触发串，如 "G."、"@"；None=默认 "ccs-"）
+  // fork: 会话路由改造为聚合模式后此设置即聚合前缀
   routePrefix?: string;
-  // 会话级路由 /v1/models 模型列表接口（关闭=仅 Codex catalog 现状行为）
-  routeModelsEndpoint?: RouteModelsEndpoint;
   // 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新；非启用 Provider 间隔下限 5 分钟）
   autoRefreshAllProvidersUsage?: boolean;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）

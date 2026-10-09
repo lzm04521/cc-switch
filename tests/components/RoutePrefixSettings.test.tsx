@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RoutePrefixSettings } from "@/components/settings/RoutePrefixSettings";
 
 const baseProps = {
-  routePrefix: "G.",
+  routePrefix: "ccs-",
   onAutoSave: vi.fn(async () => true),
 };
 
@@ -11,46 +11,34 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("RoutePrefixSettings 模型列表接口区块", () => {
-  it("默认关闭：渲染开关，不渲染返回类型按钮", () => {
+// fork Task 8: 模型列表接口区块已随 routeModelsEndpoint 设置删除；
+// 这里只覆盖聚合前缀输入本身
+describe("RoutePrefixSettings 聚合前缀区块", () => {
+  it("渲染标题与说明，不含模型列表开关", () => {
     render(<RoutePrefixSettings {...baseProps} />);
     expect(
-      screen.getByText("/v1/models 模型列表", { exact: false }),
+      screen.getByText("聚合模型 id 前缀", { exact: false }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("返回类型")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
   });
 
-  it("点击开关：onAutoSave 收到 enabled=true 且保留当前 mode", async () => {
-    render(
-      <RoutePrefixSettings
-        {...baseProps}
-        routeModelsEndpoint={{ enabled: false, mode: "both" }}
-      />,
-    );
-    // Switch 是唯一的 role=switch
-    fireEvent.click(screen.getByRole("switch"));
+  it("改前缀保存：onAutoSave 收到新值并出现失效提示", async () => {
+    render(<RoutePrefixSettings {...baseProps} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "G." } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(baseProps.onAutoSave).toHaveBeenCalledWith({
-        routeModelsEndpoint: { enabled: true, mode: "both" },
+        routePrefix: "G.",
       }),
     );
-    // 开关保存成功只闪区块自身的反馈，不误闪前缀「保存」按钮
-    expect(screen.queryByRole("button", { name: "已保存" })).toBeNull();
-    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+    expect(
+      screen.getByText("前缀已变更", { exact: false }),
+    ).toBeInTheDocument();
   });
 
-  it("开启后点「模型」按钮：onAutoSave 收到 mode=models", async () => {
-    render(
-      <RoutePrefixSettings
-        {...baseProps}
-        routeModelsEndpoint={{ enabled: true, mode: "groups" }}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "模型" }));
-    await waitFor(() =>
-      expect(baseProps.onAutoSave).toHaveBeenCalledWith({
-        routeModelsEndpoint: { enabled: true, mode: "models" },
-      }),
-    );
+  it("未修改时保存按钮禁用", () => {
+    render(<RoutePrefixSettings {...baseProps} />);
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 });

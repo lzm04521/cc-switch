@@ -9,7 +9,7 @@ describe("resolveDisplayRoutePrefix（展示层前缀归一化）", () => {
     expect(resolveDisplayRoutePrefix(undefined)).toBe(DEFAULT_ROUTE_PREFIX);
     expect(resolveDisplayRoutePrefix("")).toBe(DEFAULT_ROUTE_PREFIX);
     expect(resolveDisplayRoutePrefix("   ")).toBe(DEFAULT_ROUTE_PREFIX);
-    expect(DEFAULT_ROUTE_PREFIX).toBe("G.");
+    expect(DEFAULT_ROUTE_PREFIX).toBe("ccs-");
   });
 
   it("合法自定义前缀保留（含 trim）", () => {

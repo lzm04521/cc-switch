@@ -10,7 +10,6 @@ import { settingsApi } from "@/lib/api";
 import { providersApi } from "@/lib/api/providers";
 import { proxyApi } from "@/lib/api/proxy";
 import { useSettingsQuery } from "@/lib/query";
-import { resolveDisplayRoutePrefix } from "@/lib/routePrefix";
 import {
   proxyKeys,
   useAdoptCodexStackCatalog,
@@ -225,7 +224,6 @@ export function SwitchModePanel({
   const switchMode = {
     active,
     view,
-    routePrefix: resolveDisplayRoutePrefix(settings?.routePrefix),
     directId,
     routeId,
     failoverOn,

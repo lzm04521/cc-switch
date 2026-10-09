@@ -925,14 +925,7 @@ function App() {
     const newSortIndex =
       provider.sortIndex !== undefined ? provider.sortIndex + 1 : undefined;
 
-    // 副本默认关闭会话路由并清空 key：路由 key 同 app 内唯一，
-    // 原样拷贝会带出重复 key（保存校验冲突 / G.KEY 命中源分组）
-    const routeWasEnabled = provider.meta?.route_enabled === true;
     const duplicatedMeta = provider.meta ? deepClone(provider.meta) : undefined;
-    if (duplicatedMeta && routeWasEnabled) {
-      duplicatedMeta.route_enabled = false;
-      delete duplicatedMeta.route_key;
-    }
 
     const duplicatedProvider: Omit<Provider, "id" | "createdAt"> & {
       providerKey?: string;
@@ -1037,14 +1030,6 @@ function App() {
     }
 
     await addProvider(duplicatedProvider);
-
-    if (routeWasEnabled) {
-      toast.info(
-        t("provider.duplicateRouteDisabled", {
-          defaultValue: "副本已默认关闭会话路由，如需启用请重新配置路由 key",
-        }),
-      );
-    }
   };
 
   const confirmActionMessage = useMemo(() => {

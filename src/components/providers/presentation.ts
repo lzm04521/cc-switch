@@ -111,7 +111,6 @@ export interface SwitchModeInput {
   /** 需要路由的原因（悬停「需要路由」时的说明） */
   routingReason: (provider: Provider) => string;
   /** fork：会话级路由触发前缀（显示用，空/非法回退 "G."） */
-  routePrefix?: string;
   serviceRunning: boolean;
   actions: {
     switchDirect: (provider: Provider) => void;
@@ -193,20 +192,6 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
     if (official(p)) chips.push(chip.official());
     if (providerNeedsRouting(app, p)) chips.push(chip.needsRoute(p));
     return chips;
-  };
-  // fork：会话级路由分组 chip（G.<key>），只挂路由视图的非 blocked 卡；
-  // 会话路由本身就要走本地代理，直连视图不标（那里的「需要路由」已提示）
-  const sessionRouteChip = (p: Provider): CardChip | null => {
-    if (p.meta?.route_enabled !== true) return null;
-    return {
-      key: "sessionRoute",
-      label: t("provider.sessionRouteKey", {
-        defaultValue: "会话路由：{{prefix}}{{routeKey}}",
-        prefix: input.routePrefix || "G.",
-        routeKey: p.meta?.route_key ?? "",
-      }),
-      tone: "route",
-    };
   };
   const officialOnly = (p: Provider) => (official(p) ? [chip.official()] : []);
   const blocked = (p: Provider, label: string, reason: string) => ({
@@ -298,8 +283,6 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
             if (blockedFromRouting(app, p))
               return blocked(p, t("providerCard.action.routeHere"), noRoute);
             const chips = officialOnly(p);
-            const sessionRoute = sessionRouteChip(p);
-            if (sessionRoute) chips.push(sessionRoute);
             if (p.id === routeId) {
               return {
                 provider: p,
@@ -350,8 +333,6 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
             tone: "outline" as const,
           },
         ];
-        const sessionRoute = sessionRouteChip(p);
-        if (sessionRoute) queueChips.push(sessionRoute);
         return [
           {
             provider: p,
@@ -400,8 +381,6 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
             presentation: {
               chips: (() => {
                 const chips = officialOnly(p);
-                const sessionRoute = sessionRouteChip(p);
-                if (sessionRoute) chips.push(sessionRoute);
                 return chips;
               })(),
               buttons: [
@@ -454,8 +433,6 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
             presentation: {
               chips: (() => {
                 const chips = officialOnly(p);
-                const sessionRoute = sessionRouteChip(p);
-                if (sessionRoute) chips.push(sessionRoute);
                 return chips;
               })(),
               buttons: [],

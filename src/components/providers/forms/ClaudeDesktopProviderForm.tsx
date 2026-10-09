@@ -32,7 +32,6 @@ import { ApiKeySection } from "./shared/ApiKeySection";
 import { EndpointField } from "./shared/EndpointField";
 import { ModelDropdown } from "./shared/ModelDropdown";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
-import { RouteSettingsFields } from "./RouteSettingsFields";
 import { useApiKeyLink } from "./hooks/useApiKeyLink";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import type {
@@ -58,7 +57,6 @@ import {
   type ClaudeDesktopDefaultRoute,
 } from "@/lib/api/providers";
 import { resolveManagedAccountId } from "@/lib/authBinding";
-import { useProvidersQuery } from "@/lib/query/queries";
 import type { ManagedAuthProvider } from "@/lib/api";
 import { useCopilotAuth, useCodexOauth, useXaiOauth } from "./hooks";
 import { isOAuthProviderType } from "@/config/constants";
@@ -82,8 +80,6 @@ type PresetEntry = {
 
 export interface ClaudeDesktopProviderFormProps {
   submitLabel: string;
-  /** 当前编辑供应商 id（编辑模式路由 key 预检排除自身用） */
-  providerId?: string;
   onSubmit: (values: ClaudeDesktopProviderFormValues) => Promise<void> | void;
   onCancel: () => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
@@ -246,7 +242,6 @@ function defaultRouteRows(
 
 export function ClaudeDesktopProviderForm({
   submitLabel,
-  providerId,
   onSubmit,
   onCancel,
   onSubmittingChange,
@@ -285,21 +280,6 @@ export function ClaudeDesktopProviderForm({
   >(() => resolveManagedAccountId(initialData?.meta, "xai_oauth"));
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
-  );
-  // 会话级模型路由（预检：同 app 内 key 唯一，排除自身）
-  const [routeEnabled, setRouteEnabled] = useState<boolean>(
-    () => initialData?.meta?.route_enabled === true,
-  );
-  const [routeKey, setRouteKey] = useState<string>(
-    () => initialData?.meta?.route_key ?? "",
-  );
-  const { data: routeProvidersData } = useProvidersQuery("claude-desktop");
-  const routeExistingKeys = useMemo(
-    () =>
-      Object.values(routeProvidersData?.providers ?? {})
-        .filter((p) => p.meta?.route_enabled === true && p.meta?.route_key)
-        .map((p) => ({ key: p.meta?.route_key as string, providerId: p.id })),
-    [routeProvidersData],
   );
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     "custom",
@@ -607,9 +587,6 @@ export function ClaudeDesktopProviderForm({
       delete meta.apiFormat;
       delete meta.endpointAutoSelect;
       delete meta.isFullUrl;
-      // 官方供应商不参与会话级路由，清除残留字段
-      delete meta.route_enabled;
-      delete meta.route_key;
       await onSubmit({
         ...values,
         name: values.name.trim(),
@@ -833,15 +810,6 @@ export function ClaudeDesktopProviderForm({
 
     delete meta.endpointAutoSelect;
     delete meta.isFullUrl;
-    // 与 Claude 表单对齐：开关开启即提交 route_enabled，key 为空交给后端
-    // fail-fast 校验报错（避免「保存成功但路由静默未生效」）
-    meta.route_enabled = routeEnabled;
-    if (routeEnabled) {
-      meta.route_key = routeKey.trim();
-    } else {
-      delete meta.route_key;
-    }
-
     await onSubmit({
       ...values,
       name: values.name.trim(),
@@ -980,17 +948,6 @@ export function ClaudeDesktopProviderForm({
                       : t("providerForm.apiHint")
               }
               showManageButton={false}
-            />
-
-            <RouteSettingsFields
-              routeEnabled={routeEnabled}
-              routeKey={routeKey}
-              onChange={({ routeEnabled: enabled, routeKey: key }) => {
-                setRouteEnabled(enabled);
-                setRouteKey(key);
-              }}
-              existingKeys={routeExistingKeys}
-              currentProviderId={providerId}
             />
 
             <div className="space-y-4 border-l border-border pl-3">

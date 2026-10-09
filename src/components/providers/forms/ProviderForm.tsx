@@ -19,7 +19,6 @@ import {
   withClaudeGatewayDefaults,
 } from "@/utils/claudeEditorOverlay";
 import { useDarkMode } from "@/hooks/useDarkMode";
-import { useProvidersQuery } from "@/lib/query/queries";
 import type {
   ProviderCategory,
   ProviderMeta,
@@ -91,7 +90,6 @@ import {
 import { setClaudeOneMMarker } from "./hooks/useModelState";
 import { useAppMode } from "@/lib/query/proxy";
 import { ClaudeDesktopProviderForm } from "./ClaudeDesktopProviderForm";
-import { RouteSettingsFields } from "./RouteSettingsFields";
 import { GrokBuildProviderForm } from "./GrokBuildProviderForm";
 import { CodexFormFields } from "./CodexFormFields";
 import { GeminiFormFields } from "./GeminiFormFields";
@@ -397,21 +395,6 @@ function ProviderFormFull({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
-  // 会话级模型路由（claude 与 codex 提交；claude-desktop 走专用表单）
-  const [routeEnabled, setRouteEnabled] = useState<boolean>(
-    () => initialData?.meta?.route_enabled === true,
-  );
-  const [routeKey, setRouteKey] = useState<string>(
-    () => initialData?.meta?.route_key ?? "",
-  );
-  const { data: routeProvidersData } = useProvidersQuery(appId);
-  const routeExistingKeys = useMemo(
-    () =>
-      Object.values(routeProvidersData?.providers ?? {})
-        .filter((p) => p.meta?.route_enabled === true && p.meta?.route_key)
-        .map((p) => ({ key: p.meta?.route_key as string, providerId: p.id })),
-    [routeProvidersData],
-  );
   const supportsFullUrl = appId === "claude" || appId === "codex";
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
@@ -438,8 +421,6 @@ function ProviderFormFull({
       setDraftCustomEndpoints([]);
     }
     setEndpointAutoSelect(initialData?.meta?.endpointAutoSelect ?? true);
-    setRouteEnabled(initialData?.meta?.route_enabled === true);
-    setRouteKey(initialData?.meta?.route_key ?? "");
     setLocalIsFullUrl(
       supportsFullUrl ? (initialData?.meta?.isFullUrl ?? false) : false,
     );
@@ -1852,13 +1833,6 @@ function ProviderFormFull({
           ? initialData?.meta?.commonConfigEnabled
           : undefined,
       endpointAutoSelect,
-      // 会话级路由：claude 与 codex 提交（claude-desktop 由专用表单处理）；关闭时清除 key
-      route_enabled:
-        appId === "claude" || appId === "codex" ? routeEnabled : undefined,
-      route_key:
-        (appId === "claude" || appId === "codex") && routeEnabled
-          ? routeKey.trim()
-          : undefined,
       claudeDesktopMode: undefined,
       // 保存 providerType（用于识别 Copilot / Codex OAuth 等特殊供应商）
       providerType,
@@ -2500,18 +2474,6 @@ function ProviderFormFull({
           {appId === "claude" && (
             <ClaudeFormFields
               providerId={providerId}
-              contentBeforeAdvanced={
-                <RouteSettingsFields
-                  routeEnabled={routeEnabled}
-                  routeKey={routeKey}
-                  onChange={({ routeEnabled: enabled, routeKey: key }) => {
-                    setRouteEnabled(enabled);
-                    setRouteKey(key);
-                  }}
-                  existingKeys={routeExistingKeys}
-                  currentProviderId={providerId}
-                />
-              }
               shouldShowApiKey={
                 (category !== "cloud_provider" ||
                   hasApiKeyField(form.getValues("settingsConfig"), "claude")) &&
@@ -2594,18 +2556,6 @@ function ProviderFormFull({
           {appId === "codex" && (
             <CodexFormFields
               providerId={providerId}
-              contentBeforeAdvanced={
-                <RouteSettingsFields
-                  routeEnabled={routeEnabled}
-                  routeKey={routeKey}
-                  onChange={({ routeEnabled: enabled, routeKey: key }) => {
-                    setRouteEnabled(enabled);
-                    setRouteKey(key);
-                  }}
-                  existingKeys={routeExistingKeys}
-                  currentProviderId={providerId}
-                />
-              }
               isXaiOauthPreset={
                 presetProviderType === "xai_oauth" ||
                 initialData?.meta?.providerType === "xai_oauth"

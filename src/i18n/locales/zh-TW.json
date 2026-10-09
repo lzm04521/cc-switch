@@ -205,9 +205,7 @@
     "editCurrentNoticeFile": "這是正在使用的供應商。儲存後會立即寫進",
     "editCurrentNoticeFileEnd": "，下一次請求生效。",
     "editCurrentNotice": "這是正在使用的供應商。儲存後立即生效，下一次請求就用新的設定。",
-    "defaultInUse": "預設中",
-    "sessionRouteKey": "會話路由：{{prefix}}{{routeKey}}",
-    "duplicateRouteDisabled": "副本已預設關閉會話路由，如需啟用請重新設定路由 key"
+    "defaultInUse": "預設中"
   },
   "claudeCode": {
     "needsRouting": "需要路由",
@@ -478,31 +476,16 @@
         }
       },
       "routePrefix": {
-        "title": "會話級路由前綴",
-        "description": "供應商開啟「加入會話級路由」後，用 --model \"<前綴><key>\" 將請求路由到該分組；<前綴>default 解綁當前會話。留空恢復預設 G.",
+        "title": "聚合模型 id 前綴",
+        "description": "聚合模式下模型 id 形如 \"<前綴>claude-<分組>--<模型>\"（Codex 為 \"<前綴><分組>/<模型>\"）；\"<前綴>claude-<分組>\" 短形式走該分組預設模型，\"<前綴>claude-default\" 解綁會話。留空恢復預設 ccs-。",
         "conflictHint": "提示：該前綴與常見模型名相近，可能產生誤匹配；建議更換（如 G.、@）",
+        "changedNotice": "前綴已變更：已選中的聚合模型 id 全部失效，請在客戶端模型列表裡重新選擇。",
         "invalid": {
           "empty": "前綴不能為空",
           "length": "前綴長度須為 1–8 個字元",
           "charset": "前綴僅可包含可列印 ASCII 字元（不含空白）",
-          "colon": "前綴不能包含冒號（: 用於分隔 key 與模型）",
-          "boundary": "前綴須以非字母數字字元結尾（如 G.、@）"
-        }
-      },
-      "routeModelsEndpoint": {
-        "title": "/v1/models 模型列表",
-        "description": "開啟後，路由分組條目會出現在 /claude/v1/models、/codex/v1/models、/v1/models 三個端點；僅顯示已加入會話級路由的分組，條目 id 可直接用於 --model（如 G.DS、G.DS:glm-5.3）。",
-        "endpointRules": {
-          "claude": "/claude/v1/models：僅返回 claude 分組條目",
-          "codex": "/codex/v1/models：在 Codex 模型目錄基礎上追加 codex 分組條目與模型對應清單",
-          "v1": "/v1/models：Codex 目錄 + claude 分組條目",
-          "disabled": "關閉時三個端點均不含路由條目"
-        },
-        "modeLabel": "返回類型",
-        "mode": {
-          "groups": "僅分組",
-          "models": "模型",
-          "both": "分組+模型"
+          "colon": "前綴不能包含冒號",
+          "boundary": "前綴須以非字母數字字元結尾（如 G.、@、ccs-）"
         }
       }
     },
@@ -4760,17 +4743,7 @@
     }
   },
   "providers": {
-    "form": {
-      "route": {
-        "title": "加入會話級路由",
-        "description": "開啟後可用 --model \"<前綴><key>\" 把請求路由到該分組（預設前綴 G.）",
-        "keyLabel": "路由 key",
-        "keyPlaceholder": "如 ds（字母/數字/._-，1–100 位）",
-        "keyInvalid": "路由 key 不合法：僅字母、數字與 . _ -，長度 1–100",
-        "keyReserved": "default 為保留 key（恆為解綁語義），請換一個",
-        "keyDuplicate": "該路由 key 已被同應用內其他分組佔用"
-      }
-    }
+    "form": {}
   },
   "dsh": {
     "providerManagedExternally": "DSH 的 provider 由 Deepseek 應用程式自行管理，請前往 DSH 應用程式內新增、切換或設定 provider。"
