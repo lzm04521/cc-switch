@@ -211,107 +211,109 @@ fn db_error(error: AppError) -> Box<Response> {
     Box::new(ProxyError::DatabaseError(error.to_string()).into_response())
 }
 
-/// 粘性跟随（裸模型名请求）：绑定命中 → 锁定到绑定成员，模型名不改写、不透传
-/// ——照常走该成员的常规模型映射（claude：档位 → subagent 保护 → ANTHROPIC_MODEL
-/// 兜底；codex：model / catalog 链）。绑定失效（成员移除/删除、聚合模式关闭）时
-/// 自动解绑回落默认成员并记日志，不报错。
+/// 粘性跟随（裸模型名请求）：绑定命中 → 返回绑定成员（由调用方锁定 ctx），
+/// 模型名不改写、不透传——照常走该成员的常规模型映射（claude：档位 →
+/// subagent 保护 → ANTHROPIC_MODEL 兜底；codex：model / catalog 链）。
+/// 绑定失效（成员移除/删除、聚合模式关闭）时自动解绑回落默认成员并记日志，不报错。
 async fn sticky_follow(
     state: &ProxyState,
-    ctx: &mut RequestContext,
+    session: &crate::proxy::session::SessionIdResult,
+    app_type: &AppType,
     store: &DeviceStore,
-) -> Result<(), ProxyError> {
-    if !ctx.session_client_provided {
-        return Ok(()); // 生成型 session id 每请求都变，绑定无意义
+) -> Result<Option<Provider>, ProxyError> {
+    if !session.client_provided {
+        return Ok(None); // 生成型 session id 每请求都变，绑定无意义
     }
-    let Some(key) = state.route_bindings.lookup(&ctx.session_id) else {
-        return Ok(()); // 无绑定：默认成员原路径
+    let Some(key) = state.route_bindings.lookup(&session.session_id) else {
+        return Ok(None); // 无绑定：默认成员原路径
     };
-    let stack_on = state::stack_mode(store, ctx.app_type_str)
+    let stack_on = state::stack_mode(store, app_type.as_str())
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
     if !stack_on {
-        state.route_bindings.unbind(&ctx.session_id);
+        state.route_bindings.unbind(&session.session_id);
         log::warn!(
             "[SessionRouting] session {} 绑定存留但聚合模式已关（key: {key}），解绑回落默认成员",
-            ctx.session_id
+            session.session_id
         );
-        return Ok(());
+        return Ok(None);
     }
-    let stack_state = state::stack(store, ctx.app_type_str)
+    let stack_state = state::stack(store, app_type.as_str())
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-    match stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key) {
+    match stack::resolve_member(&state.db, &stack_state, app_type, &key) {
         Ok(Ok(target)) => {
-            // 守卫与显式路由一致（A1）：仅置换 provider 链，不动模型名
             let target_name = target.name.clone();
-            lock_context_to_provider(ctx, target);
             log::info!(
                 "[SessionRouting] session {} 粘性跟随成员「{target_name}」（key: {key}）",
-                ctx.session_id
+                session.session_id
             );
-            Ok(())
+            Ok(Some(target))
         }
         Ok(Err(_miss)) => {
             // 绑定失效（成员移出名单 / 供应商删除）：清绑定、回落默认成员并记日志
-            state.route_bindings.unbind(&ctx.session_id);
+            state.route_bindings.unbind(&session.session_id);
             log::warn!(
                 "[SessionRouting] session {} 绑定的成员已失效（key: {key}），回落默认成员",
-                ctx.session_id
+                session.session_id
             );
-            Ok(())
+            Ok(None)
         }
         Err(e) => Err(ProxyError::DatabaseError(e.to_string())),
     }
 }
 
-/// 会话粘性钩子（fork：仅 Claude / Codex 链路，在 `resolve_stack_target` 之前调用——
-/// 它 Hit 后会把 model 改写为上游名，晚于它就无法再解码绑定/跟随）。
+/// 会话粘性钩子的 pre 阶段（fork：仅 Claude / Codex 链路，在
+/// `resolve_stack_target` **之前**调用——它 Hit 后会把 model 改写为上游名，
+/// 晚于它就无法再解码绑定/跟随。ctx 尚未构造，锁定目标以返回值交给调用方）。
 ///
-/// 1. 短形式 `<prefix><key>` → 该成员默认模型 + 锁定 + 绑定 session（fail-closed：
-///    key 未命中报错并列出可用 key；成员无默认模型报错，不静默回落）
-/// 2. 保留 key `default` → 解绑；本请求显式走默认成员（proxy_route）的默认模型；
+/// 1. 短形式 `<prefix><key>` → 改写为该成员默认模型 + 绑定 session + 返回成员
+/// 2. 保留 key `default` → 解绑；本请求显式走默认成员（proxy_route）的默认模型并返回它；
 ///    无默认成员/默认模型时解绑仍执行、请求报错
 /// 3. 全 id → 仅绑定 session（解析与锁定交给后续 resolve_stack_target）
-/// 4. 裸模型名 → [`sticky_follow`] 粘性跟随
+/// 4. 裸模型名 → [`sticky_follow`] 粘性跟随（命中返回绑定成员）
 /// 5. Malformed → 400
+///
+/// 返回 `Some(provider)` = 调用方在 ctx 构造后用 [`lock_session_target`] 锁定。
 pub async fn apply_session_routing(
     state: &ProxyState,
-    ctx: &mut RequestContext,
+    session: &crate::proxy::session::SessionIdResult,
+    app_type: &AppType,
     body: &mut Value,
     store: &DeviceStore,
-) -> Result<(), Box<Response>> {
+) -> Result<Option<Provider>, Box<Response>> {
     use stack::Decoded;
 
-    if !matches!(ctx.app_type, AppType::Claude | AppType::Codex) {
-        return Ok(()); // claude-desktop 等链路随旧体系退役（设计 D4）
+    if !matches!(app_type, AppType::Claude | AppType::Codex) {
+        return Ok(None); // claude-desktop 等链路随旧体系退役（设计 D4）
     }
     let Some(model) = body
         .get("model")
         .and_then(Value::as_str)
         .map(str::to_string)
     else {
-        return Ok(());
+        return Ok(None);
     };
     let prefix = crate::settings::get_route_prefix();
-    match stack::decode(&prefix, &ctx.app_type, &model) {
-        Decoded::Plain => sticky_follow(state, ctx, store)
+    match stack::decode(&prefix, app_type, &model) {
+        Decoded::Plain => sticky_follow(state, session, app_type, store)
             .await
             .map_err(|e| Box::new(e.into_response()) as Box<Response>),
         // 保留 key：解绑 + 本请求显式走默认成员的默认模型（设计 D8）
         Decoded::Short { key } if key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) => {
-            state.route_bindings.unbind(&ctx.session_id);
+            state.route_bindings.unbind(&session.session_id);
             log::info!(
                 "[SessionRouting] session {} 请求解绑，回落默认成员",
-                ctx.session_id
+                session.session_id
             );
-            if !state::stack_mode(store, ctx.app_type_str).map_err(db_error)? {
+            if !state::stack_mode(store, app_type.as_str()).map_err(db_error)? {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &stack::StackMiss::StackOff.message(&model),
                 ));
             }
-            let mode = state::mode_state(store, ctx.app_type_str).map_err(db_error)?;
+            let mode = state::mode_state(store, app_type.as_str()).map_err(db_error)?;
             let Some(default_id) = mode.proxy_route else {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &format!(
                         "聚合的模型 {model} 需要 CC Switch 里配置默认供应商 (No default member is configured for {model})"
                     ),
@@ -319,42 +321,34 @@ pub async fn apply_session_routing(
             };
             let default_provider = state
                 .db
-                .get_provider_by_id(&default_id, ctx.app_type_str)
+                .get_provider_by_id(&default_id, app_type.as_str())
                 .map_err(db_error)?;
             let Some(default_provider) = default_provider else {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &stack::StackMiss::Deleted.message(&model),
                 ));
             };
-            let Some(upstream) =
-                stack::member_default_model(&ctx.app_type, "", &default_provider)
+            let Some(upstream) = stack::member_default_model(app_type, "", &default_provider)
             else {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &stack::StackMiss::NoDefaultModel.message(&model),
                 ));
             };
             body["model"] = Value::String(upstream);
-            let target_name = default_provider.name.clone();
-            lock_context_to_provider(ctx, default_provider);
-            log::info!(
-                "[SessionRouting] session {} 解绑后显式走默认成员「{target_name}」默认模型",
-                ctx.session_id
-            );
-            Ok(())
+            Ok(Some(default_provider))
         }
-        // 短形式：成员默认模型 + 锁定 + 绑定
+        // 短形式：成员默认模型 + 绑定
         Decoded::Short { key } => {
-            if !state::stack_mode(store, ctx.app_type_str).map_err(db_error)? {
+            if !state::stack_mode(store, app_type.as_str()).map_err(db_error)? {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &stack::StackMiss::StackOff.message(&model),
                 ));
             }
-            let stack_state = state::stack(store, ctx.app_type_str).map_err(db_error)?;
-            let target = match stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key)
-            {
+            let stack_state = state::stack(store, app_type.as_str()).map_err(db_error)?;
+            let target = match stack::resolve_member(&state.db, &stack_state, app_type, &key) {
                 Ok(Ok(target)) => target,
                 Ok(Err(miss)) => {
                     let mut message = miss.message(&model);
@@ -370,47 +364,46 @@ pub async fn apply_session_routing(
                             }
                         ));
                     }
-                    return Err(bad_request(&ctx.app_type, &message));
+                    return Err(bad_request(app_type, &message));
                 }
                 Err(e) => return Err(db_error(e)),
             };
-            let Some(upstream) = stack::member_default_model(&ctx.app_type, &key, &target)
-            else {
+            let Some(upstream) = stack::member_default_model(app_type, &key, &target) else {
                 return Err(bad_request(
-                    &ctx.app_type,
+                    app_type,
                     &stack::StackMiss::NoDefaultModel.message(&model),
                 ));
             };
-            if ctx.session_client_provided {
-                state.route_bindings.bind(&ctx.session_id, &key);
+            if session.client_provided {
+                state.route_bindings.bind(&session.session_id, &key);
             }
             body["model"] = Value::String(upstream);
             let target_name = target.name.clone();
-            lock_context_to_provider(ctx, target);
             log::info!(
                 "[SessionRouting] session {} 短形式 key「{key}」→ 成员「{target_name}」默认模型",
-                ctx.session_id
+                session.session_id
             );
-            Ok(())
+            Ok(Some(target))
         }
         // 全 id：解析与锁定由后续 resolve_stack_target 完成；这里只做尽力绑定
-        // （key 解不出来时不绑，真正的 400 由 resolve_stack_target 报）
+        // （key 解不出来时不绑，真正的 400 由 resolve_stack_target 报）。
+        // 显式全 id 优先于既有绑定：绑定更新为 id 的 key
         Decoded::Stack { key, .. } => {
-            if ctx.session_client_provided
-                && state::stack_mode(store, ctx.app_type_str).map_err(db_error)?
+            if session.client_provided
+                && state::stack_mode(store, app_type.as_str()).map_err(db_error)?
             {
-                let stack_state = state::stack(store, ctx.app_type_str).map_err(db_error)?;
+                let stack_state = state::stack(store, app_type.as_str()).map_err(db_error)?;
                 if matches!(
-                    stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key),
+                    stack::resolve_member(&state.db, &stack_state, app_type, &key),
                     Ok(Ok(_))
                 ) {
-                    state.route_bindings.bind(&ctx.session_id, &key);
+                    state.route_bindings.bind(&session.session_id, &key);
                 }
             }
-            Ok(())
+            Ok(None)
         }
         Decoded::Malformed => Err(bad_request(
-            &ctx.app_type,
+            app_type,
             &stack::StackMiss::Unknown.message(&model),
         )),
     }
@@ -421,7 +414,7 @@ pub async fn apply_session_routing(
 /// `should_switch` 恒为 false：不偷换默认成员、不污染 failover_count、
 /// 不触发 try_switch。单元素 Vec 同时天然绕过熔断放行检查，
 /// 显式点名不应被全局健康度拦截；record_failure 健康统计仍照常累计。
-fn lock_context_to_provider(ctx: &mut RequestContext, target: Provider) {
+pub fn lock_session_target(ctx: &mut RequestContext, target: Provider) {
     ctx.current_provider_id = target.id.clone();
     ctx.provider = target.clone();
     ctx.set_providers(vec![target]);
@@ -511,11 +504,12 @@ mod tests {
         assert_eq!(store.lookup("s3"), Some("c".to_string()));
     }
 
-    // ==========================================================================
-    // apply_session_routing（fork Task 3）
-    // ==========================================================================
+    // ========================================================================
+    // apply_session_routing（fork Task 3/4）
+    // ========================================================================
 
     use crate::database::Database;
+    use crate::proxy::session::{SessionIdResult, SessionIdSource};
     use http_body_util::BodyExt;
     use std::sync::Arc;
 
@@ -548,10 +542,6 @@ mod tests {
         ] {
             state.db.save_provider("claude", &row).unwrap();
         }
-        state
-            .db
-            .set_current_provider("claude", "kimi")
-            .unwrap();
         state::update(&store, |live| {
             let claude = live.apps.entry("claude".to_string()).or_default();
             claude.mode = Some(state::Mode::Proxy);
@@ -575,41 +565,43 @@ mod tests {
         crate::settings::get_route_prefix()
     }
 
-    async fn make_ctx(fx: &Fixture, app: AppType, model: &str) -> RequestContext {
-        let body = serde_json::json!({ "model": model, "messages": [] });
-        let app_str: &'static str = match app {
-            AppType::Claude => "claude",
-            AppType::ClaudeDesktop => "claude-desktop",
-            AppType::Codex => "codex",
-            _ => "claude",
-        };
-        let mut ctx = RequestContext::new(
-            &fx.state,
-            &body,
-            &axum::http::HeaderMap::new(),
-            app.clone(),
-            "Test",
-            app_str,
-            None,
-        )
-        .await
-        .unwrap();
-        ctx.session_id = "s-test".to_string();
-        ctx.session_client_provided = true;
-        ctx
+    fn session() -> SessionIdResult {
+        SessionIdResult {
+            session_id: "s-test".to_string(),
+            source: SessionIdSource::Generated,
+            client_provided: true,
+        }
+    }
+
+    /// 应用并返回 (锁定成员 id, 改写后 model)；Err 时 panic
+    async fn apply_ok(fx: &Fixture, app: AppType, model: &str) -> (Option<String>, String) {
+        let mut body = serde_json::json!({ "model": model, "messages": [] });
+        let lock = apply_session_routing(&fx.state, &session(), &app, &mut body, &fx.store)
+            .await
+            .expect("apply_session_routing should succeed");
+        let model = body["model"].as_str().unwrap_or_default().to_string();
+        (lock.map(|p| p.id), model)
+    }
+
+    /// 应用失败：返回 (status, 响应文本)
+    async fn apply_err_text(fx: &Fixture, app: AppType, model: &str) -> (StatusCode, String) {
+        let mut body = serde_json::json!({ "model": model, "messages": [] });
+        let err = apply_session_routing(&fx.state, &session(), &app, &mut body, &fx.store)
+            .await
+            .expect_err("apply_session_routing should fail");
+        let response = *err;
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        (status, String::from_utf8_lossy(&bytes).to_string())
     }
 
     #[tokio::test]
     async fn short_form_routes_to_member_default_model() {
         let fx = fixture();
         let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
-        let mut body = serde_json::json!({ "model": id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
-        assert_eq!(body["model"], "glm-5.2[1M]");
-        assert_eq!(ctx.provider.id, "zhipu");
+        let (lock, model) = apply_ok(&fx, AppType::Claude, &id).await;
+        assert_eq!(lock.as_deref(), Some("zhipu"));
+        assert_eq!(model, "glm-5.2[1M]");
         assert_eq!(
             fx.state.route_bindings.lookup("s-test"),
             Some("zhipu".to_string())
@@ -620,39 +612,36 @@ mod tests {
     async fn short_form_unknown_key_fails_closed_with_list() {
         let fx = fixture();
         let id = stack::encode_short(&prefix(), &AppType::Claude, "nope");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
-        let mut body = serde_json::json!({ "model": id, "messages": [] });
-        let err = apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap_err();
-        let response = *err;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        // 失败响应体里应含可用 key 列表（读取 body 文本）
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        let text = String::from_utf8_lossy(&bytes).to_string();
+        let (status, text) = apply_err_text(&fx, AppType::Claude, &id).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(text.contains("kimi") && text.contains("zhipu"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn short_form_body_is_plain_after_rewrite() {
+        // 顺序契约（Task 4）：短形式改写后的 body model 必须是裸名，
+        // 下游 resolve_stack_target（decode==Plain）不会再干预
+        let fx = fixture();
+        let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let (_, model) = apply_ok(&fx, AppType::Claude, &id).await;
+        assert_eq!(
+            stack::decode(&prefix(), &AppType::Claude, &model),
+            stack::Decoded::Plain
+        );
     }
 
     #[tokio::test]
     async fn default_unbinds_and_routes_to_default_member() {
         let fx = fixture();
-        // 先绑定 zhipu，再解绑 → 默认成员 kimi 的默认模型
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
-        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
         assert!(fx.state.route_bindings.lookup("s-test").is_some());
 
         let default_id = stack::encode_short(&prefix(), &AppType::Claude, "default");
-        let mut body = serde_json::json!({ "model": default_id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let (lock, model) = apply_ok(&fx, AppType::Claude, &default_id).await;
         assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
-        assert_eq!(body["model"], "kimi-k3");
-        assert_eq!(ctx.provider.id, "kimi");
+        assert_eq!(lock.as_deref(), Some("kimi"));
+        assert_eq!(model, "kimi-k3");
     }
 
     #[tokio::test]
@@ -669,86 +658,55 @@ mod tests {
             stack.keys.insert("bare".to_string(), "bare".to_string());
         })
         .unwrap();
-        fx.state
-            .db
-            .set_current_provider("claude", "bare")
-            .unwrap();
 
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&mut fx, AppType::Claude, &zhipu_id).await;
-        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let _ = apply_ok(&mut fx, AppType::Claude, &zhipu_id).await;
         assert!(fx.state.route_bindings.lookup("s-test").is_some());
 
         let default_id = stack::encode_short(&prefix(), &AppType::Claude, "default");
-        let mut body = serde_json::json!({ "model": default_id, "messages": [] });
-        let err = apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap_err();
-        assert_eq!((*err).status(), StatusCode::BAD_REQUEST);
+        let (status, _text) = apply_err_text(&mut fx, AppType::Claude, &default_id).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         // 解绑仍执行
         assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
     }
 
     #[tokio::test]
-    async fn sticky_follow_locks_bound_member() {
+    async fn sticky_follow_returns_bound_member_without_rewrite() {
         let fx = fixture();
-        // 先绑定 zhipu
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
-        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
 
-        // 同 session 裸模型名 → 锁定绑定成员，模型名不改写
-        let mut body = serde_json::json!({ "model": "haiku", "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
-        assert_eq!(ctx.provider.id, "zhipu");
-        assert_eq!(body["model"], "haiku");
+        // 同 session 裸模型名 → 返回绑定成员，模型名不改写
+        let (lock, model) = apply_ok(&fx, AppType::Claude, "haiku").await;
+        assert_eq!(lock.as_deref(), Some("zhipu"));
+        assert_eq!(model, "haiku");
     }
 
     #[tokio::test]
     async fn sticky_member_removed_falls_back() {
         let fx = fixture();
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
-        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
 
-        // zhipu 移出名单（登记簿保留）→ 绑定失效自动解绑，回落默认成员、不报错。
-        // 真实流程每个请求新建 ctx（默认链），这里同样用新 ctx 发裸名请求
+        // zhipu 移出名单（登记簿保留）→ 绑定失效自动解绑，无锁定、不报错
         state::update(&fx.store, |live| {
             let stack = &mut live.apps.get_mut("claude").unwrap().stack;
             stack.members.retain(|id| id != "zhipu");
         })
         .unwrap();
-        let mut ctx = make_ctx(&fx, AppType::Claude, "haiku").await;
-        let mut body = serde_json::json!({ "model": "haiku", "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let (lock, _) = apply_ok(&fx, AppType::Claude, "haiku").await;
+        assert_eq!(lock, None);
         assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
-        assert_eq!(ctx.provider.id, "kimi"); // 默认成员（RequestContext 初始链）
     }
 
     #[tokio::test]
     async fn full_id_binds_without_rewriting() {
         let fx = fixture();
         let id = stack::encode(&prefix(), &AppType::Claude, "zhipu", "glm-5.2", true);
-        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
-        let mut body = serde_json::json!({ "model": id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let (lock, model) = apply_ok(&fx, AppType::Claude, &id).await;
         // 全 id 不改写、不锁定（由 resolve_stack_target 负责），只绑定
-        assert_eq!(body["model"], id);
+        assert_eq!(lock, None);
+        assert_eq!(model, id);
         assert_eq!(
             fx.state.route_bindings.lookup("s-test"),
             Some("zhipu".to_string())
@@ -756,29 +714,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicit_full_id_rebinds_over_existing_binding() {
+        // 显式全 id 优先于既有绑定：绑定更新为全 id 的 key（Task 4 顺序契约）
+        let fx = fixture();
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
+        assert_eq!(
+            fx.state.route_bindings.lookup("s-test"),
+            Some("zhipu".to_string())
+        );
+
+        let kimi_id = stack::encode(&prefix(), &AppType::Claude, "kimi", "kimi-k3", false);
+        let _ = apply_ok(&fx, AppType::Claude, &kimi_id).await;
+        assert_eq!(
+            fx.state.route_bindings.lookup("s-test"),
+            Some("kimi".to_string())
+        );
+    }
+
+    #[tokio::test]
     async fn generated_session_id_never_binds() {
         let fx = fixture();
         let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
-        ctx.session_client_provided = false; // 生成型 session id
         let mut body = serde_json::json!({ "model": id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+        let generated = SessionIdResult {
+            session_id: "gen-uuid".to_string(),
+            source: SessionIdSource::Generated,
+            client_provided: false,
+        };
+        apply_session_routing(&fx.state, &generated, &AppType::Claude, &mut body, &fx.store)
             .await
             .unwrap();
-        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
+        assert_eq!(fx.state.route_bindings.lookup("gen-uuid"), None);
     }
 
     #[tokio::test]
     async fn non_stack_app_is_noop() {
         let fx = fixture();
         let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
-        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
-        ctx.app_type = AppType::ClaudeDesktop;
-        ctx.app_type_str = "claude-desktop";
         let mut body = serde_json::json!({ "model": id, "messages": [] });
-        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
-            .await
-            .unwrap();
+        let lock = apply_session_routing(
+            &fx.state,
+            &session(),
+            &AppType::ClaudeDesktop,
+            &mut body,
+            &fx.store,
+        )
+        .await
+        .unwrap();
+        assert!(lock.is_none());
         assert_eq!(body["model"], id);
         assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
     }

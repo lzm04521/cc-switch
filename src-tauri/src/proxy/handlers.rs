@@ -523,6 +523,24 @@ async fn handle_messages_for_app(
         .to_bytes();
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
+
+    // fork: 会话粘性钩子先于 Stack 解析（短形式/解绑/裸名跟随；全 id 只绑定）——
+    // resolve_stack_target Hit 会把 model 改写为上游名，晚于它就无法再解码
+    // （doc/20261009-设计文档-会话路由改造为聚合模式）
+    let session = crate::proxy::extract_session_id(&headers, &body, app_type_str);
+    let routing_lock = match super::route_prefix::apply_session_routing(
+        &state,
+        &session,
+        &app_type,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        Ok(lock) => lock,
+        Err(rejected) => return Ok(*rejected),
+    };
+
     let stack = match resolve_stack_target(&state, &app_type, &mut body) {
         Ok(stack) => stack,
         Err(rejected) => return Ok(*rejected),
@@ -538,6 +556,9 @@ async fn handle_messages_for_app(
         stack,
     )
     .await?;
+    if let Some(target) = routing_lock {
+        super::route_prefix::lock_session_target(&mut ctx, target);
+    }
 
     let raw_endpoint = uri
         .path_and_query()
@@ -549,21 +570,6 @@ async fn handle_messages_for_app(
 
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), endpoint, &headers, &body_bytes);
-    }
-
-    // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
-    // （received 报文保留原文，forward 报文为改写后内容）
-    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
-    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
-    if let Err(rejected) = super::route_prefix::apply_session_routing(
-        &state,
-        &mut ctx,
-        &mut body,
-        &crate::live::engine::DeviceStore::for_device(),
-    )
-    .await
-    {
-        return Ok(*rejected);
     }
 
     let is_stream = body
@@ -1165,6 +1171,24 @@ pub async fn handle_chat_completions(
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
+
+    // fork: 会话粘性钩子先于 Stack 解析（短形式/解绑/裸名跟随；全 id 只绑定）——
+    // resolve_stack_target Hit 会把 model 改写为上游名，晚于它就无法再解码
+    // （doc/20261009-设计文档-会话路由改造为聚合模式）
+    let session = crate::proxy::extract_session_id(&headers, &body, "codex");
+    let routing_lock = match super::route_prefix::apply_session_routing(
+        &state,
+        &session,
+        &AppType::Codex,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        Ok(lock) => lock,
+        Err(rejected) => return Ok(*rejected),
+    };
+
     let stack = match resolve_stack_target(&state, &AppType::Codex, &mut body) {
         Ok(stack) => stack,
         Err(rejected) => return Ok(*rejected),
@@ -1180,25 +1204,13 @@ pub async fn handle_chat_completions(
         stack,
     )
     .await?;
+    if let Some(target) = routing_lock {
+        super::route_prefix::lock_session_target(&mut ctx, target);
+    }
     let endpoint = endpoint_with_query(&uri, "/chat/completions");
 
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
-    }
-
-    // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
-    // （received 报文保留原文，forward 报文为改写后内容；chat/completions 入口，2026-09-11）
-    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
-    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
-    if let Err(rejected) = super::route_prefix::apply_session_routing(
-        &state,
-        &mut ctx,
-        &mut body,
-        &crate::live::engine::DeviceStore::for_device(),
-    )
-    .await
-    {
-        return Ok(*rejected);
     }
 
     let is_stream = body
@@ -1418,6 +1430,24 @@ async fn handle_responses_for_app(
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
+
+    // fork: 会话粘性钩子先于 Stack 解析（短形式/解绑/裸名跟随；全 id 只绑定）——
+    // resolve_stack_target Hit 会把 model 改写为上游名，晚于它就无法再解码
+    // （doc/20261009-设计文档-会话路由改造为聚合模式）
+    let session = crate::proxy::extract_session_id(&headers, &body, app_type_str);
+    let routing_lock = match super::route_prefix::apply_session_routing(
+        &state,
+        &session,
+        &app_type,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        Ok(lock) => lock,
+        Err(rejected) => return Ok(*rejected),
+    };
+
     let stack = match resolve_stack_target(&state, &app_type, &mut body) {
         Ok(stack) => stack,
         Err(rejected) => return Ok(*rejected),
@@ -1433,25 +1463,13 @@ async fn handle_responses_for_app(
         stack,
     )
     .await?;
+    if let Some(target) = routing_lock {
+        super::route_prefix::lock_session_target(&mut ctx, target);
+    }
     let endpoint = endpoint_with_query(&uri, "/responses");
 
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
-    }
-
-    // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
-    // （received 报文保留原文，forward 报文为改写后内容；Codex 适配 2026-09-10）
-    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
-    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
-    if let Err(rejected) = super::route_prefix::apply_session_routing(
-        &state,
-        &mut ctx,
-        &mut body,
-        &crate::live::engine::DeviceStore::for_device(),
-    )
-    .await
-    {
-        return Ok(*rejected);
     }
 
     let is_stream = body
@@ -1771,6 +1789,25 @@ async fn handle_responses_compact_for_app(
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
+
+    // fork: 会话粘性钩子先于 Stack 解析（短形式/解绑/裸名跟随；全 id 只绑定）——
+    // resolve_stack_target Hit 会把 model 改写为上游名，晚于它就无法再解码。
+    // compact 请求带 model 且属同 session，粘性跟随语义正确
+    // （doc/20261009-设计文档-会话路由改造为聚合模式）
+    let session = crate::proxy::extract_session_id(&headers, &body, app_type_str);
+    let routing_lock = match super::route_prefix::apply_session_routing(
+        &state,
+        &session,
+        &app_type,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        Ok(lock) => lock,
+        Err(rejected) => return Ok(*rejected),
+    };
+
     // 压缩请求也带着客户端选中的模型：不解码的话，会带着前缀落到默认路由。
     let stack = match resolve_stack_target(&state, &app_type, &mut body) {
         Ok(stack) => stack,
@@ -1787,25 +1824,13 @@ async fn handle_responses_compact_for_app(
         stack,
     )
     .await?;
+    if let Some(target) = routing_lock {
+        super::route_prefix::lock_session_target(&mut ctx, target);
+    }
     let endpoint = endpoint_with_query(&uri, "/responses/compact");
 
     if let Some(capture) = &ctx.api_log {
         capture.record_received(method.as_str(), &endpoint, &headers, &body_bytes);
-    }
-
-    // 会话级路由：compact 请求带 model 且属同 session，粘性跟随语义正确
-    // （Codex 适配 2026-09-10，与 handle_responses_for_app 同款接线）
-    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
-    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
-    if let Err(rejected) = super::route_prefix::apply_session_routing(
-        &state,
-        &mut ctx,
-        &mut body,
-        &crate::live::engine::DeviceStore::for_device(),
-    )
-    .await
-    {
-        return Ok(*rejected);
     }
 
     let is_stream = body
