@@ -99,18 +99,11 @@ pub async fn handle_models(
     if is_claude_model_discovery(&uri, &headers) {
         return Ok(Json(claude_model_discovery(&state)));
     }
-    let mut catalog = read_active_codex_catalog();
+    let catalog = read_active_codex_catalog();
 
-    let endpoint = crate::settings::get_route_models_endpoint();
-    if endpoint.enabled {
-        let all = state
-            .db
-            .get_all_providers("claude")
-            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let prefix = crate::settings::get_route_prefix();
-        let data = super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode);
-        merge_route_models_into_catalog(&mut catalog, data);
-    }
+    // fork Task 6: 旧路由分组条目构建器已随会话路由体系删除；
+    // 此处暂不合并条目，聚合成员模型条目在 Task 6 接入
+    let _ = &state;
     Ok(Json(catalog))
 }
 
@@ -181,17 +174,9 @@ fn merge_route_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
 pub async fn handle_claude_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
-    let endpoint = crate::settings::get_route_models_endpoint();
-    let data = if endpoint.enabled {
-        let all = state
-            .db
-            .get_all_providers("claude")
-            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let prefix = crate::settings::get_route_prefix();
-        super::route_prefix::build_route_models_list(&all, &prefix, endpoint.mode)
-    } else {
-        Vec::new()
-    };
+    // fork Task 6: 旧路由分组条目构建器已删除；聚合成员模型条目在 Task 6 接入
+    let _ = &state;
+    let data = Vec::new();
     Ok(Json(build_anthropic_models_response(data)))
 }
 
@@ -224,19 +209,10 @@ fn build_anthropic_models_response(data: Vec<Value>) -> Value {
 pub async fn handle_codex_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
-    let mut catalog = project_catalog_to_openai_list(read_active_codex_catalog());
+    let catalog = project_catalog_to_openai_list(read_active_codex_catalog());
 
-    let endpoint = crate::settings::get_route_models_endpoint();
-    if endpoint.enabled {
-        let all = state
-            .db
-            .get_all_providers("codex")
-            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let prefix = crate::settings::get_route_prefix();
-        let data =
-            super::route_prefix::build_route_models_list_for_codex(&all, &prefix, endpoint.mode);
-        apply_codex_route_models_to_openai_list(&mut catalog, data);
-    }
+    // fork Task 6: 旧路由分组条目构建器已删除；聚合成员模型条目在 Task 6 接入
+    let _ = &state;
     Ok(Json(catalog))
 }
 
@@ -490,28 +466,11 @@ pub async fn handle_claude_desktop_models(
         .await
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
     let provider = providers.first().ok_or(ProxyError::NoAvailableProvider)?;
-    let mut response = crate::claude_desktop_config::model_list_response(provider)
+    let response = crate::claude_desktop_config::model_list_response(provider)
         .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
 
-    let endpoint = crate::settings::get_route_models_endpoint();
-    if endpoint.enabled
-        && matches!(
-            endpoint.mode,
-            crate::settings::RouteModelsMode::Groups | crate::settings::RouteModelsMode::Both
-        )
-    {
-        let all = state
-            .db
-            .get_all_providers("claude-desktop")
-            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let prefix = crate::settings::get_route_prefix();
-        let group_entries = super::route_prefix::build_route_models_list(
-            &all,
-            &prefix,
-            crate::settings::RouteModelsMode::Groups,
-        );
-        append_route_groups_to_models_response(&mut response, group_entries);
-    }
+    // fork: 旧路由分组条目追加逻辑已随会话路由体系删除（claude-desktop 链路
+    // 聚合寻址退役，设计 D4）；gateway 模型菜单本体保留
     Ok(Json(response))
 }
 
@@ -556,7 +515,7 @@ async fn handle_messages_for_app(
     let method = parts.method.clone();
     let uri = parts.uri;
     let headers = parts.headers;
-    let mut extensions = parts.extensions;
+    let extensions = parts.extensions;
     let body_bytes = body
         .collect()
         .await
@@ -594,7 +553,18 @@ async fn handle_messages_for_app(
 
     // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
     // （received 报文保留原文，forward 报文为改写后内容）
-    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
+    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
+    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
+    if let Err(rejected) = super::route_prefix::apply_session_routing(
+        &state,
+        &mut ctx,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        return Ok(*rejected);
+    }
 
     let is_stream = body
         .get("stream")
@@ -1186,7 +1156,7 @@ pub async fn handle_chat_completions(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let mut extensions = parts.extensions;
+    let extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
@@ -1218,7 +1188,18 @@ pub async fn handle_chat_completions(
 
     // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
     // （received 报文保留原文，forward 报文为改写后内容；chat/completions 入口，2026-09-11）
-    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
+    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
+    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
+    if let Err(rejected) = super::route_prefix::apply_session_routing(
+        &state,
+        &mut ctx,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        return Ok(*rejected);
+    }
 
     let is_stream = body
         .get("stream")
@@ -1428,7 +1409,7 @@ async fn handle_responses_for_app(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let mut extensions = parts.extensions;
+    let extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
@@ -1460,7 +1441,18 @@ async fn handle_responses_for_app(
 
     // 会话级路由：api_log 落盘后、转发前，按 model 前缀锁定路由分组
     // （received 报文保留原文，forward 报文为改写后内容；Codex 适配 2026-09-10）
-    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
+    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
+    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
+    if let Err(rejected) = super::route_prefix::apply_session_routing(
+        &state,
+        &mut ctx,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        return Ok(*rejected);
+    }
 
     let is_stream = body
         .get("stream")
@@ -1770,7 +1762,7 @@ async fn handle_responses_compact_for_app(
     let method = parts.method.clone();
     let uri = parts.uri;
     let mut headers = parts.headers;
-    let mut extensions = parts.extensions;
+    let extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
@@ -1803,7 +1795,18 @@ async fn handle_responses_compact_for_app(
 
     // 会话级路由：compact 请求带 model 且属同 session，粘性跟随语义正确
     // （Codex 适配 2026-09-10，与 handle_responses_for_app 同款接线）
-    super::route_prefix::apply_route(&state, &mut ctx, &mut body, &mut extensions).await?;
+    // fork: 会话粘性钩子（短形式/解绑/裸名跟随；doc/20261009-设计文档-会话路由改造为聚合模式）。
+    // 全 id 的解析与锁定由上方 resolve_stack_target 完成；此处错误按客户端协议 400 返回
+    if let Err(rejected) = super::route_prefix::apply_session_routing(
+        &state,
+        &mut ctx,
+        &mut body,
+        &crate::live::engine::DeviceStore::for_device(),
+    )
+    .await
+    {
+        return Ok(*rejected);
+    }
 
     let is_stream = body
         .get("stream")

@@ -1,47 +1,57 @@
-//! 会话级模型路由（前缀触发）模块
+//! 会话粘性绑定层（fork 定制，doc/20261009-设计文档-会话路由改造为聚合模式）。
 //!
-//! 按请求 model 值的前缀（默认 `G.`，可配置）将请求路由到指定分组：
-//! - `G.<key>`         → 路由到 key 分组，使用该分组默认模型（ANTHROPIC_MODEL）
-//! - `G.<key>:<model>`  → 路由到 key 分组，显式模型透传（不落默认兜底）
-//! - `<prefix>default`  → 解绑 session 粘性绑定，回落默认分组
+//! 旧「route_enabled 分组 + `G.<key>:<model>` 寻址 + /v1/models 分组条目」体系已彻底删除；
+//! 模型 id 的聚合寻址（可配置前缀、短形式、全 id）统一在 [`crate::mode::stack`]。
+//! 本模块只保留三件事：
 //!
-//! 设计文档：doc/20260908-会话级模型路由.md
+//! 1. 前缀设置的校验与归一化（[`validate_route_prefix`] / [`normalize_route_prefix`]）；
+//! 2. session 粘性绑定表（[`RouteBindingStore`]，进程内）；
+//! 3. [`apply_session_routing`] 粘性钩子——在 `resolve_stack_target` **之前**调用：
+//!    - 短形式 `<prefix><key>` → 该成员默认模型 + 锁定成员 + 绑定 session
+//!    - 保留 key `<prefix>default`（claude 形态 `<prefix>claude-default`）→ 解绑 +
+//!      本请求显式走默认成员的默认模型
+//!    - 全 id（`<prefix>…--model` / `<prefix>key/model`）→ 只绑定 session，
+//!      解析与锁定由后续 `resolve_stack_target` 完成
+//!    - 裸模型名 → 粘性跟随绑定的成员（subagent / classifier / 后台 haiku），
+//!      模型名走该成员的常规模型映射，不透传
+//!
+//! 审计保真：调用点在 api_log record_received 之后（received 报文保留原文，
+//! forward 报文为改写后内容）；request_model（ctx）保留原值，用量归因随
+//! ctx.provider 落到锁定成员。
 
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::{json, Value};
+
 use crate::app_config::AppType;
+use crate::error::AppError;
+use crate::live::engine::DeviceStore;
+use crate::mode::stack;
+use crate::mode::state;
 use crate::provider::Provider;
 use crate::proxy::error::ProxyError;
 use crate::proxy::handler_context::RequestContext;
-use crate::proxy::model_mapper::{strip_one_m_suffix_for_upstream, ModelMapping};
 use crate::proxy::server::ProxyState;
-use serde_json::Value;
 
 /// 默认模型 id 前缀（fork: 与上游 Stack 一致为 "ccs-"；完整触发串，含边界符。
 /// doc/20261009-设计文档-会话路由改造为聚合模式）
 pub const DEFAULT_ROUTE_PREFIX: &str = "ccs-";
 
-/// 保留路由 key：任意触发前缀下 `<prefix>default` 恒为解绑语义，
-/// 不查分组表、禁止被分组占用
+/// 保留路由 key：任意触发前缀下短形式 `<prefix><key>` 的 key 为 `default` 时
+/// 恒为解绑语义，不查成员表、禁止被成员 key 占用
 pub const RESERVED_ROUTE_KEY: &str = "default";
 
-/// 解析结果。key 保留原始大小写（匹配层大小写不敏感）；
-/// model_override 为 `key:model` 中第一个 `:` 之后的部分，保留原始大小写
-/// （模型名透传必须保真，不做大小写改写）
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedRoute {
-    pub key: String,
-    pub model_override: Option<String>,
-}
-
-/// session 粘性路由绑定表（进程内，不落库，设计 §3.8）
+/// session 粘性绑定表（进程内，不落库）
 ///
-/// 首个带路由前缀的请求绑定 session → route_key；同 session 的无前缀请求
+/// 首个带聚合前缀的请求绑定 session → 成员 key；同 session 的裸模型名请求
 /// （subagent / classifier / 后台 haiku，模型名来自 CLAUDE_CODE_SUBAGENT_MODEL
-/// 与档位默认值）复用该分组。滚动续期：命中即刷新 last_used；容量上限时
-/// 淘汰最久未用（防长期泄漏）。进程重启 = 全部解绑回落默认分组
+/// 与档位默认值）复用该成员。滚动续期：命中即刷新 last_used；容量上限时
+/// 淘汰最久未用（防长期泄漏）。进程重启 = 全部解绑回落默认成员
 /// （内存态，无持久化损坏风险）。std 同步锁足够：操作均为 O(1) 纯内存
 /// 读写，持锁时间极短且不跨 await。
 #[derive(Debug)]
@@ -66,7 +76,7 @@ impl RouteBindingStore {
         }
     }
 
-    /// 绑定（新 key 覆盖旧绑定 = 会话中途换分组）
+    /// 绑定（新 key 覆盖旧绑定 = 会话中途换成员）
     pub fn bind(&self, session_id: &str, route_key: &str) {
         if let Ok(mut map) = self.inner.write() {
             map.insert(
@@ -97,7 +107,7 @@ impl RouteBindingStore {
         }
     }
 
-    /// 解绑（`<前缀>default` 与分组失效时调用）
+    /// 解绑（`<前缀>default` 与绑定失效时调用）
     pub fn unbind(&self, session_id: &str) {
         if let Ok(mut map) = self.inner.write() {
             map.remove(session_id);
@@ -126,10 +136,10 @@ impl Default for RouteBindingStore {
     }
 }
 
-/// 校验路由触发前缀（保存设置时 fail-fast，设计 §3.9）：
+/// 校验聚合模型 id 前缀（保存设置时 fail-fast）：
 /// 非空、1–8 个字符、可打印 ASCII、不含 `:`、
 /// 必须以非字母数字字符结尾（自带边界符——裸前缀会把字母开头的
-/// 模型名（glm-4.7、gpt-5）误判为路由请求并 fail-closed 报错）
+/// 模型名（glm-4.7、gpt-5）误判为聚合寻址并 fail-closed 报错）
 pub fn validate_route_prefix(prefix: &str) -> Result<(), String> {
     if prefix.is_empty() {
         return Err("路由前缀不能为空".to_string());
@@ -145,27 +155,27 @@ pub fn validate_route_prefix(prefix: &str) -> Result<(), String> {
     }
     if prefix.contains(':') {
         return Err(format!(
-            "路由前缀不能包含冒号「:」（它是 key 与模型名的分隔符）: {prefix}"
+            "路由前缀不能包含冒号「:」（它是保留字之外的模型名合法字符，易混淆）: {prefix}"
         ));
     }
     let last = prefix.chars().last().expect("non-empty checked above");
     if last.is_ascii_alphanumeric() {
         return Err(format!(
-            "路由前缀必须以非字母数字字符结尾（如「.」「@」「#」）: {prefix}"
+            "路由前缀必须以非字母数字字符结尾（如「.」「@」「#」「-」）: {prefix}"
         ));
     }
     Ok(())
 }
 
-/// 运行时归一化（fail-safe）：DB 值非法（如直接改库绕过保存校验）时
+/// 运行时归一化（fail-safe）：settings 值非法（如直接改文件绕过保存校验）时
 /// 回退默认前缀并告警。全局基础设施不因设置值非法阻断请求，
-/// 区别于路由 key 未命中的 fail-closed。
+/// 区别于成员 key 未命中的 fail-closed。
 pub fn normalize_route_prefix(raw: Option<&str>) -> String {
     match raw.map(str::trim).filter(|s| !s.is_empty()) {
         Some(prefix) if validate_route_prefix(prefix).is_ok() => prefix.to_string(),
         Some(prefix) => {
             log::warn!(
-                "[RoutePrefix] 路由前缀设置非法（{prefix:?}），回退默认 {DEFAULT_ROUTE_PREFIX:?}"
+                "[SessionRouting] 路由前缀设置非法（{prefix:?}），回退默认 {DEFAULT_ROUTE_PREFIX:?}"
             );
             DEFAULT_ROUTE_PREFIX.to_string()
         }
@@ -173,411 +183,105 @@ pub fn normalize_route_prefix(raw: Option<&str>) -> String {
     }
 }
 
-/// 解析 model 值是否携带路由前缀（设计 §3.1）：
-/// - None：无前缀，走默认分组 / session 粘性绑定（行为零变化）
-/// - Some：前缀命中。key 为空（仅前缀本身）时交给 key 匹配层 fail-closed
-///
-/// 前缀匹配大小写不敏感（宽容 CLI 对 model 串的大小写改写）；
-/// `[1M]` 后缀容忍两种形态；按第一个 `:` 切分 key 与模型名
-/// （key 与模型名都可含点，点无法无歧义切分）。
-pub fn parse_route_target(model: &str, prefix: &str) -> Option<ParsedRoute> {
-    if !model.to_lowercase().starts_with(&prefix.to_lowercase()) {
-        return None;
-    }
-    // 前缀经校验/回退后为可打印 ASCII（单字节），按字节长度切片安全；
-    // get() 仅作 char 边界防御
-    let rest = model.get(prefix.len()..).unwrap_or("");
-    let rest = strip_one_m_suffix_for_upstream(rest).trim();
-    match rest.split_once(':') {
-        Some((key, model_override)) => Some(ParsedRoute {
-            key: key.trim().to_string(),
-            model_override: (!model_override.trim().is_empty())
-                .then(|| model_override.trim().to_string()),
-        }),
-        None => Some(ParsedRoute {
-            key: rest.to_string(),
-            model_override: None,
-        }),
-    }
-}
-
-/// per-request 透传标记：`G.<key>:<model>` 显式模型透传。
-/// apply_model_mapping 据此跳过目标分组 ANTHROPIC_MODEL 默认兜底
-///（模型名是用户点名的真值，静默换成默认模型比上游报错更难排查）
-#[derive(Debug, Clone, Copy)]
-pub struct RoutePassthrough;
-
-/// 在同 app 全部分组中按路由 key 解析锁定分组（设计 §3.2/§3.4）：
-/// - 仅认 route_enabled = true 且 key 匹配（大小写不敏感）的分组
-/// - key 重复（改库绕过保存校验）时取 sort_index 最小者并 warn（运行时兜底）
-/// - 未命中 fail-closed：报错含当前可用 key 列表，不回落默认分组
-pub fn resolve_route_provider(
-    all: &indexmap::IndexMap<String, Provider>,
-    key: &str,
-) -> Result<Provider, ProxyError> {
-    let mut candidates: Vec<&Provider> = all
-        .values()
-        .filter(|p| p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true))
-        .filter(|p| {
-            p.meta
-                .as_ref()
-                .and_then(|m| m.route_key.as_deref())
-                .map(|k| k.trim().eq_ignore_ascii_case(key.trim()))
-                .unwrap_or(false)
-        })
-        .collect();
-
-    match candidates.len() {
-        0 => {
-            let available: Vec<String> = all
-                .values()
-                .filter(|p| p.meta.as_ref().and_then(|m| m.route_enabled) == Some(true))
-                .filter_map(|p| p.meta.as_ref().and_then(|m| m.route_key.clone()))
-                .collect();
-            Err(ProxyError::ConfigError(format!(
-                "路由 key「{key}」未匹配到已加入路由的分组（当前可用: {}）",
-                if available.is_empty() {
-                    "无".to_string()
-                } else {
-                    available.join(", ")
-                }
-            )))
-        }
-        1 => Ok(candidates.remove(0).clone()),
-        _ => {
-            candidates.sort_by_key(|p| p.sort_index.unwrap_or(usize::MAX));
-            let chosen = candidates[0].clone();
-            log::warn!(
-                "[RoutePrefix] 路由 key「{key}」命中多个分组，兜底取 sort_index 最小者: {}",
-                chosen.name
-            );
-            Ok(chosen)
-        }
-    }
-}
-
 // ============================================================================
-// /v1/models 路由模型列表（设计 §4.4）
+// apply_session_routing（粘性钩子）
 // ============================================================================
 
-/// created_at 占位（无真实数据不编造时间，与 Agent-Dog / Claude Desktop
-/// models 端点同款口径）
-const MODELS_LIST_EPOCH_ISO: &str = "1970-01-01T00:00:00Z";
-
-/// 剥离并探测 `[1M]` 后缀：返回 (基础模型名, 是否带 1M)。
-/// 判定大小写不敏感（存储端存在 "[1M]" 与 "[1m]" 两种形态）；
-/// 渲染层统一大写 "[1M]"。
-fn split_base_and_one_m(raw: &str) -> (String, bool) {
-    let trimmed = raw.trim_end();
-    let stripped = strip_one_m_suffix_for_upstream(trimmed);
-    let has_one_m = stripped.len() != trimmed.len();
-    (stripped.trim().to_string(), has_one_m)
-}
-
-/// 条目 display_name = id 去掉路由触发前缀（模型条目保留 `分组:模型[1M]`
-/// 形态；id 必须带前缀才能被 CLI 发送触发路由，显示名去掉前缀减少视觉
-/// 冗余——用户决策 2026-09-09，取代早前"display_name=id"方案）
-fn models_list_entry(id: &str, prefix: &str) -> Value {
-    let display = id.strip_prefix(prefix).unwrap_or(id);
-    serde_json::json!({
-        "type": "model",
-        "id": id,
-        "display_name": display,
-        "created_at": MODELS_LIST_EPOCH_ISO,
-    })
-}
-
-/// 筛选合规路由分组（`build_route_models_list` 与 codex 变体共用）：
-/// - 仅 `route_enabled = true` 且 `route_key` trim 非空的分组；
-///   key 重复（改库绕过保存校验）取首现（IndexMap 已按 sort_index 排序）并 warn
-/// - 返回顺序即 IndexMap（sort_index）顺序，key 已去重
-fn eligible_route_groups<'a>(
-    all: &'a indexmap::IndexMap<String, Provider>,
-) -> Vec<(&'a Provider, &'a str, ModelMapping)> {
-    use std::collections::HashSet;
-
-    let mut seen_keys: HashSet<String> = HashSet::new();
-    let mut eligible: Vec<(&Provider, &str, ModelMapping)> = Vec::new();
-
-    for provider in all.values() {
-        let Some(meta) = provider.meta.as_ref() else {
-            continue;
-        };
-        if meta.route_enabled != Some(true) {
-            continue;
-        }
-        let Some(key) = meta
-            .route_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|k| !k.is_empty())
-        else {
-            log::warn!(
-                "[RouteModels] 分组「{}」route_enabled 但 route_key 为空，跳过模型列表",
-                provider.name
-            );
-            continue;
-        };
-        if !seen_keys.insert(key.to_lowercase()) {
-            log::warn!(
-                "[RouteModels] 路由 key「{key}」重复（分组「{}」），取 sort_index 最小者",
-                provider.name
-            );
-            continue;
-        }
-        eligible.push((provider, key, ModelMapping::from_provider(provider)));
-    }
-
-    eligible
-}
-
-/// 输出回落条目与分组条目（两种构建函数共用）：
-/// - 存在合规分组时置顶一条 `<前缀>Default`（display_name「Default」；
-///   保留 key 匹配大小写不敏感，手打 G.default 同样解绑）——粘性绑定建立后
-///   /model 选择器里唯一可见的解绑出口；任何 mode 均输出，无合规分组则无
-/// - mode 含 Groups 时逐组输出 `<前缀><key>`；分组默认模型带 `[1M]` 尾拼
-///   `[1M]`（仅 claude 系分组会命中，codex 分组无 env.ANTHROPIC_MODEL）
-fn push_route_group_entries(
-    entries: &mut Vec<Value>,
-    eligible: &[(&Provider, &str, ModelMapping)],
-    prefix: &str,
-    mode: crate::settings::RouteModelsMode,
-) {
-    use crate::settings::RouteModelsMode;
-
-    if !eligible.is_empty() {
-        let fallback_id = format!("{prefix}Default");
-        entries.push(models_list_entry(&fallback_id, prefix));
-    }
-
-    if matches!(mode, RouteModelsMode::Groups | RouteModelsMode::Both) {
-        for (_provider, key, mapping) in eligible {
-            let group_one_m = mapping
-                .default_model
-                .as_deref()
-                .map(|m| split_base_and_one_m(m).1)
-                .unwrap_or(false);
-            let mut id = format!("{prefix}{key}");
-            if group_one_m {
-                id.push_str("[1M]");
+/// 按客户端的协议返回 400 错误体（Claude 用 Anthropic 信封，Codex 用 OpenAI 信封，
+/// 与 handlers::stack_miss_body 同款口径）。
+fn bad_request(app: &AppType, message: &str) -> Box<Response> {
+    let body = match app {
+        AppType::Claude => json!({
+            "type": "error",
+            "error": { "type": "invalid_request_error", "message": message },
+        }),
+        _ => json!({
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": "model",
+                "code": "model_not_found",
             }
-            entries.push(models_list_entry(&id, prefix));
-        }
-    }
+        }),
+    };
+    Box::new((StatusCode::BAD_REQUEST, Json(body)).into_response())
 }
 
-/// 构建会话级路由分组在 /v1/models 暴露的条目列表（设计 §4.4，纯函数）。
-///
-/// - 仅 `route_enabled = true` 且 `route_key` trim 非空的分组；
-///   key 重复（改库绕过保存校验）取首现（IndexMap 已按 sort_index 排序）并 warn
-/// - Groups：分组条目 `<前缀><key>`；分组 `ANTHROPIC_MODEL` 带 `[1M]` → 尾拼 `[1M]`
-/// - Models：组内 env 六档位（sonnet→opus→fable→haiku→subagent→default，
-///   与 Claude 表单模型角色区顺序一致）非空值剥 `[1M]` 后去重；
-///   去重键 = 基础模型名，1M 取"或"，同 base 只出一条带 `[1M]` 的（决策 #5）
-/// - Both：分组条目在前、模型条目在后
-/// - 存在合规分组时，任意 mode 均置顶一条回落条目 `<前缀>Default`
-///   （详见 push_route_group_entries）；无路由分组 → 空 Vec
-///   （fail-open，空列表不是错误）
-pub fn build_route_models_list(
-    all: &indexmap::IndexMap<String, Provider>,
-    prefix: &str,
-    mode: crate::settings::RouteModelsMode,
-) -> Vec<Value> {
-    use crate::settings::RouteModelsMode;
-
-    // 先筛合规分组（sort_index 顺序、key 去重），再按 mode 分两阶段输出：
-    // Both 时分组条目统一在前、模型条目在后
-    let eligible = eligible_route_groups(all);
-    let mut entries: Vec<Value> = Vec::new();
-    push_route_group_entries(&mut entries, &eligible, prefix, mode);
-
-    if matches!(mode, RouteModelsMode::Models | RouteModelsMode::Both) {
-        for (_provider, key, mapping) in &eligible {
-            // IndexMap 保插入序：base 首现顺序 + 1M 取"或"
-            let mut models: indexmap::IndexMap<String, bool> = indexmap::IndexMap::new();
-            let tiers = [
-                &mapping.sonnet_model,
-                &mapping.opus_model,
-                &mapping.fable_model,
-                &mapping.haiku_model,
-                &mapping.subagent_model,
-                &mapping.default_model,
-            ];
-            for raw in tiers.into_iter().flatten() {
-                let (base, has_one_m) = split_base_and_one_m(raw);
-                if base.is_empty() {
-                    continue;
-                }
-                let flag = models.entry(base).or_insert(false);
-                if has_one_m {
-                    *flag = true;
-                }
-            }
-            for (base, has_one_m) in models {
-                let mut id = format!("{prefix}{key}:{base}");
-                if has_one_m {
-                    id.push_str("[1M]");
-                }
-                entries.push(models_list_entry(&id, prefix));
-            }
-        }
-    }
-
-    entries
+fn db_error(error: AppError) -> Box<Response> {
+    Box::new(ProxyError::DatabaseError(error.to_string()).into_response())
 }
 
-/// codex 分组 `settings_config.modelCatalog.models[].model` 的有序清单
-/// （trim 非空、保序、不去重）。与 `providers::codex` 的私有
-/// `codex_provider_catalog_model_ids`（HashSet，仅成员判定）不同：此处必须
-/// 保序输出，且串形态要与该全集完全一致才能命中 catalog 匹配。
-fn codex_catalog_model_ids(provider: &Provider) -> Vec<String> {
-    provider
-        .settings_config
-        .get("modelCatalog")
-        .and_then(|catalog| catalog.get("models"))
-        .and_then(|models| models.as_array())
-        .map(|models| {
-            models
-                .iter()
-                .filter_map(|model| model.get("model").and_then(|value| value.as_str()))
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-                .map(ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// 构建 codex 分组在 `/codex/v1/models` 暴露的路由条目（纯函数，Task 3b，
-/// 2026-09-10）。与 claude 变体的差异仅在 Models 部分：
-/// - Groups / Both：`<前缀><key>` 分组条目与 `<前缀>Default` 回落条目同
-///   claude 规则（复用 eligible 筛选与 push_route_group_entries）
-/// - Models / Both：逐条输出 `<前缀><key>:<model>`，来源是分组
-///   `modelCatalog.models[].model`（模型映射的"实际请求模型"列）——claude 的
-///   env 六档位提取对 codex 分组天然全空，不参与
-/// - **原样输出：不去重、不剥 `[1M]`**。透传串必须与 codex catalog 匹配串
-///   完全一致，任何归一化都会让 `apply_codex_upstream_model` 判定为
-///   catalog 外模型、把它替换成分组默认模型，静默吞掉显式透传
-/// - 映射为空 → 零条模型条目，**不加上游模型兜底**
-/// - 硬性要求：仅 route_enabled == true 的合规分组出现条目，未开路由的分组
-///   零条目（复用公共筛选）
-pub fn build_route_models_list_for_codex(
-    all: &indexmap::IndexMap<String, Provider>,
-    prefix: &str,
-    mode: crate::settings::RouteModelsMode,
-) -> Vec<Value> {
-    use crate::settings::RouteModelsMode;
-
-    let eligible = eligible_route_groups(all);
-    let mut entries: Vec<Value> = Vec::new();
-    push_route_group_entries(&mut entries, &eligible, prefix, mode);
-
-    if matches!(mode, RouteModelsMode::Models | RouteModelsMode::Both) {
-        for (provider, key, _mapping) in &eligible {
-            for model in codex_catalog_model_ids(provider) {
-                entries.push(models_list_entry(&format!("{prefix}{key}:{model}"), prefix));
-            }
-        }
-    }
-
-    entries
-}
-
-/// session 粘性路由（设计 §3.8）：同 session 的无前缀请求
-/// （subagent / classifier / 后台 haiku，模型名来自
-/// CLAUDE_CODE_SUBAGENT_MODEL 与档位默认值，不带前缀）复用首个
-/// `G.<key>` 请求绑定的分组，避免「主对话在锁定分组、子代理在默认分组」
-/// 的会话内分裂。
-///
-/// 绑定命中 ≠ 显式路由：不改写 body.model、不插透传标记——模型名照常
-/// 走目标分组常规 map_model（档位 → subagent 保护 → ANTHROPIC_MODEL 兜底）。
-/// 目标分组配了 ANTHROPIC_MODEL 时可把 CLAUDE_CODE_SUBAGENT_MODEL 的值
-/// （如 deepseek-xxx）兜底替换，避免发给不认识它的上游报错；未配兜底则
-/// 原样发出（与无前缀请求行为一致）。
-async fn sticky_route_lookup(
+/// 粘性跟随（裸模型名请求）：绑定命中 → 锁定到绑定成员，模型名不改写、不透传
+/// ——照常走该成员的常规模型映射（claude：档位 → subagent 保护 → ANTHROPIC_MODEL
+/// 兜底；codex：model / catalog 链）。绑定失效（成员移除/删除、聚合模式关闭）时
+/// 自动解绑回落默认成员并记日志，不报错。
+async fn sticky_follow(
     state: &ProxyState,
     ctx: &mut RequestContext,
+    store: &DeviceStore,
 ) -> Result<(), ProxyError> {
     if !ctx.session_client_provided {
         return Ok(()); // 生成型 session id 每请求都变，绑定无意义
     }
     let Some(key) = state.route_bindings.lookup(&ctx.session_id) else {
-        return Ok(()); // 无绑定：默认分组原路径
+        return Ok(()); // 无绑定：默认成员原路径
     };
-    let all = state
-        .db
-        .get_all_providers(ctx.app_type_str)
+    let stack_on = state::stack_mode(store, ctx.app_type_str)
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-    match resolve_route_provider(&all, &key) {
-        Ok(target) => {
+    if !stack_on {
+        state.route_bindings.unbind(&ctx.session_id);
+        log::warn!(
+            "[SessionRouting] session {} 绑定存留但聚合模式已关（key: {key}），解绑回落默认成员",
+            ctx.session_id
+        );
+        return Ok(());
+    }
+    let stack_state = state::stack(store, ctx.app_type_str)
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    match stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key) {
+        Ok(Ok(target)) => {
             // 守卫与显式路由一致（A1）：仅置换 provider 链，不动模型名
             let target_name = target.name.clone();
             lock_context_to_provider(ctx, target);
-            // info 级与显式路由对称：粘性跟随直接影响供应商归属，现场须可查
             log::info!(
-                "[RoutePrefix] session {} 粘性跟随分组「{target_name}」（key: {key}）",
+                "[SessionRouting] session {} 粘性跟随成员「{target_name}」（key: {key}）",
                 ctx.session_id
             );
             Ok(())
         }
-        Err(_) => {
-            // 绑定失效（key 对应分组被删 / 路由开关关闭）：
-            // 清绑定、回落默认分组并记日志（设计 §3.8 绑定失效）
+        Ok(Err(_miss)) => {
+            // 绑定失效（成员移出名单 / 供应商删除）：清绑定、回落默认成员并记日志
             state.route_bindings.unbind(&ctx.session_id);
             log::warn!(
-                "[RoutePrefix] session {} 绑定的路由 key「{key}」已失效（分组删除或路由关闭），回落默认分组",
+                "[SessionRouting] session {} 绑定的成员已失效（key: {key}），回落默认成员",
                 ctx.session_id
             );
             Ok(())
         }
+        Err(e) => Err(ProxyError::DatabaseError(e.to_string())),
     }
 }
 
-/// 解析路由分组的默认模型（纯函数，按 app 分流，Codex 适配 2026-09-10）：
-/// - Claude 系：读 `settings_config.env.ANTHROPIC_MODEL`（Claude Code 的
-///   默认模型载体是 live 环境变量）
-/// - Codex：读 `settings_config.model` 或 `settings_config.config` TOML 的
-///   `model =`（Codex 无 ANTHROPIC_MODEL 语义；复用
-///   `providers::codex_provider_upstream_model` 的两种形态，含 trim 与空值过滤）
+/// 会话粘性钩子（fork：仅 Claude / Codex 链路，在 `resolve_stack_target` 之前调用——
+/// 它 Hit 后会把 model 改写为上游名，晚于它就无法再解码绑定/跟随）。
 ///
-/// 返回 None 时调用方 fail-closed 报错，**不回落默认分组**——静默切到默认
-/// 分组会让请求发往用户没点名的供应商，比报错更难排查（设计 §3.3）。
-/// 独立纯函数以便直接单测（apply_route 本体 async 且依赖 ProxyState）。
-pub(crate) fn resolve_route_default_model(
-    app_type: &AppType,
-    provider: &Provider,
-) -> Option<String> {
-    match app_type {
-        AppType::Codex => super::providers::codex_provider_upstream_model(provider),
-        _ => provider
-            .settings_config
-            .pointer("/env/ANTHROPIC_MODEL")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .filter(|m| !m.is_empty()),
-    }
-}
-
-/// 会话级路由应用点（Claude / ClaudeDesktop / Codex 链路调用，设计
-/// §3.3/§3.4；Codex 适配 2026-09-10）：
-/// 1. model 带路由前缀 → 解析 key、锁定分组、改写 body.model、绑定 session
-/// 2. `<前缀>default` → 解绑 session，回落默认分组
-/// 3. model 无前缀 → session 粘性查询（sticky_route_lookup，跟随绑定分组）
-///
-/// 审计保真：调用点在 api_log record_received 之后（received 报文保留
-/// `G.` 原文，forward 报文为改写后内容）；request_model（ctx）保留原值，
-/// 用量归因随 ctx.provider 落到锁定分组。
-pub async fn apply_route(
+/// 1. 短形式 `<prefix><key>` → 该成员默认模型 + 锁定 + 绑定 session（fail-closed：
+///    key 未命中报错并列出可用 key；成员无默认模型报错，不静默回落）
+/// 2. 保留 key `default` → 解绑；本请求显式走默认成员（proxy_route）的默认模型；
+///    无默认成员/默认模型时解绑仍执行、请求报错
+/// 3. 全 id → 仅绑定 session（解析与锁定交给后续 resolve_stack_target）
+/// 4. 裸模型名 → [`sticky_follow`] 粘性跟随
+/// 5. Malformed → 400
+pub async fn apply_session_routing(
     state: &ProxyState,
     ctx: &mut RequestContext,
     body: &mut Value,
-    extensions: &mut axum::http::Extensions,
-) -> Result<(), ProxyError> {
-    if !matches!(
-        ctx.app_type,
-        AppType::Claude | AppType::ClaudeDesktop | AppType::Codex
-    ) {
-        return Ok(()); // 生效范围守卫（设计 §3.7，双保险；Codex 适配 2026-09-10）
+    store: &DeviceStore,
+) -> Result<(), Box<Response>> {
+    use stack::Decoded;
+
+    if !matches!(ctx.app_type, AppType::Claude | AppType::Codex) {
+        return Ok(()); // claude-desktop 等链路随旧体系退役（设计 D4）
     }
     let Some(model) = body
         .get("model")
@@ -587,71 +291,136 @@ pub async fn apply_route(
         return Ok(());
     };
     let prefix = crate::settings::get_route_prefix();
-    let Some(parsed) = parse_route_target(&model, &prefix) else {
-        return sticky_route_lookup(state, ctx).await;
-    };
-    if parsed.key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) {
-        state.route_bindings.unbind(&ctx.session_id);
-        log::info!(
-            "[RoutePrefix] session {} 请求解绑路由，回落默认分组",
-            ctx.session_id
-        );
-        return Ok(());
-    }
-    let all = state
-        .db
-        .get_all_providers(ctx.app_type_str)
-        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-    let target = resolve_route_provider(&all, &parsed.key)?;
-    // 仅客户端提供的 session id 才绑定（生成的 UUID 每请求都变，绑了也白绑）
-    if ctx.session_client_provided {
-        state.route_bindings.bind(&ctx.session_id, &parsed.key);
-    }
-    match parsed.model_override.as_deref() {
-        Some(model_override) => {
-            // 显式模型透传：写入原始值 + 标记跳过 ANTHROPIC_MODEL 兜底
-            body["model"] = Value::String(model_override.to_string());
-            extensions.insert(RoutePassthrough);
-        }
-        None => {
-            let default_model = resolve_route_default_model(&ctx.app_type, &target);
-            let Some(default_model) = default_model else {
-                // 错误文案按 app 语境区分：两类 CLI 的默认模型载体不同
-                // （Claude 读 live env，Codex 读 form 字段 / config.toml）
-                let hint = match ctx.app_type {
-                    AppType::Codex => "settings_config.model 或 config.toml 的 model =",
-                    _ => "env.ANTHROPIC_MODEL",
-                };
-                return Err(ProxyError::ConfigError(format!(
-                    "路由分组「{}」未配置默认模型（{hint}），无法处理无显式模型的路由请求",
-                    target.name
-                )));
+    match stack::decode(&prefix, &ctx.app_type, &model) {
+        Decoded::Plain => sticky_follow(state, ctx, store)
+            .await
+            .map_err(|e| Box::new(e.into_response()) as Box<Response>),
+        // 保留 key：解绑 + 本请求显式走默认成员的默认模型（设计 D8）
+        Decoded::Short { key } if key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) => {
+            state.route_bindings.unbind(&ctx.session_id);
+            log::info!(
+                "[SessionRouting] session {} 请求解绑，回落默认成员",
+                ctx.session_id
+            );
+            if !state::stack_mode(store, ctx.app_type_str).map_err(db_error)? {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &stack::StackMiss::StackOff.message(&model),
+                ));
+            }
+            let mode = state::mode_state(store, ctx.app_type_str).map_err(db_error)?;
+            let Some(default_id) = mode.proxy_route else {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &format!(
+                        "聚合的模型 {model} 需要 CC Switch 里配置默认供应商 (No default member is configured for {model})"
+                    ),
+                ));
             };
-            // 不插 RoutePassthrough：置换值照常走目标分组 map_model——
-            // 若值命中档位子串（如 claude-sonnet-4-6）且分组另配档位模型，
-            // 会被再替换一次；结果仍属该分组的已配置模型，接受（设计 §3.3 备注）
-            body["model"] = Value::String(default_model);
+            let default_provider = state
+                .db
+                .get_provider_by_id(&default_id, ctx.app_type_str)
+                .map_err(db_error)?;
+            let Some(default_provider) = default_provider else {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &stack::StackMiss::Deleted.message(&model),
+                ));
+            };
+            let Some(upstream) =
+                stack::member_default_model(&ctx.app_type, "", &default_provider)
+            else {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &stack::StackMiss::NoDefaultModel.message(&model),
+                ));
+            };
+            body["model"] = Value::String(upstream);
+            let target_name = default_provider.name.clone();
+            lock_context_to_provider(ctx, default_provider);
+            log::info!(
+                "[SessionRouting] session {} 解绑后显式走默认成员「{target_name}」默认模型",
+                ctx.session_id
+            );
+            Ok(())
         }
+        // 短形式：成员默认模型 + 锁定 + 绑定
+        Decoded::Short { key } => {
+            if !state::stack_mode(store, ctx.app_type_str).map_err(db_error)? {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &stack::StackMiss::StackOff.message(&model),
+                ));
+            }
+            let stack_state = state::stack(store, ctx.app_type_str).map_err(db_error)?;
+            let target = match stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key)
+            {
+                Ok(Ok(target)) => target,
+                Ok(Err(miss)) => {
+                    let mut message = miss.message(&model);
+                    if matches!(miss, stack::StackMiss::Unknown) {
+                        // fail-closed 报错附可用 key 列表（设计 §10，沿用旧报错形态）
+                        let available = stack::available_keys(&stack_state);
+                        message.push_str(&format!(
+                            "（当前可用: {}）",
+                            if available.is_empty() {
+                                "无".to_string()
+                            } else {
+                                available.join(", ")
+                            }
+                        ));
+                    }
+                    return Err(bad_request(&ctx.app_type, &message));
+                }
+                Err(e) => return Err(db_error(e)),
+            };
+            let Some(upstream) = stack::member_default_model(&ctx.app_type, &key, &target)
+            else {
+                return Err(bad_request(
+                    &ctx.app_type,
+                    &stack::StackMiss::NoDefaultModel.message(&model),
+                ));
+            };
+            if ctx.session_client_provided {
+                state.route_bindings.bind(&ctx.session_id, &key);
+            }
+            body["model"] = Value::String(upstream);
+            let target_name = target.name.clone();
+            lock_context_to_provider(ctx, target);
+            log::info!(
+                "[SessionRouting] session {} 短形式 key「{key}」→ 成员「{target_name}」默认模型",
+                ctx.session_id
+            );
+            Ok(())
+        }
+        // 全 id：解析与锁定由后续 resolve_stack_target 完成；这里只做尽力绑定
+        // （key 解不出来时不绑，真正的 400 由 resolve_stack_target 报）
+        Decoded::Stack { key, .. } => {
+            if ctx.session_client_provided
+                && state::stack_mode(store, ctx.app_type_str).map_err(db_error)?
+            {
+                let stack_state = state::stack(store, ctx.app_type_str).map_err(db_error)?;
+                if matches!(
+                    stack::resolve_member(&state.db, &stack_state, &ctx.app_type, &key),
+                    Ok(Ok(_))
+                ) {
+                    state.route_bindings.bind(&ctx.session_id, &key);
+                }
+            }
+            Ok(())
+        }
+        Decoded::Malformed => Err(bad_request(
+            &ctx.app_type,
+            &stack::StackMiss::Unknown.message(&model),
+        )),
     }
-    let target_name = target.name.clone();
-    lock_context_to_provider(ctx, target);
-    log::info!(
-        "[RoutePrefix] session {} 路由 key「{}」→ 分组「{target_name}」",
-        ctx.session_id,
-        parsed.key
-    );
-    Ok(())
 }
 
-/// A1 守卫（设计 §3.4）：把 ctx 锁定到目标分组——provider / providers
-///（单元素）/ current_provider_id 全部指向锁定分组，使 forwarder 4 处
-/// `should_switch`（forwarder.rs:565/668/814/978）恒为 false：不偷换默认
-/// 分组、不污染 failover_count、不触发 try_switch。
-/// 单元素 Vec 同时天然绕过熔断放行检查（forwarder.rs:465），显式点名
-/// 不应被全局健康度拦截；record_failure 健康统计仍照常累计（A2）。
-/// 已知可接受残留：状态栏「当前分组」展示字段（forwarder.rs:554
-/// current_providers.insert）无守卫，路由期间临时显示路由目标，
-/// 下个普通请求即刷回（设计 §3.4）。
+/// A1 守卫（沿用旧设计 §3.4）：把 ctx 锁定到目标成员——provider / providers
+///（单元素）/ current_provider_id 全部指向锁定成员，使 forwarder 4 处
+/// `should_switch` 恒为 false：不偷换默认成员、不污染 failover_count、
+/// 不触发 try_switch。单元素 Vec 同时天然绕过熔断放行检查，
+/// 显式点名不应被全局健康度拦截；record_failure 健康统计仍照常累计。
 fn lock_context_to_provider(ctx: &mut RequestContext, target: Provider) {
     ctx.current_provider_id = target.id.clone();
     ctx.provider = target.clone();
@@ -668,6 +437,7 @@ mod tests {
         assert!(validate_route_prefix("@").is_ok());
         assert!(validate_route_prefix("##").is_ok());
         assert!(validate_route_prefix("R.").is_ok());
+        assert!(validate_route_prefix("ccs-").is_ok());
     }
 
     #[test]
@@ -684,126 +454,6 @@ mod tests {
         assert!(validate_route_prefix("G. ").is_err());
         assert!(validate_route_prefix("toolongpfx.").is_err()); // 11 字符超上限
         assert!(validate_route_prefix("路.").is_err()); // 非 ASCII
-    }
-
-    #[test]
-    fn parse_returns_none_without_prefix() {
-        assert_eq!(parse_route_target("sonnet", "G."), None);
-        assert_eq!(parse_route_target("glm-4.7", "G."), None);
-        assert_eq!(parse_route_target("", "G."), None);
-        // 误匹配防线：裸前缀 "G." 不会命中 "sonnet"
-        assert_eq!(parse_route_target("claude-opus-4-8", "@"), None);
-    }
-
-    #[test]
-    fn parse_key_only_and_key_model() {
-        assert_eq!(
-            parse_route_target("G.ds", "G."),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: None
-            })
-        );
-        assert_eq!(
-            parse_route_target("G.ds:claude-opus-4-8", "G."),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: Some("claude-opus-4-8".into())
-            })
-        );
-        // key 与模型名都可含点，按第一个 `:` 切分
-        assert_eq!(
-            parse_route_target("G.mini:MiniMax-M2.7-highspeed", "G."),
-            Some(ParsedRoute {
-                key: "mini".into(),
-                model_override: Some("MiniMax-M2.7-highspeed".into())
-            })
-        );
-        // 冒号后为空视同无显式模型（分组默认模型）
-        assert_eq!(
-            parse_route_target("G.ds:", "G."),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: None
-            })
-        );
-        // key 可含点与连字符
-        assert_eq!(
-            parse_route_target("G.my-key.v2:sonnet", "G."),
-            Some(ParsedRoute {
-                key: "my-key.v2".into(),
-                model_override: Some("sonnet".into())
-            })
-        );
-    }
-
-    #[test]
-    fn parse_is_case_insensitive_on_prefix_and_keeps_model_case() {
-        assert_eq!(
-            parse_route_target("g.DS:DeepSeek-R1", "G."),
-            Some(ParsedRoute {
-                key: "DS".into(),
-                model_override: Some("DeepSeek-R1".into())
-            })
-        );
-        // 自定义前缀
-        assert_eq!(
-            parse_route_target("@ds", "@"),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: None
-            })
-        );
-    }
-
-    #[test]
-    fn parse_tolerates_one_m_suffix_both_forms() {
-        // [1M] 可能被 Claude Code 剥离后再到达代理，两种形态都容忍
-        assert_eq!(
-            parse_route_target("G.ds[1M]", "G."),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: None
-            })
-        );
-        assert_eq!(
-            parse_route_target("G.ds:sonnet[1M]", "G."),
-            Some(ParsedRoute {
-                key: "ds".into(),
-                model_override: Some("sonnet".into())
-            })
-        );
-        // 直测剥离函数：判定大小写不敏感，小写 "[1m]" 同样剥离
-        assert_eq!(split_base_and_one_m("x[1m]"), ("x".to_string(), true));
-        assert_eq!(split_base_and_one_m("x[1M]"), ("x".to_string(), true));
-        assert_eq!(split_base_and_one_m("x"), ("x".to_string(), false));
-    }
-
-    #[test]
-    fn parse_reserved_default_and_empty_key() {
-        // 保留 key：解析层不特殊处理，由 apply_route 判定解绑语义
-        assert_eq!(
-            parse_route_target("G.default", "G."),
-            Some(ParsedRoute {
-                key: "default".into(),
-                model_override: None
-            })
-        );
-        assert_eq!(
-            parse_route_target("@default", "@"),
-            Some(ParsedRoute {
-                key: "default".into(),
-                model_override: None
-            })
-        );
-        // 仅前缀本身（key 空）：交给 key 匹配层 fail-closed（报 key 未命中）
-        assert_eq!(
-            parse_route_target("G.", "G."),
-            Some(ParsedRoute {
-                key: "".into(),
-                model_override: None
-            })
-        );
     }
 
     #[test]
@@ -824,7 +474,7 @@ mod tests {
         assert_eq!(store.lookup("s1"), None);
         store.bind("s1", "ds");
         assert_eq!(store.lookup("s1"), Some("ds".to_string()));
-        // 新 key 覆盖旧绑定（会话中途换分组）
+        // 新 key 覆盖旧绑定（会话中途换成员）
         store.bind("s1", "glm");
         assert_eq!(store.lookup("s1"), Some("glm".to_string()));
     }
@@ -861,399 +511,275 @@ mod tests {
         assert_eq!(store.lookup("s3"), Some("c".to_string()));
     }
 
-    use crate::provider::{Provider, ProviderMeta};
-    use indexmap::IndexMap;
+    // ==========================================================================
+    // apply_session_routing（fork Task 3）
+    // ==========================================================================
 
-    fn routed_provider(id: &str, key: &str, sort_index: Option<usize>) -> Provider {
-        let mut p = Provider::with_id(
+    use crate::database::Database;
+    use http_body_util::BodyExt;
+    use std::sync::Arc;
+
+    fn env_provider(id: &str, env: serde_json::Value) -> Provider {
+        let mut provider = Provider::with_id(
             id.to_string(),
             format!("P-{id}"),
-            serde_json::json!({"env": {"ANTHROPIC_BASE_URL": "https://example.com"}}),
+            serde_json::json!({ "env": env }),
             None,
         );
-        p.sort_index = sort_index;
-        p.meta = Some(ProviderMeta {
-            route_enabled: Some(true),
-            route_key: Some(key.to_string()),
-            ..Default::default()
-        });
-        p
+        provider.icon = Some(id.to_string());
+        provider
     }
 
-    fn all_providers(entries: Vec<Provider>) -> IndexMap<String, Provider> {
-        entries.into_iter().map(|p| (p.id.clone(), p)).collect()
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        store: DeviceStore,
+        state: ProxyState,
     }
 
-    #[test]
-    fn resolve_matches_key_case_insensitively() {
-        let all = all_providers(vec![routed_provider("a", "ds", None)]);
-        let hit = resolve_route_provider(&all, "DS").expect("case-insensitive hit");
-        assert_eq!(hit.id, "a");
-    }
-
-    #[test]
-    fn resolve_ignores_disabled_and_keyless_providers() {
-        let mut disabled = routed_provider("a", "ds", None);
-        disabled.meta = Some(ProviderMeta {
-            route_enabled: Some(false),
-            route_key: Some("ds".into()),
-            ..Default::default()
-        });
-        let mut keyless = routed_provider("b", "", None);
-        keyless.meta = Some(ProviderMeta {
-            route_enabled: Some(true),
-            route_key: None,
-            ..Default::default()
-        });
-        let all = all_providers(vec![disabled, keyless]);
-        assert!(resolve_route_provider(&all, "ds").is_err());
-    }
-
-    #[test]
-    fn resolve_duplicate_key_falls_back_to_smallest_sort_index() {
-        // 直接改库绕过保存校验的场景：运行时兜底取 sort_index 最小者
-        let all = all_providers(vec![
-            routed_provider("later", "ds", Some(5)),
-            routed_provider("first", "ds", Some(1)),
-        ]);
-        let hit = resolve_route_provider(&all, "ds").expect("fallback hit");
-        assert_eq!(hit.id, "first");
-    }
-
-    #[test]
-    fn resolve_missing_key_fails_closed_with_available_list() {
-        let all = all_providers(vec![
-            routed_provider("a", "ds", None),
-            routed_provider("b", "glm", None),
-        ]);
-        let err = resolve_route_provider(&all, "notexist").expect_err("fail-closed");
-        let msg = err.to_string();
-        assert!(msg.contains("notexist"), "msg: {msg}");
-        assert!(
-            msg.contains("ds") && msg.contains("glm"),
-            "可用 key 列表缺失: {msg}"
-        );
-    }
-
-    // ---- build_route_models_list（/v1/models 路由模型列表）----
-
-    fn route_list_provider(
-        id: &str,
-        name: &str,
-        route_key: Option<&str>,
-        env: serde_json::Value,
-    ) -> Provider {
-        let mut p = Provider::with_id(id.to_string(), name.to_string(), env, None);
-        p.meta = Some(crate::provider::ProviderMeta {
-            route_enabled: Some(route_key.is_some()),
-            route_key: route_key.map(str::to_string),
-            ..Default::default()
-        });
-        p
-    }
-
-    fn ds_group() -> Provider {
-        route_list_provider(
-            "p1",
-            "DeepSeek",
-            Some("DS"),
-            serde_json::json!({
-                "env": {
-                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1M]",
-                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
-                    "ANTHROPIC_MODEL": "deepseek-v4-pro[1M]"
-                }
-            }),
-        )
-    }
-
-    fn kc_group() -> Provider {
-        route_list_provider(
-            "p2",
-            "Kimi",
-            Some("KC"),
-            serde_json::json!({ "env": { "ANTHROPIC_MODEL": "kimi-k2" } }),
-        )
-    }
-
-    fn plain_group() -> Provider {
-        // 未开启路由的分组，不应出现在列表
-        route_list_provider("p3", "Official", None, serde_json::json!({ "env": {} }))
-    }
-
-    fn route_list_map(providers: Vec<Provider>) -> indexmap::IndexMap<String, Provider> {
-        providers.into_iter().map(|p| (p.id.clone(), p)).collect()
-    }
-
-    fn entry_ids(entries: &[serde_json::Value]) -> Vec<String> {
-        entries
-            .iter()
-            .filter_map(|e| e.get("id").and_then(|v| v.as_str()))
-            .map(str::to_string)
-            .collect()
-    }
-
-    #[test]
-    fn models_list_groups_mode_returns_group_entries_only() {
-        let all = route_list_map(vec![ds_group(), kc_group(), plain_group()]);
-        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS[1M]", "G.KC"]);
-        // display_name = id 去掉触发前缀；未开启路由的 p3 不出现
-        assert_eq!(entries[0]["display_name"], serde_json::json!("Default"));
-        assert_eq!(entries[1]["display_name"], serde_json::json!("DS[1M]"));
-    }
-
-    #[test]
-    fn models_list_models_mode_dedupes_and_merges_one_m() {
-        // sonnet=deepseek-v4-pro[1M]、opus=deepseek-v4-pro（同 base）、
-        // default=deepseek-v4-pro[1M] → 仅一条，且带 [1M]（1M 取"或"）
-        let all = route_list_map(vec![ds_group(), kc_group()]);
-        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Models);
-        assert_eq!(
-            entry_ids(&entries),
-            vec!["G.Default", "G.DS:deepseek-v4-pro[1M]", "G.KC:kimi-k2"]
-        );
-        assert_eq!(
-            entries[1]["display_name"],
-            serde_json::json!("DS:deepseek-v4-pro[1M]")
-        );
-    }
-
-    #[test]
-    fn models_list_both_mode_groups_first() {
-        let all = route_list_map(vec![ds_group(), kc_group()]);
-        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Both);
-        assert_eq!(
-            entry_ids(&entries),
-            vec![
-                "G.Default",
-                "G.DS[1M]",
-                "G.KC",
-                "G.DS:deepseek-v4-pro[1M]",
-                "G.KC:kimi-k2"
-            ]
-        );
-    }
-
-    #[test]
-    fn models_list_fallback_entry_leads_in_every_mode() {
-        // 回落条目不受 mode 影响、置顶，且前缀任意（此处用 "@" 验证拼接）
-        let all = route_list_map(vec![ds_group()]);
-        for mode in [
-            crate::settings::RouteModelsMode::Groups,
-            crate::settings::RouteModelsMode::Models,
-            crate::settings::RouteModelsMode::Both,
+    /// claude 聚合模式：成员 kimi（默认模型 kimi-k3）、zhipu（glm-5.2[1M]）；
+    /// 默认成员（proxy_route）= kimi。bare 按需追加（无默认模型用例）。
+    fn fixture() -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let store = DeviceStore::at(dir.path());
+        let state = ProxyState::for_test(Arc::new(Database::memory().unwrap()));
+        for row in [
+            env_provider("kimi", serde_json::json!({ "ANTHROPIC_MODEL": "kimi-k3" })),
+            env_provider("zhipu", serde_json::json!({ "ANTHROPIC_MODEL": "glm-5.2[1M]" })),
         ] {
-            let entries = build_route_models_list(&all, "@", mode);
-            assert_eq!(
-                entry_ids(&entries).first().map(String::as_str),
-                Some("@Default")
-            );
-            assert_eq!(entries[0]["display_name"], serde_json::json!("Default"));
+            state.db.save_provider("claude", &row).unwrap();
+        }
+        state
+            .db
+            .set_current_provider("claude", "kimi")
+            .unwrap();
+        state::update(&store, |live| {
+            let claude = live.apps.entry("claude".to_string()).or_default();
+            claude.mode = Some(state::Mode::Proxy);
+            claude.proxy_route = Some("kimi".to_string());
+            let stack = &mut claude.stack;
+            stack.enabled = true;
+            stack.members = ["kimi", "zhipu"].map(str::to_string).to_vec();
+            stack.keys.insert("kimi".to_string(), "kimi".to_string());
+            stack.keys.insert("zhipu".to_string(), "zhipu".to_string());
+        })
+        .unwrap();
+        Fixture {
+            _dir: dir,
+            store,
+            state,
         }
     }
 
-    #[test]
-    fn models_list_skips_dirty_and_duplicate_keys() {
-        // route_enabled 但 key 为空（改库脏数据）→ 跳过；key 重复取首现
-        let dirty =
-            route_list_provider("p4", "Dirty", Some("  "), serde_json::json!({ "env": {} }));
-        let dup = route_list_provider("p5", "Dup", Some("ds"), serde_json::json!({ "env": {} }));
-        let all = route_list_map(vec![ds_group(), dirty, dup]);
-        let entries = build_route_models_list(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        // 脏/重复分组被跳过，但存在合规分组 → 回落条目仍输出
-        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS[1M]"]);
+    /// 前缀动态取自设置（与 server.rs 路由测试同款口径，本机自定义前缀时不脆弱）
+    fn prefix() -> String {
+        crate::settings::get_route_prefix()
     }
 
-    #[test]
-    fn models_list_empty_when_no_route_groups() {
-        let all = route_list_map(vec![plain_group()]);
-        for mode in [
-            crate::settings::RouteModelsMode::Groups,
-            crate::settings::RouteModelsMode::Models,
-            crate::settings::RouteModelsMode::Both,
-        ] {
-            assert!(build_route_models_list(&all, "G.", mode).is_empty());
-        }
-    }
-
-    // ---- Codex 适配（2026-09-10）：默认模型分流 + codex 路由条目 ----
-
-    /// codex 型分组：settings_config 直接承载 codex 的 `model` / `config` TOML /
-    /// `modelCatalog` 字段（与 Claude 的 env 形态不同）
-    fn codex_group(id: &str, key: &str, settings: serde_json::Value) -> Provider {
-        let mut p = Provider::with_id(id.to_string(), format!("P-{id}"), settings, None);
-        p.meta = Some(crate::provider::ProviderMeta {
-            route_enabled: Some(true),
-            route_key: Some(key.to_string()),
-            ..Default::default()
-        });
-        p
-    }
-
-    #[test]
-    fn resolve_route_default_model_codex_reads_settings_model_field() {
-        let p = codex_group("c1", "DS", serde_json::json!({"model": "gpt-5.2"}));
-        assert_eq!(
-            resolve_route_default_model(&AppType::Codex, &p),
-            Some("gpt-5.2".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_route_default_model_codex_reads_config_toml_model() {
-        // settings_config.model 缺失时回落 config TOML 的 `model =`
-        let p = codex_group(
-            "c2",
-            "DS",
-            serde_json::json!({
-                "config": "model = \"gpt-5.1-codex\"\nmodel_provider = \"relay\"\n"
-            }),
-        );
-        assert_eq!(
-            resolve_route_default_model(&AppType::Codex, &p),
-            Some("gpt-5.1-codex".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_route_default_model_codex_none_when_unset() {
-        // 两处都无 → None（调用方 fail-closed，不回落默认分组）
-        let p = codex_group("c3", "DS", serde_json::json!({"env": {}}));
-        assert_eq!(resolve_route_default_model(&AppType::Codex, &p), None);
-        // 空串同样视为未配置
-        let blank = codex_group("c4", "DS", serde_json::json!({"model": "  "}));
-        assert_eq!(resolve_route_default_model(&AppType::Codex, &blank), None);
-    }
-
-    #[test]
-    fn resolve_route_default_model_claude_reads_env_anthropic_model() {
-        // claude 型 provider 行为不变：读 env.ANTHROPIC_MODEL
-        let p = route_list_provider(
-            "p9",
-            "DeepSeek",
-            Some("ds"),
-            serde_json::json!({"env": {"ANTHROPIC_MODEL": "deepseek-v4-pro"}}),
-        );
-        assert_eq!(
-            resolve_route_default_model(&AppType::Claude, &p),
-            Some("deepseek-v4-pro".to_string())
-        );
-        // 无 ANTHROPIC_MODEL → None（沿用原行为）
-        let no_model = routed_provider("a", "ds", None);
-        assert_eq!(
-            resolve_route_default_model(&AppType::Claude, &no_model),
-            None
-        );
-    }
-
-    fn codex_catalog_group(id: &str, key: &str, catalog_models: &[&str]) -> Provider {
-        let models: Vec<serde_json::Value> = catalog_models
-            .iter()
-            .map(|m| serde_json::json!({"model": m}))
-            .collect();
-        codex_group(
-            id,
-            key,
-            serde_json::json!({
-                "model": "gpt-5.2",
-                "modelCatalog": {"models": models},
-            }),
+    async fn make_ctx(fx: &Fixture, app: AppType, model: &str) -> RequestContext {
+        let body = serde_json::json!({ "model": model, "messages": [] });
+        let app_str: &'static str = match app {
+            AppType::Claude => "claude",
+            AppType::ClaudeDesktop => "claude-desktop",
+            AppType::Codex => "codex",
+            _ => "claude",
+        };
+        let mut ctx = RequestContext::new(
+            &fx.state,
+            &body,
+            &axum::http::HeaderMap::new(),
+            app.clone(),
+            "Test",
+            app_str,
+            None,
         )
+        .await
+        .unwrap();
+        ctx.session_id = "s-test".to_string();
+        ctx.session_client_provided = true;
+        ctx
     }
 
-    #[test]
-    fn codex_models_list_both_mode_groups_then_mapped_models_in_order() {
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
-        let entries =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
-        // Default 回落 + 分组条目 + 逐条模型映射，顺序保持
+    #[tokio::test]
+    async fn short_form_routes_to_member_default_model() {
+        let fx = fixture();
+        let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
+        let mut body = serde_json::json!({ "model": id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(body["model"], "glm-5.2[1M]");
+        assert_eq!(ctx.provider.id, "zhipu");
         assert_eq!(
-            entry_ids(&entries),
-            vec!["G.Default", "G.DS", "G.DS:m1", "G.DS:m2"]
+            fx.state.route_bindings.lookup("s-test"),
+            Some("zhipu".to_string())
         );
     }
 
-    #[test]
-    fn codex_models_list_groups_mode_has_no_model_entries() {
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
-        let entries =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Groups);
-        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS"]);
+    #[tokio::test]
+    async fn short_form_unknown_key_fails_closed_with_list() {
+        let fx = fixture();
+        let id = stack::encode_short(&prefix(), &AppType::Claude, "nope");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
+        let mut body = serde_json::json!({ "model": id, "messages": [] });
+        let err = apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap_err();
+        let response = *err;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // 失败响应体里应含可用 key 列表（读取 body 文本）
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        assert!(text.contains("kimi") && text.contains("zhipu"), "{text}");
     }
 
-    #[test]
-    fn codex_models_list_models_mode_emits_only_mapped_models() {
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1", "m2"])]);
-        let entries =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
-        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS:m1", "G.DS:m2"]);
+    #[tokio::test]
+    async fn default_unbinds_and_routes_to_default_member() {
+        let fx = fixture();
+        // 先绑定 zhipu，再解绑 → 默认成员 kimi 的默认模型
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
+        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert!(fx.state.route_bindings.lookup("s-test").is_some());
+
+        let default_id = stack::encode_short(&prefix(), &AppType::Claude, "default");
+        let mut body = serde_json::json!({ "model": default_id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
+        assert_eq!(body["model"], "kimi-k3");
+        assert_eq!(ctx.provider.id, "kimi");
     }
 
-    #[test]
-    fn codex_models_list_empty_mapping_has_no_model_entries() {
-        // 映射为空 → 零条模型条目（不加上游模型兜底）；分组与 Default 仍出
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &[])]);
-        let both =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
-        assert_eq!(entry_ids(&both), vec!["G.Default", "G.DS"]);
-        let models =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
-        assert_eq!(entry_ids(&models), vec!["G.Default"]);
+    #[tokio::test]
+    async fn default_without_default_model_errors_but_unbinds() {
+        let mut fx = fixture();
+        // 把默认成员换成没有任何模型的 bare → 解绑执行、请求 400
+        let bare = env_provider("bare", serde_json::json!({}));
+        fx.state.db.save_provider("claude", &bare).unwrap();
+        state::update(&fx.store, |live| {
+            let claude = live.apps.get_mut("claude").unwrap();
+            claude.proxy_route = Some("bare".to_string());
+            let stack = &mut claude.stack;
+            stack.members.push("bare".to_string());
+            stack.keys.insert("bare".to_string(), "bare".to_string());
+        })
+        .unwrap();
+        fx.state
+            .db
+            .set_current_provider("claude", "bare")
+            .unwrap();
+
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&mut fx, AppType::Claude, &zhipu_id).await;
+        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert!(fx.state.route_bindings.lookup("s-test").is_some());
+
+        let default_id = stack::encode_short(&prefix(), &AppType::Claude, "default");
+        let mut body = serde_json::json!({ "model": default_id, "messages": [] });
+        let err = apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap_err();
+        assert_eq!((*err).status(), StatusCode::BAD_REQUEST);
+        // 解绑仍执行
+        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
     }
 
-    #[test]
-    fn codex_models_list_outputs_mapping_verbatim() {
-        // 原样输出：不去重、不剥 [1M]——透传串必须与 catalog 匹配串完全一致
-        let all = route_list_map(vec![codex_catalog_group(
-            "c1",
-            "DS",
-            &["m1", "m1", "m2[1M]", "  m3  "],
-        )]);
-        let entries =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Models);
+    #[tokio::test]
+    async fn sticky_follow_locks_bound_member() {
+        let fx = fixture();
+        // 先绑定 zhipu
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
+        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+
+        // 同 session 裸模型名 → 锁定绑定成员，模型名不改写
+        let mut body = serde_json::json!({ "model": "haiku", "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(ctx.provider.id, "zhipu");
+        assert_eq!(body["model"], "haiku");
+    }
+
+    #[tokio::test]
+    async fn sticky_member_removed_falls_back() {
+        let fx = fixture();
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &zhipu_id).await;
+        let mut body = serde_json::json!({ "model": zhipu_id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+
+        // zhipu 移出名单（登记簿保留）→ 绑定失效自动解绑，回落默认成员、不报错。
+        // 真实流程每个请求新建 ctx（默认链），这里同样用新 ctx 发裸名请求
+        state::update(&fx.store, |live| {
+            let stack = &mut live.apps.get_mut("claude").unwrap().stack;
+            stack.members.retain(|id| id != "zhipu");
+        })
+        .unwrap();
+        let mut ctx = make_ctx(&fx, AppType::Claude, "haiku").await;
+        let mut body = serde_json::json!({ "model": "haiku", "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
+        assert_eq!(ctx.provider.id, "kimi"); // 默认成员（RequestContext 初始链）
+    }
+
+    #[tokio::test]
+    async fn full_id_binds_without_rewriting() {
+        let fx = fixture();
+        let id = stack::encode(&prefix(), &AppType::Claude, "zhipu", "glm-5.2", true);
+        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
+        let mut body = serde_json::json!({ "model": id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        // 全 id 不改写、不锁定（由 resolve_stack_target 负责），只绑定
+        assert_eq!(body["model"], id);
         assert_eq!(
-            entry_ids(&entries),
-            vec!["G.Default", "G.DS:m1", "G.DS:m1", "G.DS:m2[1M]", "G.DS:m3"]
+            fx.state.route_bindings.lookup("s-test"),
+            Some("zhipu".to_string())
         );
     }
 
-    #[test]
-    fn codex_models_list_excludes_disabled_groups() {
-        // 硬性要求：未开路由的分组零条目（含带 modelCatalog 的普通 codex 分组）
-        let plain = codex_catalog_group("c9", "OFF", &["m1"]);
-        let mut plain = plain;
-        plain.meta = Some(crate::provider::ProviderMeta {
-            route_enabled: Some(false),
-            route_key: Some("OFF".to_string()),
-            ..Default::default()
-        });
-        let all = route_list_map(vec![plain]);
-        for mode in [
-            crate::settings::RouteModelsMode::Groups,
-            crate::settings::RouteModelsMode::Models,
-            crate::settings::RouteModelsMode::Both,
-        ] {
-            assert!(build_route_models_list_for_codex(&all, "G.", mode).is_empty());
-        }
+    #[tokio::test]
+    async fn generated_session_id_never_binds() {
+        let fx = fixture();
+        let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
+        ctx.session_client_provided = false; // 生成型 session id
+        let mut body = serde_json::json!({ "model": id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
     }
 
-    #[test]
-    fn codex_models_list_reuses_dedup_and_fallback_rules() {
-        // key 重复取首现（公共筛选逻辑），Default 回落照常置顶；脏 key 跳过
-        let dirty = codex_catalog_group("c8", "  ", &["m1"]);
-        let dup = codex_catalog_group("c7", "ds", &["m2"]);
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1"]), dirty, dup]);
-        let entries =
-            build_route_models_list_for_codex(&all, "G.", crate::settings::RouteModelsMode::Both);
-        assert_eq!(entry_ids(&entries), vec!["G.Default", "G.DS", "G.DS:m1"]);
-    }
-
-    #[test]
-    fn codex_models_list_custom_prefix() {
-        let all = route_list_map(vec![codex_catalog_group("c1", "DS", &["m1"])]);
-        let entries =
-            build_route_models_list_for_codex(&all, "@", crate::settings::RouteModelsMode::Both);
-        assert_eq!(entry_ids(&entries), vec!["@Default", "@DS", "@DS:m1"]);
+    #[tokio::test]
+    async fn non_stack_app_is_noop() {
+        let fx = fixture();
+        let id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let mut ctx = make_ctx(&fx, AppType::Claude, &id).await;
+        ctx.app_type = AppType::ClaudeDesktop;
+        ctx.app_type_str = "claude-desktop";
+        let mut body = serde_json::json!({ "model": id, "messages": [] });
+        apply_session_routing(&fx.state, &mut ctx, &mut body, &fx.store)
+            .await
+            .unwrap();
+        assert_eq!(body["model"], id);
+        assert_eq!(fx.state.route_bindings.lookup("s-test"), None);
     }
 }

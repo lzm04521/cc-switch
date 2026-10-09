@@ -1332,15 +1332,14 @@ impl RequestForwarder {
         } else if self.keeps_resolved_model() {
             body.clone()
         } else {
-            // 会话级路由显式模型透传：跳过目标分组 ANTHROPIC_MODEL 兜底
-            let skip_default_fallback = extensions
-                .get::<super::route_prefix::RoutePassthrough>()
-                .is_some();
+            // fork: 旧会话路由的显式透传守卫（RoutePassthrough）已随体系删除
+            // （doc/20261009-设计文档-会话路由改造为聚合模式）；聚合全 id / 短形式
+            // 改写后的模型名照常走成员模型映射（与 stack 原生行为一致）
             let (mapped_body, _original_model, _mapped_model) =
                 super::model_mapper::apply_model_mapping_with_options(
                     body.clone(),
                     provider,
-                    skip_default_fallback,
+                    false,
                 );
             mapped_body
         };
@@ -1661,15 +1660,8 @@ impl RequestForwarder {
                     "[Codex] Restored or enriched {restored} cached function call item(s) for Chat upstream"
                 );
             }
-            // 会话级路由显式模型透传（G.<key>:<model>）：跳过该分组的
-            // 上游模型改写，否则 catalog 外的显式模型会被分组默认模型
-            // 静默吞掉（Codex 适配 2026-09-10；同 Claude 链路 L1256 模式）。
-            // Stack 请求（keeps_resolved_model）同理不改写。
-            if extensions
-                .get::<super::route_prefix::RoutePassthrough>()
-                .is_none()
-                && !self.keeps_resolved_model()
-            {
+            // fork: 旧会话路由透传守卫已删除；Stack 请求（keeps_resolved_model）不改写
+            if !self.keeps_resolved_model() {
                 super::providers::apply_codex_chat_upstream_model(provider, &mut mapped_body);
             }
             let reasoning_config =
@@ -1688,25 +1680,14 @@ impl RequestForwarder {
             chat_body
         } else if chat_to_responses {
             // Chat 客户端 × Responses 型上游：请求体转 Responses 协议发上游 /responses
-            // （2026-09-11）。显式透传守卫与 chat/anthropic 桥一致：RoutePassthrough
-            // 时跳过分组上游模型改写，否则 catalog 外的显式模型被静默吞掉。
+            // （2026-09-11）。fork: 旧透传守卫已删除，照常应用分组上游模型改写。
             let mut mapped_body = mapped_body;
-            if extensions
-                .get::<super::route_prefix::RoutePassthrough>()
-                .is_none()
-            {
-                super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
-            }
+            super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
             super::providers::transform_codex_chat::chat_completions_to_responses(mapped_body)?
         } else if codex_responses_to_anthropic {
             let mut mapped_body = mapped_body;
-            // 透传标记存在时跳过分组上游模型兜底（同 chat 桥，2026-09-10）；
-            // Stack 请求同样保留已解析模型
-            if extensions
-                .get::<super::route_prefix::RoutePassthrough>()
-                .is_none()
-                && !self.keeps_resolved_model()
-            {
+            // fork: 旧透传守卫已删除；Stack 请求（keeps_resolved_model）保留已解析模型
+            if !self.keeps_resolved_model() {
                 super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
             }
             // Per-provider output ceiling override. Codex does not forward its
@@ -1840,11 +1821,8 @@ impl RequestForwarder {
             // unknown-model 兜底改写源：透传场景传 None，否则 catalog 外的
             // 显式模型会被改写成分组上游模型（该函数内部 `if let Some` 分支；
             // 其余 sanitize 逻辑不受影响，2026-09-10）。Stack 请求只做字段兼容。
-            let upstream_model = if extensions
-                .get::<super::route_prefix::RoutePassthrough>()
-                .is_some()
-                || self.keeps_resolved_model()
-            {
+            // fork: 旧透传守卫（RoutePassthrough）已删除；Stack 请求只做字段兼容。
+            let upstream_model = if self.keeps_resolved_model() {
                 None
             } else {
                 super::providers::codex_provider_upstream_model(provider)
