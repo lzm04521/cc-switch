@@ -215,12 +215,17 @@ fn db_error(error: AppError) -> Box<Response> {
 /// 模型名不改写、不透传——照常走该成员的常规模型映射（claude：档位 →
 /// subagent 保护 → ANTHROPIC_MODEL 兜底；codex：model / catalog 链）。
 /// 绑定失效（成员移除/删除、聚合模式关闭）时自动解绑回落默认成员并记日志，不报错。
+/// fork 五项优化 D4：`routeStickySession` 设置关闭时直接回落默认成员（不查绑定表）；
+/// 绑定写入/解绑不受影响，重开开关即恢复跟随。
 async fn sticky_follow(
     state: &ProxyState,
     session: &crate::proxy::session::SessionIdResult,
     app_type: &AppType,
     store: &DeviceStore,
 ) -> Result<Option<Provider>, ProxyError> {
+    if !crate::settings::get_route_sticky_session() {
+        return Ok(None); // 粘性关闭：裸模型名请求一律走默认成员
+    }
     if !session.client_provided {
         return Ok(None); // 生成型 session id 每请求都变，绑定无意义
     }
@@ -576,6 +581,34 @@ mod tests {
         }
     }
 
+    /// 测试 home guard：drop 时恢复 `CC_SWITCH_TEST_HOME`（server.rs 路由测试同款）。
+    struct TestHomeGuard(Option<std::ffi::OsString>, tempfile::TempDir);
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+                None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+            }
+        }
+    }
+
+    /// 把粘性开关写成 `enabled` 并隔离真实设置文件（fork 五项优化 D4）。settings 是
+    /// OnceLock 惰性读真实磁盘，不显式写会让粘性测试结果机器相关——本机关闭粘性时
+    /// 既有 sticky 断言会挂（configured_prefix 参数化同一教训）。update_settings 会
+    /// 同时更新缓存与临时 home 下的文件，真实 ~/.cc-switch 不受影响；调用方测试须
+    /// `#[serial]`（env 与缓存都是进程级全局）。
+    fn set_sticky_setting(enabled: bool) -> TestHomeGuard {
+        let previous = std::env::var_os("CC_SWITCH_TEST_HOME");
+        let temp = tempfile::tempdir().expect("temporary home");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        crate::settings::update_settings(crate::settings::AppSettings {
+            route_sticky_session: Some(enabled),
+            ..Default::default()
+        })
+        .expect("write sticky setting");
+        TestHomeGuard(previous, temp)
+    }
+
     /// 应用并返回 (锁定成员 id, 改写后 model)；Err 时 panic
     async fn apply_ok(fx: &Fixture, app: AppType, model: &str) -> (Option<String>, String) {
         let mut body = serde_json::json!({ "model": model, "messages": [] });
@@ -674,7 +707,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn sticky_follow_returns_bound_member_without_rewrite() {
+        let _sticky = set_sticky_setting(true);
         let fx = fixture();
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
         let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
@@ -686,7 +721,29 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
+    async fn sticky_disabled_plain_requests_fall_back_to_default_member() {
+        // fork 五项优化 D4：开关关闭时裸模型名请求不查绑定表，直接走默认成员；
+        // 已建立的绑定保留（重开开关即恢复跟随）
+        let _sticky = set_sticky_setting(false);
+        let fx = fixture();
+        let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
+        let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;
+        assert!(fx.state.route_bindings.lookup("s-test").is_some());
+
+        let (lock, model) = apply_ok(&fx, AppType::Claude, "haiku").await;
+        assert_eq!(lock, None); // 不跟随 zhipu
+        assert_eq!(model, "haiku"); // 模型名不改写
+        assert_eq!(
+            fx.state.route_bindings.lookup("s-test"),
+            Some("zhipu".to_string()) // 绑定仍在，重开即恢复
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
     async fn sticky_member_removed_falls_back() {
+        let _sticky = set_sticky_setting(true);
         let fx = fixture();
         let zhipu_id = stack::encode_short(&prefix(), &AppType::Claude, "zhipu");
         let _ = apply_ok(&fx, AppType::Claude, &zhipu_id).await;

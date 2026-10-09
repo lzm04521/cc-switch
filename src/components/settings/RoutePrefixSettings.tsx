@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -21,21 +22,26 @@ interface RoutePrefixSettingsProps {
   routePrefix?: string;
   /** 聚合条目发布形态（fork：恢复旧体系三选一；缺省 both） */
   routeModelsMode?: RouteModelsListMode;
+  /** 会话粘性跟随开关（fork 五项优化 D4；缺省开=保持存量行为） */
+  routeStickySession?: boolean;
   onAutoSave: (updates: {
     routePrefix?: string;
     routeModelsEndpoint?: { mode: RouteModelsListMode };
+    routeStickySession?: boolean;
   }) => Promise<boolean | void>;
 }
 
 /**
- * 聚合模型 id 前缀设置（fork：会话路由改造为聚合模式后，此设置即聚合前缀，
- * doc/20261009-设计文档-会话路由改造为聚合模式 §9）。默认 `ccs-`（与上游一致）。
- * 同面板承载聚合模型列表三选一（groups/models/both，作用于 /v1/models 系端点与
- * Codex 模型目录）。
+ * 聚合模式设置（fork：会话路由改造为聚合模式后，此面板承载聚合相关设置，
+ * doc/20261009-设计文档 §9、实施计划-聚合模式五项优化）。三个子设置：
+ * ① 聚合模型 id 前缀（默认 `ccs-`，与上游一致）；
+ * ② 聚合模型列表内容（groups/models/both，作用于 /v1/models 系端点与 Codex 目录）；
+ * ③ 粘性会话（关闭后不带聚合 id 的请求一律走默认成员）。
  */
 export function RoutePrefixSettings({
   routePrefix,
   routeModelsMode,
+  routeStickySession,
   onAutoSave,
 }: RoutePrefixSettingsProps) {
   const { t } = useTranslation();
@@ -46,6 +52,11 @@ export function RoutePrefixSettings({
   const [mode, setMode] = useState<RouteModelsListMode>(
     routeModelsMode ?? "both",
   );
+  const [sticky, setSticky] = useState(routeStickySession ?? true);
+
+  useEffect(() => {
+    setSticky(routeStickySession ?? true);
+  }, [routeStickySession]);
 
   useEffect(() => {
     setValue(routePrefix ?? "");
@@ -79,6 +90,15 @@ export function RoutePrefixSettings({
     const ok = await onAutoSave({ routeModelsEndpoint: { mode: next } });
     if (ok !== false) {
       setMode(next);
+    }
+  };
+
+  const handleStickyChange = async (next: boolean) => {
+    const previous = sticky;
+    setSticky(next);
+    const ok = await onAutoSave({ routeStickySession: next });
+    if (ok === false) {
+      setSticky(previous); // 保存失败回滚（同 API 报文记录开关交互）
     }
   };
 
@@ -181,6 +201,27 @@ export function RoutePrefixSettings({
           </SelectItem>
         </SelectContent>
       </Select>
+
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <h4 className="text-sm font-semibold">
+          {t("settings.advanced.routeStickySession.title", {
+            defaultValue: "粘性会话",
+          })}
+        </h4>
+        <Switch
+          checked={sticky}
+          onCheckedChange={(checked) => void handleStickyChange(checked)}
+          aria-label={t("settings.advanced.routeStickySession.title", {
+            defaultValue: "粘性会话",
+          })}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t("settings.advanced.routeStickySession.description", {
+          defaultValue:
+            "开启后，会话中选中某个分组，该会话后续请求即使不带聚合模型 id 也继续走这个分组。例如 Claude Code 主会话选了智谱分组后，Task 工具拉起的 subagent 不指定模型，请求仍发给智谱，而不是回落到默认供应商。关闭后，不带聚合 id 的请求一律走当前默认供应商。",
+        })}
+      </p>
     </div>
   );
 }

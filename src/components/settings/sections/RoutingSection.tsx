@@ -115,10 +115,11 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
     }
   };
 
-  // fork 定制：会话级路由前缀 + 聚合模型列表三选一（原 ProxyTabContent 迁入）
+  // fork 定制：聚合模式设置（前缀 + 模型列表三选一 + 粘性会话，原 ProxyTabContent 迁入）
   const saveRouteSettings = async (updates: {
     routePrefix?: string;
     routeModelsEndpoint?: { mode: RouteModelsListMode };
+    routeStickySession?: boolean;
   }): Promise<boolean> => {
     try {
       return await settingsApi.save({
@@ -481,24 +482,25 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
         />
       </SettingsBlock>
 
-      {/* fork 定制：会话级路由前缀（G. 前缀触发与 /v1/models 路由模型列表） */}
+      {/* fork 定制：聚合模式设置（前缀 + /v1/models 路由模型列表 + 粘性会话） */}
       <SettingsBlock
-        title={t("settings.advanced.routePrefix.title", {
-          defaultValue: "会话级路由前缀",
+        title={t("settings.advanced.aggregateMode.title", {
+          defaultValue: "聚合模式设置",
         })}
         help={{
-          title: t("settings.advanced.routePrefix.title", {
-            defaultValue: "会话级路由前缀",
+          title: t("settings.advanced.aggregateMode.title", {
+            defaultValue: "聚合模式设置",
           }),
-          body: t("settings.advanced.routePrefix.description", {
+          body: t("settings.advanced.aggregateMode.help", {
             defaultValue:
-              '供应商开启「加入会话级路由」后，用 --model "<前缀><key>" 将请求路由到该分组；<前缀>default 解绑当前会话。',
+              '聚合模式下模型 id 形如 "<前缀>claude.<分组>.<模型>"（Codex 为 "<前缀><分组>.<模型>"）；短形式 "<前缀>claude.<分组>" 走该分组默认模型，"<前缀>claude.default" 解绑会话。粘性会话关闭后，不带聚合 id 的请求一律走默认成员。',
           }),
         }}
       >
         <RoutePrefixSettings
           routePrefix={settings?.routePrefix}
           routeModelsMode={settings?.routeModelsEndpoint?.mode}
+          routeStickySession={settings?.routeStickySession}
           onAutoSave={saveRouteSettings}
         />
       </SettingsBlock>

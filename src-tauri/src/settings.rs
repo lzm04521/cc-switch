@@ -486,6 +486,12 @@ pub struct AppSettings {
     /// 作用于 /v1/models、/claude/v1/models、/codex/v1/models 与 Codex 模型目录
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route_models_endpoint: Option<RouteModelsEndpointSettings>,
+    /// 会话粘性跟随开关（None = 开，保持存量行为）。关闭后不带聚合模型 id 的请求
+    /// （如 Claude Code subagent 不指定模型）一律走默认成员，不查会话绑定表；
+    /// 绑定写入/解绑逻辑不受影响，重开开关即恢复跟随。
+    /// fork: doc/20261009-实施计划-聚合模式五项优化 D4
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_sticky_session: Option<bool>,
     /// 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新）。
     /// 开启后非启用 Provider 也定时查询，实际间隔钳制为至少 5 分钟（前端控制）。
     #[serde(default)]
@@ -661,6 +667,7 @@ impl Default for AppSettings {
             usage_dashboard_refresh_interval_ms: None,
             route_prefix: None,
             route_models_endpoint: None,
+            route_sticky_session: None,
             auto_refresh_all_providers_usage: false,
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
@@ -974,6 +981,12 @@ pub fn get_route_models_mode() -> RouteModelsMode {
         .route_models_endpoint
         .map(|settings| settings.mode)
         .unwrap_or_default()
+}
+
+/// 读取会话粘性跟随开关（缺省开，保持存量行为；fork: 五项优化 D4）。
+/// 纯读取层薄包装，消费方仅 route_prefix::sticky_follow 一个
+pub fn get_route_sticky_session() -> bool {
+    get_settings().route_sticky_session.unwrap_or(true)
 }
 
 fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
@@ -1562,6 +1575,23 @@ mod tests {
             back.route_models_endpoint.map(|s| s.mode),
             Some(RouteModelsMode::Models)
         );
+    }
+
+    #[test]
+    fn route_sticky_session_defaults_on_and_round_trips() {
+        // fork 五项优化 D4：缺省开（存量行为不变）；显式 false 可往返；camelCase 键名
+        let mut s = AppSettings::default();
+        assert_eq!(s.route_sticky_session, None);
+
+        s.route_sticky_session = Some(false);
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["routeStickySession"], serde_json::json!(false));
+        let back: AppSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.route_sticky_session, Some(false));
+
+        // 旧 settings.json 无此字段：解析得到 None（= 开）
+        let legacy: AppSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(legacy.route_sticky_session, None);
     }
 
     #[test]

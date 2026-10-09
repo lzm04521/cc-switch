@@ -14,12 +14,12 @@ afterEach(() => {
 // fork Task 8: routeModelsEndpoint 设置曾随旧体系删除，聚合三调整恢复为
 // 「聚合模型列表内容」三选一（groups/models/both）
 describe("RoutePrefixSettings 聚合前缀区块", () => {
-  it("渲染标题与说明，不含模型列表开关", () => {
+  it("渲染标题与说明，粘性开关存在（fork 五项优化 D4）", () => {
     render(<RoutePrefixSettings {...baseProps} />);
     expect(
       screen.getByText("聚合模型 id 前缀", { exact: false }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.getByRole("switch")).toBeInTheDocument();
   });
 
   it("改前缀保存：onAutoSave 收到新值并出现失效提示", async () => {
@@ -72,5 +72,47 @@ describe("RoutePrefixSettings 聚合模型列表三选一", () => {
     expect(
       await screen.findByText("分组 + 模型", { exact: false }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("RoutePrefixSettings 粘性会话开关（fork 五项优化 D4）", () => {
+  it("缺省渲染为开，说明含 subagent 示例", () => {
+    render(<RoutePrefixSettings {...baseProps} />);
+    const toggle = screen.getByRole("switch");
+    expect(toggle).toHaveAttribute("data-state", "checked");
+    expect(screen.getByText("subagent", { exact: false })).toBeInTheDocument();
+  });
+
+  it("routeStickySession=false 渲染为关", () => {
+    render(<RoutePrefixSettings {...baseProps} routeStickySession={false} />);
+    expect(screen.getByRole("switch")).toHaveAttribute(
+      "data-state",
+      "unchecked",
+    );
+  });
+
+  it("切换调用 onAutoSave 保存", async () => {
+    const onAutoSave = vi.fn(async () => true);
+    render(<RoutePrefixSettings {...baseProps} onAutoSave={onAutoSave} />);
+    fireEvent.click(screen.getByRole("switch"));
+    await waitFor(() =>
+      expect(onAutoSave).toHaveBeenCalledWith({ routeStickySession: false }),
+    );
+  });
+
+  it("保存失败回滚为开", async () => {
+    const failing = vi.fn(async () => false);
+    render(
+      <RoutePrefixSettings {...baseProps} onAutoSave={failing} />,
+    );
+    fireEvent.click(screen.getByRole("switch"));
+    await waitFor(() => expect(failing).toHaveBeenCalledTimes(1));
+    // 保存失败：回滚为开
+    await waitFor(() =>
+      expect(screen.getByRole("switch")).toHaveAttribute(
+        "data-state",
+        "checked",
+      ),
+    );
   });
 });
