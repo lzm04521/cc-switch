@@ -6002,7 +6002,7 @@ model_provider = "c"
         let catalog = codex_catalog();
         let models = catalog["models"].as_array().unwrap();
         let slugs: Vec<&str> = models.iter().map(|m| m["slug"].as_str().unwrap()).collect();
-        assert_eq!(slugs, vec!["gpt-a", "ccs-deepseek/deepseek-v4-pro"]);
+        assert_eq!(slugs, vec!["gpt-a", "ccs-deepseek/deepseek-v4-pro", "ccs-deepseek"]);
         let (route, stacked) = (&models[0], &models[1]);
         assert_eq!(route["priority"], 1);
         assert_eq!(route["context_window"], 200000);
@@ -6033,7 +6033,9 @@ model_provider = "c"
             vec![
                 "gpt-a",
                 "ccs-deepseek/deepseek-v4-pro",
-                "ccs-zhipu/gpt-zhipu"
+                "ccs-zhipu/gpt-zhipu",
+                "ccs-deepseek",
+                "ccs-zhipu"
             ]
         );
 
@@ -6439,7 +6441,7 @@ model_provider = "c"
             .iter()
             .map(|m| m["slug"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(slugs, vec!["gpt-a", "ccs-deepseek/deepseek-v5"]);
+        assert_eq!(slugs, vec!["gpt-a", "ccs-deepseek/deepseek-v5", "ccs-deepseek"]);
     }
 
     #[tokio::test]
@@ -6470,7 +6472,9 @@ model_provider = "c"
             vec![
                 "gpt-a",
                 "ccs-deepseek/deepseek-v4-pro",
-                "ccs-zhipu/gpt-zhipu"
+                "ccs-zhipu/gpt-zhipu",
+                "ccs-deepseek",
+                "ccs-zhipu"
             ]
         );
         let mut zhipu = state
@@ -6483,7 +6487,7 @@ model_provider = "c"
         resync_route(&state, &AppType::Codex).await.expect("resync");
         assert_eq!(
             catalog_slugs(),
-            vec!["gpt-a", "ccs-deepseek/deepseek-v4-pro"]
+            vec!["gpt-a", "ccs-deepseek/deepseek-v4-pro", "ccs-deepseek"]
         );
         switch_route(&state, &AppType::Codex, "deepseek")
             .await
@@ -6654,7 +6658,7 @@ model_provider = "c"
         set_codex_member(&state, "deepseek", true).await;
         assert_eq!(
             catalog_slugs(),
-            vec!["gpt-6-sol", "gpt-5.5", "ccs-deepseek/deepseek-v4-pro"]
+            vec!["gpt-6-sol", "gpt-5.5", "ccs-deepseek/deepseek-v4-pro", "ccs-deepseek"]
         );
         let catalog = codex_catalog();
         let sol = &catalog["models"][0];

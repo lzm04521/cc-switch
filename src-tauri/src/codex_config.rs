@@ -2357,6 +2357,8 @@ pub(crate) struct CodexCatalogRow<'a> {
 pub(crate) struct CodexStackCatalogMember<'a> {
     pub key: &'a str,
     pub provider_name: &'a str,
+    /// fork Task 7: 该成员的默认模型（短形式条目的说明用；None 时退化为成员名提示）
+    pub default_model: Option<String>,
     pub row: CodexCatalogRow<'a>,
 }
 
@@ -2453,6 +2455,25 @@ pub(crate) fn plan_codex_stack_catalog(
             }
             entries.push(entry);
         }
+    }
+    // fork Task 7: 每成员一条短形式条目（`<prefix><key>`，选中即走该成员默认
+    // 模型——Codex CLI 把它当模型名发给本地代理，由 apply_session_routing 解码）
+    for member in stack {
+        let description = match member.default_model.as_deref() {
+            Some(model) => format!("默认模型 {model} (default model)"),
+            None => format!("{} 默认模型 (default model)", member.provider_name),
+        };
+        entries.push(json!({
+            "slug": crate::mode::stack::encode_short(
+                &crate::mode::stack::configured_prefix(),
+                &crate::app_config::AppType::Codex,
+                member.key,
+            ),
+            "display_name": member.provider_name,
+            "description": description,
+            "comp_hash": CODEX_STACK_COMP_HASH,
+            "use_responses_lite": false,
+        }));
     }
     for (index, entry) in entries.iter_mut().enumerate() {
         if let Some(obj) = entry.as_object_mut() {
@@ -4872,6 +4893,7 @@ wire_api = "responses"
                 &[CodexStackCatalogMember {
                     key: "relay",
                     provider_name: "Relay",
+                    default_model: None,
                     row: CodexCatalogRow {
                         settings: &member,
                         config_text: "",
@@ -4887,7 +4909,7 @@ wire_api = "responses"
         // 两家都有 GPT-6 Sol：各一条，内容都是官方的。
         assert_eq!(models[0]["slug"], "gpt-6-sol");
         assert_eq!(models[1]["slug"], "ccs-relay/gpt-6-sol");
-        for model in &models {
+        for model in &models[..2] {
             assert_eq!(
                 model["model_messages"]["instructions_template"],
                 "GPT-6 Sol prompt"
@@ -5049,6 +5071,7 @@ wire_api = "responses"
             &[CodexStackCatalogMember {
                 key: "ds",
                 provider_name: "DS",
+                default_model: None,
                 row: CodexCatalogRow {
                     settings: &stacked_settings,
                     config_text: "model = \"deepseek-v4-pro\"\n",
@@ -5066,7 +5089,8 @@ wire_api = "responses"
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-5.5",
-                "ccs-ds/deepseek-v4-pro"
+                "ccs-ds/deepseek-v4-pro",
+                "ccs-ds"
             ]
         );
         assert_eq!(
@@ -5119,6 +5143,7 @@ wire_api = "responses"
             &[CodexStackCatalogMember {
                 key: "ds",
                 provider_name: "DS",
+                default_model: None,
                 row: CodexCatalogRow {
                     settings: &stacked_settings,
                     config_text: route_text,
@@ -5132,6 +5157,9 @@ wire_api = "responses"
         assert_eq!(models[0]["comp_hash"], plain["models"][0]["comp_hash"]);
         assert_eq!(models[1]["slug"], "ccs-ds/deepseek-v4-pro");
         assert_eq!(models[1]["comp_hash"], "cc-switch");
+        // fork Task 7: 每成员一条短形式条目
+        assert_eq!(models[2]["slug"], "ccs-ds");
+        assert_eq!(models[2]["comp_hash"], "cc-switch");
     }
 
     #[test]
@@ -5149,6 +5177,7 @@ wire_api = "responses"
             &[CodexStackCatalogMember {
                 key: "anth",
                 provider_name: "Anth",
+                default_model: None,
                 row: CodexCatalogRow {
                     settings: &stacked_settings,
                     config_text: stacked_text,
@@ -5158,7 +5187,7 @@ wire_api = "responses"
         )
         .expect("catalog");
         let models = catalog["models"].as_array().unwrap();
-        assert_eq!(models.len(), 2);
+        assert_eq!(models.len(), 3);
         let stacked = &models[1];
         assert_eq!(stacked["slug"], "ccs-anth/claude-opus-5");
         assert_eq!(stacked["display_name"], "claude-opus-5（Anth）");
@@ -5172,7 +5201,8 @@ wire_api = "responses"
             .iter()
             .map(|entry| entry["priority"].as_u64().unwrap())
             .collect();
-        assert_eq!(priorities, vec![1, 2]);
+        // fork Task 7: 多一条短形式条目
+        assert_eq!(priorities, vec![1, 2, 3]);
     }
 
     #[test]

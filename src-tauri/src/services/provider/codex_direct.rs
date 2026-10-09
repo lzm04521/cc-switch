@@ -778,6 +778,12 @@ fn stack_catalog(
         .map(|(member, config_text, profile)| CodexStackCatalogMember {
             key: &member.key,
             provider_name: &member.provider.name,
+            // fork Task 7: 短形式条目的说明用默认模型名
+            default_model: crate::mode::stack::member_default_model(
+                &crate::app_config::AppType::Codex,
+                &member.key,
+                &member.provider,
+            ),
             row: CodexCatalogRow {
                 settings: &member.provider.settings_config,
                 config_text,
