@@ -17,6 +17,7 @@ import {
   useProxyStack,
   useProxyStatusQuery,
   useSetProxyStackMember,
+  useSetProxyStackMemberKey,
 } from "@/lib/query/proxy";
 import {
   useAddToFailoverQueue,
@@ -31,6 +32,15 @@ import { extractErrorMessage } from "@/utils/errorUtils";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+// fork Task 9：分组 key 内联编辑对话框
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { CodexStaleClientsNotice } from "@/components/providers/CodexStaleClientsNotice";
 import { blockedFromRouting } from "@/components/providers/presentation";
@@ -150,12 +160,23 @@ export function SwitchModePanel({
     (id && providers[id]?.name) || t("mode.noProvider");
 
   const stackMembers = useMemo(() => {
-    const members = new Map<string, number>();
+    // fork Task 9：值带分组 key（成员卡展示 + 编辑入口）
+    const members = new Map<string, { key: string; models: number }>();
     for (const member of stack?.members ?? []) {
-      members.set(member.providerId, member.modelIds.length);
+      members.set(member.providerId, {
+        key: member.key,
+        models: member.modelIds.length,
+      });
     }
     return members;
   }, [stack?.members]);
+
+  const setStackMemberKey = useSetProxyStackMemberKey();
+  const [keyEdit, setKeyEdit] = useState<{
+    provider: Provider;
+    value: string;
+    error: string | null;
+  } | null>(null);
 
   const queueIds = useMemo(
     () => (queue ?? []).map((item) => item.providerId),
@@ -267,7 +288,36 @@ export function SwitchModePanel({
         active === "stack"
           ? void onSwitch(provider)
           : void rememberDefault(provider),
+      // fork Task 9：改分组 key（小对话框内联编辑）
+      stackSetKey: (provider: Provider) => {
+        const current = stackMembers.get(provider.id);
+        setKeyEdit({
+          provider,
+          value: current?.key ?? "",
+          error: null,
+        });
+      },
     },
+  };
+
+  // fork Task 9：保存分组 key（错误就地显示，不关框）
+  const saveStackMemberKey = async () => {
+    if (!keyEdit) return;
+    setKeyEdit({ ...keyEdit, error: null });
+    try {
+      await setStackMemberKey.mutateAsync({
+        appType: app,
+        providerId: keyEdit.provider.id,
+        key: keyEdit.value.trim(),
+      });
+      setKeyEdit(null);
+    } catch (error) {
+      const message =
+        (error as { message?: string })?.message ??
+        extractErrorMessage(error) ??
+        t("common.unknown");
+      setKeyEdit((prev) => (prev ? { ...prev, error: message } : prev));
+    }
   };
 
   // 状态行：只在看生效的那格时显示；路由只写目标，不写本机地址和端口
@@ -570,6 +620,73 @@ export function SwitchModePanel({
         onOpenChange={setRouteSettingsOpen}
         onOpenSettings={onOpenRoutingSettings}
       />
+
+      {/* fork Task 9：聚合成员分组 key 编辑 */}
+      <Dialog
+        open={keyEdit !== null}
+        onOpenChange={(open) => !open && setKeyEdit(null)}
+      >
+        <DialogContent
+          zIndex="alert"
+          className="max-w-[420px] gap-0 rounded-dialog border-border bg-surface p-6 shadow-v7-lg"
+        >
+          {keyEdit && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {t("mode.stackKeyDialog.title", {
+                    defaultValue: "改分组 key",
+                  })}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {keyEdit.provider.name} ·{" "}
+                  {t("mode.stackKeyDialog.hint", {
+                    defaultValue:
+                      "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字",
+                  })}
+                </p>
+                <Label htmlFor="stack-member-key" className="text-xs">
+                  {t("mode.stackKeyDialog.label", { defaultValue: "分组 key" })}
+                </Label>
+                <Input
+                  id="stack-member-key"
+                  value={keyEdit.value}
+                  onChange={(e) =>
+                    setKeyEdit({ ...keyEdit, value: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveStackMemberKey();
+                  }}
+                />
+                {keyEdit.error && (
+                  <p className="text-xs text-red-500">{keyEdit.error}</p>
+                )}
+              </div>
+              <div className="mt-2 flex justify-end gap-2">
+                <Button
+                  variant="quiet"
+                  size="compact"
+                  onClick={() => setKeyEdit(null)}
+                >
+                  {t("common.cancel", { defaultValue: "取消" })}
+                </Button>
+                <Button
+                  size="compact"
+                  disabled={
+                    keyEdit.value.trim().length === 0 ||
+                    setStackMemberKey.isPending
+                  }
+                  onClick={() => void saveStackMemberKey()}
+                >
+                  {t("common.save", { defaultValue: "保存" })}
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         isOpen={confirmFailover}

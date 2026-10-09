@@ -102,6 +102,16 @@ export const proxyApi = {
     return invoke("set_proxy_stack_member", { appType, providerId, enabled });
   },
 
+  // fork：改聚合成员的分组 key。旧 key 墓碑化（旧 id 失效），新 key 即时重发布；
+  // 失败时抛出 ProxyStackWriteError
+  async setProxyStackMemberKey(
+    appType: string,
+    providerId: string,
+    key: string,
+  ): Promise<ProxyStackNotice | null> {
+    return invoke("set_proxy_stack_member_key", { appType, providerId, key });
+  },
+
   // Codex 聚合的模型被别的模型目录挡住时，改用 CC Switch 生成的目录（去掉指向别的文件的
   // model_catalog_json）。返回之后还剩的提示
   async adoptCodexStackCatalog(): Promise<ProxyStackNotice | null> {

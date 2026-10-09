@@ -205,7 +205,8 @@
     "editCurrentNoticeFile": "这是正在使用的供应商。保存后会立即写进",
     "editCurrentNoticeFileEnd": "，下一次请求生效。",
     "editCurrentNotice": "这是正在使用的供应商。保存后立即生效，下一次请求就用新的设置。",
-    "defaultInUse": "默认中"
+    "defaultInUse": "默认中",
+    "stackKeySaved": "分组 key 已更新：已选中的旧模型 id 失效，请重新选择"
   },
   "claudeCode": {
     "needsRouting": "需要路由",
@@ -4162,6 +4163,11 @@
       "direct": "直连：客户端直接连所选那家，切换即改写配置。",
       "route": "路由：请求先过本机的 CC Switch，可开故障转移。",
       "stack": "聚合：多家模型同列在 /model，不做故障转移。"
+    },
+    "stackKeyDialog": {
+      "title": "改分组 key",
+      "hint": "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字",
+      "label": "分组 key"
     }
   },
   "providerCard": {
@@ -4187,7 +4193,8 @@
       "edit": "编辑 {{name}}",
       "more": "{{name}} 的更多操作",
       "moveUp": "{{name}} 上移一位",
-      "moveDown": "{{name}} 下移一位"
+      "moveDown": "{{name}} 下移一位",
+      "setStackKey": "改分组 key"
     },
     "chip": {
       "official": "官方",
@@ -4199,7 +4206,8 @@
       "mapping": "模型映射",
       "direct": "直连",
       "hermesManaged": "Hermes 托管",
-      "defaultModel": "默认模型 {{model}}"
+      "defaultModel": "默认模型 {{model}}",
+      "stackKey": "分组 key：{{key}}"
     },
     "reason": {
       "noRoute": "官方订阅不经过路由，回到直连后可用。",

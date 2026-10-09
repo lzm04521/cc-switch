@@ -205,7 +205,8 @@
     "editCurrentNoticeFile": "This is the provider in use. Saving writes it to",
     "editCurrentNoticeFileEnd": " right away; the next request uses it.",
     "editCurrentNotice": "This is the provider in use. Saving takes effect right away; the next request uses the new settings.",
-    "defaultInUse": "Default"
+    "defaultInUse": "Default",
+    "stackKeySaved": "Group key updated: previously selected model ids are now invalid — pick again"
   },
   "claudeCode": {
     "needsRouting": "Needs Routing",
@@ -4162,6 +4163,11 @@
       "direct": "Direct: the client connects straight to the chosen provider; switching rewrites its config.",
       "route": "Routing: requests go through CC Switch on this machine first; failover is available.",
       "stack": "Aggregation: models from several providers are listed together in /model; no failover."
+    },
+    "stackKeyDialog": {
+      "title": "Rename group key",
+      "hint": "lowercase letters / digits / dashes (input is lowercased); renaming invalidates previously selected model ids; \"default\" is reserved",
+      "label": "Group key"
     }
   },
   "providerCard": {
@@ -4187,7 +4193,8 @@
       "edit": "Edit {{name}}",
       "more": "More actions for {{name}}",
       "moveUp": "Move {{name}} up",
-      "moveDown": "Move {{name}} down"
+      "moveDown": "Move {{name}} down",
+      "setStackKey": "Rename group key"
     },
     "chip": {
       "official": "Official",
@@ -4199,7 +4206,8 @@
       "mapping": "Model mapping",
       "direct": "Direct",
       "hermesManaged": "Managed by Hermes",
-      "defaultModel": "Default model {{model}}"
+      "defaultModel": "Default model {{model}}",
+      "stackKey": "Key: {{key}}"
     },
     "reason": {
       "noRoute": "Official subscriptions don't go through routing; available again in direct mode.",

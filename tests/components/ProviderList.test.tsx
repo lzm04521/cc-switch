@@ -182,6 +182,7 @@ describe("ProviderList Component", () => {
         stackAdd: vi.fn(),
         stackRemove: vi.fn(),
         stackSetDefault: vi.fn(),
+      stackSetKey: vi.fn(),
       },
       ...overrides,
     };

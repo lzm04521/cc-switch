@@ -106,8 +106,8 @@ export interface SwitchModeInput {
   failoverOn: boolean;
   /** 队列里的 id，按优先级 */
   queue: string[];
-  /** 聚合名单（含默认那家）：id → 发布的模型数 */
-  stackMembers: Map<string, number>;
+  /** 聚合名单（含默认那家）：id → { 分组 key, 发布的模型数 }（fork Task 9） */
+  stackMembers: Map<string, { key: string; models: number }>;
   /** 需要路由的原因（悬停「需要路由」时的说明） */
   routingReason: (provider: Provider) => string;
   /** fork：会话级路由触发前缀（显示用，空/非法回退 "G."） */
@@ -123,6 +123,7 @@ export interface SwitchModeInput {
     stackAdd: (provider: Provider) => void;
     stackRemove: (provider: Provider) => void;
     stackSetDefault: (provider: Provider) => void;
+    stackSetKey: (provider: Provider) => void;
   };
 }
 
@@ -468,8 +469,26 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
   const memberIds = providers
     .filter((p) => p.id !== defaultId && stackMembers.has(p.id))
     .map((p) => p.id);
+  // fork Task 9：成员卡展示分组 key，菜单里提供改名入口
+  const stackKeyChip = (p: Provider): CardChip => ({
+    key: "stackKey",
+    label: t("providerCard.chip.stackKey", {
+      defaultValue: "分组 key：{{key}}",
+      key: stackMembers.get(p.id)?.key ?? "",
+    }),
+    tone: "route",
+  });
+  const setKeyItems = (p: Provider): CardMenuItem[] => [
+    {
+      key: "setStackKey",
+      label: t("providerCard.action.setStackKey", {
+        defaultValue: "改分组 key",
+      }),
+      onSelect: () => actions.stackSetKey(p),
+    },
+  ];
   const modelsChip = (p: Provider): CardChip => {
-    const count = stackMembers.get(p.id) ?? 0;
+    const count = stackMembers.get(p.id)?.models ?? 0;
     return count > 0
       ? {
           key: "models",
@@ -505,8 +524,13 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
                 label: t("providerCard.chip.default"),
                 tone: on ? ("outline" as const) : ("stack" as const),
               },
+              // fork Task 9：默认成员也展示分组 key
+              stackKeyChip(defaultProvider),
               ...officialOnly(defaultProvider),
             ],
+            menuItems: stackMembers.has(defaultProvider.id)
+              ? setKeyItems(defaultProvider)
+              : [],
             buttons: [],
           } satisfies CardPresentation,
         },
@@ -518,8 +542,8 @@ function buildSwitchSectionsByView(input: SwitchModeInput): ProviderSection[] {
     return {
       provider: p,
       presentation: {
-        chips: [modelsChip(p)],
-        menuItems: setDefaultItems(p),
+        chips: [stackKeyChip(p), modelsChip(p)],
+        menuItems: [...setDefaultItems(p), ...setKeyItems(p)],
         buttons: [
           {
             key: "remove",

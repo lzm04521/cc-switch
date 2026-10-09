@@ -161,6 +161,52 @@ export function useSetProxyStackMember() {
 }
 
 /**
+ * fork：改聚合成员的分组 key。旧 key 墓碑化（已选中的旧 id 失效需重选），新 key 即时
+ * 重发布。错误处理与增删成员同款（partial 部分写入提示）。
+ */
+export function useSetProxyStackMemberKey() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: ({
+      appType,
+      providerId,
+      key,
+    }: {
+      appType: string;
+      providerId: string;
+      key: string;
+    }) => proxyApi.setProxyStackMemberKey(appType, providerId, key),
+    onSuccess: () => {
+      toast.success(
+        t("provider.stackKeySaved", {
+          defaultValue: "分组 key 已更新：已选中的旧模型 id 失效，请重新选择",
+        }),
+        { closeButton: true },
+      );
+    },
+    onError: (error: unknown) => {
+      if (isStackWriteError(error) && error.partial) {
+        toast.warning(t("provider.stackPartial"), {
+          description: error.message,
+          closeButton: true,
+        });
+        return;
+      }
+      toast.error(
+        t("provider.stackFailed", { error: extractErrorMessage(error) }),
+      );
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["providers", variables.appType],
+      });
+    },
+  });
+}
+
+/**
  * Codex 聚合的模型被路由供应商自己的模型目录挡住（routeOwnsCatalog）时，改用 CC Switch
  * 生成的目录。客户端只在启动时读模型目录，成功后提示重启；还剩别的提示照样弹出。
  */

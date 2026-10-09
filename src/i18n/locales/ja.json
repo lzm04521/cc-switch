@@ -205,7 +205,8 @@
     "editCurrentNoticeFile": "使用中のプロバイダーです。保存するとすぐに",
     "editCurrentNoticeFileEnd": " に書き込まれ、次のリクエストから反映されます。",
     "editCurrentNotice": "使用中のプロバイダーです。保存するとすぐに反映され、次のリクエストから新しい設定が使われます。",
-    "defaultInUse": "デフォルト"
+    "defaultInUse": "デフォルト",
+    "stackKeySaved": "グループキーを更新しました：選択済みの旧モデル id は無効です。選び直してください"
   },
   "claudeCode": {
     "needsRouting": "ルーティングが必要",
@@ -4162,6 +4163,11 @@
       "direct": "直接接続：クライアントが選んだプロバイダーに直接つながります。切り替えると設定を書き換えます。",
       "route": "ルーティング：リクエストはまずこのマシンの CC Switch を通ります。フェイルオーバーを使えます。",
       "stack": "集約：複数のプロバイダーのモデルを /model に並べます。フェイルオーバーはしません。"
+    },
+    "stackKeyDialog": {
+      "title": "グループキーを変更",
+      "hint": "小文字英数字とハイフン（入力は自動で小文字化）；変更すると旧モデル id は無効になり選び直す必要があります；default は予約語",
+      "label": "グループキー"
     }
   },
   "providerCard": {
@@ -4187,7 +4193,8 @@
       "edit": "{{name}} を編集",
       "more": "{{name}} のその他の操作",
       "moveUp": "{{name}} を上へ",
-      "moveDown": "{{name}} を下へ"
+      "moveDown": "{{name}} を下へ",
+      "setStackKey": "グループキーを変更"
     },
     "chip": {
       "official": "公式",
@@ -4199,7 +4206,8 @@
       "mapping": "モデルマッピング",
       "direct": "直接接続",
       "hermesManaged": "Hermes 管理",
-      "defaultModel": "既定モデル {{model}}"
+      "defaultModel": "既定モデル {{model}}",
+      "stackKey": "キー：{{key}}"
     },
     "reason": {
       "noRoute": "公式サブスクリプションはルーティングを通りません。直接接続に戻すと使えます。",

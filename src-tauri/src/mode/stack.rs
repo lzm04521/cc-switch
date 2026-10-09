@@ -732,6 +732,8 @@ pub fn resolve(
 #[serde(rename_all = "camelCase")]
 pub struct StackMemberView {
     pub provider_id: String,
+    /// fork Task 9: 分组 key（聚合视图展示与编辑用）。
+    pub key: String,
     /// 发布给客户端的模型 id。
     pub model_ids: Vec<String>,
     /// 这家是默认那家（代理路由）。Claude 的照常发布，第一个模型同时占着四档别名；Codex 的
@@ -762,6 +764,7 @@ pub fn member_views(members: &[Member]) -> Vec<StackMemberView> {
         .iter()
         .map(|member| StackMemberView {
             provider_id: member.provider.id.clone(),
+            key: member.key.clone(),
             model_ids: member.model_ids.clone(),
             route: member.route,
         })
@@ -1142,11 +1145,21 @@ mod tests {
         let views = member_views(
             &super::members("ccs-", &fx.db, &AppType::Claude, &stack, Some("kimi")).unwrap(),
         );
-        let route_flags: Vec<(&str, bool, usize)> = views
+        let route_flags: Vec<(&str, &str, bool, usize)> = views
             .iter()
-            .map(|view| (view.provider_id.as_str(), view.route, view.model_ids.len()))
+            .map(|view| {
+                (
+                    view.provider_id.as_str(),
+                    view.key.as_str(),
+                    view.route,
+                    view.model_ids.len(),
+                )
+            })
             .collect();
-        assert_eq!(route_flags, vec![("kimi", true, 1), ("zhipu", false, 1)]);
+        assert_eq!(
+            route_flags,
+            vec![("kimi", "kimi", true, 1), ("zhipu", "zhipu", false, 1)]
+        );
     }
 
     #[test]

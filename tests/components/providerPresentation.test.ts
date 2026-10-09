@@ -40,6 +40,7 @@ function actions() {
     stackAdd: vi.fn(),
     stackRemove: vi.fn(),
     stackSetDefault: vi.fn(),
+    stackSetKey: vi.fn(),
   };
 }
 
@@ -317,8 +318,8 @@ describe("buildSwitchSections — stack", () => {
       view: "stack",
       routeId: "relay",
       stackMembers: new Map([
-        ["relay", 2],
-        ["backup", 0],
+        ["relay", { key: "relay", models: 2 }],
+        ["backup", { key: "backup", models: 0 }],
       ]),
     });
 
@@ -332,8 +333,12 @@ describe("buildSwitchSections — stack", () => {
       tone: "stack",
       status: { label: "providerCard.status.currentDefault" },
     });
-    // 发布了 0 个模型的成员要提醒
+    // fork Task 9：chips[0] 是分组 key，models 警告 chip 移到 chips[1]
     expect(item(sections, "backup").chips[0]).toMatchObject({
+      key: "stackKey",
+    });
+    // 发布了 0 个模型的成员要提醒
+    expect(item(sections, "backup").chips[1]).toMatchObject({
       key: "models",
       tone: "warning",
     });
@@ -355,8 +360,11 @@ describe("buildSwitchSections — stack", () => {
     // 还没添加的也能直接设为默认
     setDefaultItem(sections, "converted").onSelect();
     expect(input.actions.stackSetDefault).toHaveBeenCalledWith(converted);
-    // 默认那家自己没有这一项
-    expect(item(sections, "relay").menuItems).toBeUndefined();
+    // fork Task 9：默认那家只有改分组 key（它就是默认，无需「设为默认」）
+    const relayMenu = item(sections, "relay").menuItems ?? [];
+    expect(relayMenu.map((m) => m.key)).toEqual(["setStackKey"]);
+    relayMenu[0].onSelect();
+    expect(input.actions.stackSetKey).toHaveBeenCalledWith(relay);
     // Claude 官方订阅不能进聚合，也做不了默认
     expect(button(sections, "official", "blocked").disabledReason).toBe(
       "providerCard.reason.noStack",
@@ -369,7 +377,7 @@ describe("buildSwitchSections — stack", () => {
       active: "direct",
       view: "stack",
       routeId: null,
-      stackMembers: new Map([["backup", 1]]),
+      stackMembers: new Map([["backup", { key: "backup", models: 1 }]]),
     });
 
     // 没有路由目标时，默认那家落在直连那家
@@ -402,7 +410,7 @@ describe("buildSwitchSections — stack", () => {
       active: "route",
       view: "stack",
       routeId: "relay",
-      stackMembers: new Map([["backup", 1]]),
+      stackMembers: new Map([["backup", { key: "backup", models: 1 }]]),
     });
 
     expect(item(sections, "relay").section).toBe("default");
@@ -453,7 +461,7 @@ describe("buildSwitchSections — stack", () => {
       view: "stack",
       providers: [relay, backup, managed],
       routeId: "relay",
-      stackMembers: new Map([["relay", 1]]),
+      stackMembers: new Map([["relay", { key: "relay", models: 1 }]]),
     });
 
     expect(item(sections, "managed").chips.map((c) => c.key)).toContain(

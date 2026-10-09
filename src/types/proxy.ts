@@ -77,6 +77,8 @@ export interface StartupAttachFailure {
 /** Stack 模型：名单里的一家和它发布给客户端的模型 id。 */
 export interface ProxyStackMember {
   providerId: string;
+  /** fork：分组 key（聚合视图展示与编辑用） */
+  key: string;
   modelIds: string[];
   /** 这家是默认那家（代理路由）：模型走默认路由，`modelIds` 等默认换到别家后才发布。 */
   route: boolean;
