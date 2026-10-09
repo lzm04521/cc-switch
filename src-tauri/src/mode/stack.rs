@@ -549,6 +549,8 @@ pub enum StackMiss {
     Removed,
     /// 这家已经从 CC Switch 删除。
     Deleted,
+    /// fork: 短形式命中的成员没有默认模型（claude 无 stackModels/模型映射、codex 无 model）。
+    NoDefaultModel,
 }
 
 impl StackMiss {
@@ -567,6 +569,9 @@ impl StackMiss {
             Self::Deleted => format!(
                 "聚合的模型 {model} 对应的供应商已删除，请在模型列表里重新选择 (The provider of aggregated model {model} was deleted; pick a model from the model list again)"
             ),
+            Self::NoDefaultModel => format!(
+                "聚合的模型 {model} 对应的成员没有可用的默认模型，请在该供应商的聚合模型列表里配置 (The aggregated member behind {model} has no default model; configure its stack model list)"
+            ),
         }
     }
 }
@@ -578,6 +583,54 @@ pub enum Resolved {
     Hit(Box<StackTarget>),
     /// 带保留前缀但解不出来：报错，不回落到默认路由。名单为空时也一样。
     Miss(StackMiss),
+}
+
+// fork: 以下三个 helper 供 resolve 与会话粘性层（route_prefix::apply_session_routing）共用
+// （doc/20261009-设计文档-会话路由改造为聚合模式）。
+
+/// key → 成员查表：Ok(Ok(provider)) 命中；Ok(Err(miss)) 是 Unknown/Removed/Deleted。
+pub fn resolve_member(
+    db: &Database,
+    stack: &StackState,
+    app: &AppType,
+    key: &str,
+) -> Result<Result<Provider, StackMiss>, AppError> {
+    let Some(provider_id) = stack.keys.get(key) else {
+        return Ok(Err(StackMiss::Unknown));
+    };
+    let provider = db.get_provider_by_id(provider_id, app.as_str())?;
+    let Some(provider) = provider else {
+        return Ok(Err(StackMiss::Deleted));
+    };
+    if !stack.is_member(provider_id) {
+        return Ok(Err(StackMiss::Removed));
+    }
+    Ok(Ok(provider))
+}
+
+/// 成员的默认模型（发往上游的原值）：Claude 是发布列表第一个（stackModels[0]，
+/// 未配列表时为模型映射默认 ANTHROPIC_MODEL）；Codex 复用 `model` / config TOML
+/// `model =` 的既有解析（`codex_provider_upstream_model`，含 trim 与空值过滤）。
+pub fn member_default_model(app: &AppType, key: &str, provider: &Provider) -> Option<String> {
+    match app {
+        AppType::Claude => {
+            // 前缀只影响发布 id，不影响 upstream；传上游默认值即可
+            claude_models("ccs-", key, provider)
+                .first()
+                .map(|model| model.upstream.clone())
+        }
+        _ => crate::proxy::providers::codex_provider_upstream_model(provider),
+    }
+}
+
+/// 当前成员的 key 列表（fail-closed 报错文案用）。
+pub fn available_keys(stack: &StackState) -> Vec<String> {
+    stack
+        .members
+        .iter()
+        .filter_map(|id| stack.key_of(id))
+        .map(str::to_string)
+        .collect()
 }
 
 /// 解析请求里的模型 id。不带保留前缀时不读任何状态，路由请求的路径不变。带前缀的只在
@@ -593,23 +646,38 @@ pub fn resolve(
         Decoded::Plain => return Ok(Resolved::Plain),
         Decoded::Malformed => return Ok(Resolved::Miss(StackMiss::Unknown)),
         Decoded::Stack { key, model, one_m } => (key, model, one_m),
-        // fork: 短形式的解析在 Task 2 扩展（成员默认模型）；当前先按未登记报错
-        Decoded::Short { .. } => return Ok(Resolved::Miss(StackMiss::Unknown)),
+        // fork: 短形式（仅 key）→ 该成员的默认模型；保留 key `default` 的解绑语义
+        // 在代理层（route_prefix::apply_session_routing），这里按不存在报错钉住边界。
+        Decoded::Short { key } => {
+            if key.eq_ignore_ascii_case(crate::proxy::route_prefix::RESERVED_ROUTE_KEY) {
+                return Ok(Resolved::Miss(StackMiss::Unknown));
+            }
+            if !state::stack_mode(store, app.as_str())? {
+                return Ok(Resolved::Miss(StackMiss::StackOff));
+            }
+            let stack = state::stack(store, app.as_str())?;
+            let provider = match resolve_member(db, &stack, app, key)? {
+                Ok(provider) => provider,
+                Err(miss) => return Ok(Resolved::Miss(miss)),
+            };
+            let Some(upstream_model) = member_default_model(app, key, &provider) else {
+                return Ok(Resolved::Miss(StackMiss::NoDefaultModel));
+            };
+            return Ok(Resolved::Hit(Box::new(StackTarget {
+                provider,
+                upstream_model,
+                original_model: model.to_string(),
+            })));
+        }
     };
     if !state::stack_mode(store, app.as_str())? {
         return Ok(Resolved::Miss(StackMiss::StackOff));
     }
     let stack = state::stack(store, app.as_str())?;
-    let Some(provider_id) = stack.keys.get(key) else {
-        return Ok(Resolved::Miss(StackMiss::Unknown));
+    let provider = match resolve_member(db, &stack, app, key)? {
+        Ok(provider) => provider,
+        Err(miss) => return Ok(Resolved::Miss(miss)),
     };
-    let provider = db.get_provider_by_id(provider_id, app.as_str())?;
-    let Some(provider) = provider else {
-        return Ok(Resolved::Miss(StackMiss::Deleted));
-    };
-    if !stack.is_member(provider_id) {
-        return Ok(Resolved::Miss(StackMiss::Removed));
-    }
     // Claude 发往上游的是行里配置的原值（可能带 1M 标记），和路由请求映射出来的一样；
     // 行里已经没有这个模型时照原样发（上游自己决定认不认）。Codex 的 id 就是行里的模型名。
     let upstream_model = match app {
@@ -1128,7 +1196,7 @@ mod tests {
         assert_eq!(claude("ccs-claude-gone--g-1"), StackMiss::Removed);
         assert_eq!(claude("ccs-claude-deleted--d-1"), StackMiss::Deleted);
         assert_eq!(claude("ccs-claude-nobody--m"), StackMiss::Unknown);
-        assert_eq!(claude("ccs-claude-kimi"), StackMiss::Unknown);
+        // fork: "ccs-claude-kimi" 短形式现在解析为成员默认模型（见 short_form_resolves_member_default_model）
         // 名单为空（这个应用从没加过 Stack 模型）也一样报错。
         assert_eq!(
             miss(resolve_in(&fx, AppType::Codex, "ccs-kimi/kimi-k3")),
@@ -1328,5 +1396,127 @@ mod tests {
         assert_eq!(encode_short("G.", &AppType::Claude, "cc"), "G.claude-cc");
         assert_eq!(encode_short("G.", &AppType::Codex, "cc"), "G.cc");
         assert_eq!(encode_short("ccs-", &AppType::Claude, "cc"), "ccs-claude-cc");
+    }
+
+    // fork Task 2: 短形式解析 → 成员默认模型
+
+    #[test]
+    fn short_form_resolves_member_default_model() {
+        let fx = fixture();
+        // 映射行：默认模型 = ANTHROPIC_MODEL（upstream 原值，1M 标记保留）
+        assert_eq!(
+            hit(resolve_in(&fx, AppType::Claude, "ccs-claude-kimi")),
+            (
+                "kimi".to_string(),
+                "kimi-k3".to_string(),
+                "ccs-claude-kimi".to_string()
+            )
+        );
+        assert_eq!(
+            hit(resolve_in(&fx, AppType::Claude, "ccs-claude-zhipu")).1,
+            "glm-5.2[1M]"
+        );
+    }
+
+    #[test]
+    fn short_form_uses_first_listed_stack_model() {
+        let fx = fixture();
+        let kimi = with_stack_models(
+            provider(
+                "kimi",
+                "Kimi",
+                Some("kimi"),
+                json!({ "ANTHROPIC_MODEL": "kimi-k3" }),
+            ),
+            json!([
+                { "model": "kimi-k3-mini", "displayName": "K3 Mini" },
+                { "model": "kimi-k3" }
+            ]),
+        );
+        fx.db.save_provider("claude", &kimi).unwrap();
+        assert_eq!(
+            hit(resolve_in(&fx, AppType::Claude, "ccs-claude-kimi")).1,
+            "kimi-k3-mini"
+        );
+    }
+
+    #[test]
+    fn short_form_codex_reads_model_field() {
+        let fx = fixture();
+        let mut deepseek = provider("ds", "DeepSeek", Some("deepseek"), json!({}));
+        deepseek.settings_config = json!({
+            "auth": {},
+            "config": "model = \"deepseek-v4-flash\"\n",
+            "modelCatalog": { "models": [{ "model": "deepseek-v4-pro" }] },
+        });
+        fx.db.save_provider("codex", &deepseek).unwrap();
+        state::update(&fx.store, |live| {
+            let stack = &mut live.apps.entry("codex".to_string()).or_default().stack;
+            stack.members = vec!["ds".to_string()];
+            stack.keys.insert("deepseek".to_string(), "ds".to_string());
+        })
+        .unwrap();
+        assert_eq!(
+            hit(resolve_in(&fx, AppType::Codex, "ccs-deepseek")),
+            (
+                "ds".to_string(),
+                "deepseek-v4-flash".to_string(),
+                "ccs-deepseek".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn short_form_member_without_default_model_misses() {
+        let fx = fixture();
+        let bare = provider("bare", "Bare", None, json!({}));
+        fx.db.save_provider("claude", &bare).unwrap();
+        state::update(&fx.store, |live| {
+            let stack = &mut live.apps.entry("claude".to_string()).or_default().stack;
+            stack.members.push("bare".to_string());
+            stack.keys.insert("bare".to_string(), "bare".to_string());
+        })
+        .unwrap();
+        let miss = miss(resolve_in(&fx, AppType::Claude, "ccs-claude-bare"));
+        assert_eq!(miss, StackMiss::NoDefaultModel);
+        let message = StackMiss::NoDefaultModel.message("ccs-claude-bare");
+        assert!(message.contains("默认模型"), "{message}");
+    }
+
+    #[test]
+    fn short_default_key_untouched_by_resolve() {
+        // 保留 key default 的解绑语义在代理层（route_prefix::apply_session_routing），
+        // resolve 不实现——钉住该边界
+        let fx = fixture();
+        assert_eq!(
+            miss(resolve_in(&fx, AppType::Claude, "ccs-claude-default")),
+            StackMiss::Unknown
+        );
+    }
+
+    #[test]
+    fn short_form_removed_and_deleted_members_miss() {
+        let fx = fixture();
+        assert_eq!(
+            miss(resolve_in(&fx, AppType::Claude, "ccs-claude-gone")),
+            StackMiss::Removed
+        );
+        assert_eq!(
+            miss(resolve_in(&fx, AppType::Claude, "ccs-claude-deleted")),
+            StackMiss::Deleted
+        );
+    }
+
+    #[test]
+    fn short_form_outside_stack_mode_misses() {
+        let fx = fixture();
+        state::update(&fx.store, |live| {
+            live.apps.get_mut("claude").unwrap().stack.enabled = false;
+        })
+        .unwrap();
+        assert_eq!(
+            miss(resolve_in(&fx, AppType::Claude, "ccs-claude-kimi")),
+            StackMiss::StackOff
+        );
     }
 }
