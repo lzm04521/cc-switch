@@ -3,31 +3,31 @@
   "items": [
     {
       "type": "improve",
-      "zh": "会话级路由全面迁移到聚合模式：模型 id 形如 ccs-claude.zhipu.glm-5.2，短形式（如 ccs-claude.zhipu）选中即走该分组默认模型；旧的 G.* 前缀条目退役，客户端里已选的聚合模型需重新选择",
-      "zh-TW": "會話級路由全面遷移到聚合模式：模型 id 形如 ccs-claude.zhipu.glm-5.2，短形式（如 ccs-claude.zhipu）選中即走該分組預設模型；舊的 G.* 前綴條目退役，用戶端裡已選的聚合模型需重新選擇",
-      "en": "Session routing moves to aggregate mode: model ids like ccs-claude.zhipu.glm-5.2, with short forms (e.g. ccs-claude.zhipu) routing to the group's default model. Legacy G.* entries are retired; previously selected aggregate models need to be re-selected",
-      "ja": "セッションルーティングを集約モードへ全面移行：モデル id は ccs-claude.zhipu.glm-5.2 の形になり、短縮形（例: ccs-claude.zhipu）はそのグループのデフォルトモデルを使います。旧 G.* エントリは廃止され、選択済みの集約モデルは再選択が必要です"
+      "zh": "会话路由并入聚合模式，模型 id 换新格式，旧 id 需重选",
+      "zh-TW": "會話路由併入聚合模式，模型 id 換新格式，舊 id 需重選",
+      "en": "Session routing merges into aggregate mode; previously selected model ids must be re-selected",
+      "ja": "セッションルーティングを集約モードへ統合、旧 id は再選択が必要です"
     },
     {
       "type": "improve",
-      "zh": "编辑供应商时可就地修改分组 key（支持大小写，`.` 等符号自动转横线并实时预览），模型列表新增「选择器 id / 选择器显示名」两个只读预览列，随前缀、key 与模型配置实时生成",
-      "zh-TW": "編輯供應商時可就地修改分組 key（支援大小寫，「.」等符號自動轉橫線並即時預覽），模型列表新增「選擇器 id / 選擇器顯示名」兩個唯讀預覽欄，隨前綴、key 與模型設定即時生成",
-      "en": "Edit a provider's group key inline (case preserved; \".\" and other symbols become hyphens with a live preview), and the model list gains read-only \"selector id / display name\" preview columns that update with the prefix, key and model settings",
-      "ja": "プロバイダー編集時にグループキーをその場で変更可能（大文字小文字を保持、「.」などの記号はハイフンに変換しリアルタイムプレビュー）。モデルリストに「セレクター id / 表示名」の読み取り専用プレビュー列が追加され、プレフィックス・キー・モデル設定に追従します"
+      "zh": "供应商表单内可改分组 key（支持大小写），模型列表新增选择器预览列",
+      "zh-TW": "供應商表單內可改分組 key（支援大小寫），模型列表新增選擇器預覽列",
+      "en": "Group keys editable inline in the provider form; model list gains selector preview columns",
+      "ja": "プロバイダー編集でグループキーを変更可能、モデル列にプレビュー列を追加"
     },
     {
       "type": "improve",
-      "zh": "设置 → 本地路由新增「聚合模式设置」分组：聚合模型 id 前缀、模型列表内容三选一（仅分组 / 仅模型 / 全部）、粘性会话开关——关闭后 subagent 等不带聚合 id 的请求一律走默认供应商",
-      "zh-TW": "設定 → 本地路由新增「聚合模式設定」分組：聚合模型 id 前綴、模型列表內容三選一（僅分組 / 僅模型 / 全部）、粘性會話開關——關閉後 subagent 等不帶聚合 id 的請求一律走預設供應商",
-      "en": "Settings → Local Routing gains an \"Aggregate mode settings\" group: the model id prefix, a three-way model list mode (groups / models / both), and a sticky-session toggle—when off, requests without an aggregate id (e.g. subagents) always go to the default provider",
-      "ja": "設定 → ローカルルーティングに「集約モード設定」グループを追加：モデル id プレフィックス、モデルリスト形式の三択（グループのみ / モデルのみ / 両方）、スティッキーセッション切り替え—オフ時、集約 id を持たないリクエスト（subagent など）は常にデフォルトプロバイダーに送られます"
+      "zh": "设置新增聚合模式分组：模型列表三选一与粘性会话开关",
+      "zh-TW": "設定新增聚合模式分組：模型列表三選一與粘性會話開關",
+      "en": "New aggregate mode settings group: model list mode and a sticky-session toggle",
+      "ja": "集約モード設定を追加：リスト形式三択とスティッキーセッション切替"
     },
     {
       "type": "fix",
-      "zh": "分组 key 改名更宽松：允许大小写升级（zhipupro → ZhiPuPro）、允许复用任何旧名（旧会话请求会转投这家，输入框有提示）；旧名只在系统自动分配新成员时避让",
-      "zh-TW": "分組 key 改名更寬鬆：允許大小寫升級（zhipupro → ZhiPuPro）、允許複用任何舊名（舊會話請求會轉投這家，輸入框有提示）；舊名只在系統自動分配新成員時避讓",
-      "en": "Group key renames are more permissive: case upgrades (zhipupro → ZhiPuPro) and reuse of any old name are allowed (sessions still carrying the old id will be routed to this provider, as noted in the input hint); old names are only avoided when auto-assigning keys to new members",
-      "ja": "グループキーの変更がより柔軟に：大文字小文字のアップグレード（zhipupro → ZhiPuPro）や旧名の再利用が可能（旧 id を持つセッションはこのプロバイダーに送られます。入力欄にヒント表示）。旧名は新メンバーへの自動割り当て時のみ避けられます"
+      "zh": "分组 key 支持大小写与旧名复用，仅自动分配避开旧名",
+      "zh-TW": "分組 key 支援大小寫與舊名複用，僅自動分配避開舊名",
+      "en": "Group key renames allow case variants and reuse of old names; only auto-assigned keys avoid them",
+      "ja": "グループキーは大小文字・旧名再利用可、自動割当のみ旧名を回避"
     }
   ]
 }
