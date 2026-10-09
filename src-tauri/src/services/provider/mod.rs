@@ -7197,7 +7197,6 @@ impl ProviderService {
         .await
     }
 
-
     fn validate_provider_settings(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
         match app_type {
             AppType::Claude => {

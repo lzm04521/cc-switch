@@ -1110,7 +1110,6 @@ mod tests {
         mock_handle.abort();
     }
 
-
     #[tokio::test]
     async fn alpha_search_routes_forward_to_canonical_upstream() {
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
@@ -1407,7 +1406,8 @@ mod tests {
             None,
         );
         db.save_provider("codex", &default_provider).unwrap();
-        db.set_current_provider("codex", &default_provider.id).unwrap();
+        db.set_current_provider("codex", &default_provider.id)
+            .unwrap();
         db.save_provider("codex", &member).unwrap();
 
         // 临时 home 下的 live-state：codex 代理 + 聚合开 + 成员名单与 key
@@ -1417,8 +1417,12 @@ mod tests {
             codex.proxy_route = Some("default-upstream".to_string());
             let stack = &mut codex.stack;
             stack.enabled = true;
-            stack.members = ["default-upstream", "member-ds"].map(str::to_string).to_vec();
-            stack.keys.insert("default".to_string(), "default-upstream".to_string());
+            stack.members = ["default-upstream", "member-ds"]
+                .map(str::to_string)
+                .to_vec();
+            stack
+                .keys
+                .insert("default".to_string(), "default-upstream".to_string());
             stack.keys.insert("ds".to_string(), "member-ds".to_string());
         })
         .unwrap();
@@ -1499,7 +1503,7 @@ mod tests {
         // 同 session 发默认成员的全 id（带客户端 session 头建立粘性绑定）：
         // 显式全 id 必须优先于绑定（选中谁走谁）——这是「钩子先于 Stack 解析」
         // 顺序契约的判别性场景（顺序反了会被粘性锁定覆盖）
-        let full_id = format!("{prefix}default/default-model");
+        let full_id = format!("{prefix}default.default-model");
         let response = client
             .post(format!(
                 "http://127.0.0.1:{}/codex/v1/chat/completions",

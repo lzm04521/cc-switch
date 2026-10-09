@@ -406,6 +406,9 @@ export interface Settings {
   // 聚合模型 id 前缀（完整触发串，如 "G."、"@"；None=默认 "ccs-"）
   // fork: 会话路由改造为聚合模式后此设置即聚合前缀
   routePrefix?: string;
+  // 聚合条目发布形态三选一（fork：groups=仅短形式+解绑、models=仅完整条目、
+  // both=全部/缺省；作用于 /v1/models 系端点与 Codex 模型目录）
+  routeModelsEndpoint?: { mode: "groups" | "models" | "both" };
   // 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新；非启用 Provider 间隔下限 5 分钟）
   autoRefreshAllProvidersUsage?: boolean;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）

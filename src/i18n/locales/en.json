@@ -478,7 +478,7 @@
       },
       "routePrefix": {
         "title": "Aggregated model id prefix",
-        "description": "In Stack mode, model ids look like \"<prefix>claude-<key>--<model>\" (Codex: \"<prefix><key>/<model>\"); the short form \"<prefix>claude-<key>\" uses that member's default model, and \"<prefix>claude-default\" unbinds the session. Empty restores the default ccs-.",
+        "description": "In Stack mode, model ids look like \"<prefix>claude.<key>.<model>\" (Codex: \"<prefix><key>.<model>\"); the short form \"<prefix>claude.<key>\" uses that member's default model, and \"<prefix>claude.default\" unbinds the session. Empty restores the default ccs-.",
         "conflictHint": "Hint: this prefix resembles common model names and may mis-match; consider another (e.g. G., @)",
         "changedNotice": "Prefix changed: every selected aggregated model id is now invalid — pick models from the client's list again.",
         "invalid": {
@@ -488,6 +488,13 @@
           "colon": "Prefix cannot contain a colon",
           "boundary": "Prefix must end with a non-alphanumeric character (e.g. G., @, ccs-)"
         }
+      },
+      "routeModelsMode": {
+        "title": "Aggregated model list contents",
+        "description": "Controls which stack entries the /v1/models endpoints and the Codex model catalog publish.",
+        "both": "Groups + models",
+        "groups": "Groups only (short form, uses the default model)",
+        "models": "Models only (full entries)"
       }
     },
     "language": "Language",
@@ -1522,6 +1529,10 @@
     "openReleaseNotesFailed": "Failed to open release notes:"
   },
   "providerForm": {
+    "stackKey": {
+      "label": "Group key",
+      "hint": "Lowercase letters/digits/hyphens (input is lowercased automatically); renaming invalidates previously selected model ids; \"default\" is reserved. Saved together with the form."
+    },
     "supplierName": "Provider Name",
     "supplierNameRequired": "Provider Name *",
     "supplierNamePlaceholder": "e.g., Anthropic Official",

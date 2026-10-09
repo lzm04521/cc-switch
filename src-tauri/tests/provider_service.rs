@@ -2995,7 +2995,6 @@ fn recover_from_crash_without_backup_cleans_placeholder_instead_of_writing_it_ba
     );
 }
 
-
 /// 切换写出的 live 文件里有 Key（Codex 的 auth.json 与 config.toml、Claude Code 的
 /// settings.json、Grok Build 的 config.toml），新建或替换时都只给本人读写：普通写入
 /// 新建文件按 umask 落成 0644，同机其他用户就能读到 Key。

@@ -10,7 +10,10 @@ import { useProvidersQuery, useSettingsQuery } from "@/lib/query";
 import { settingsApi } from "@/lib/api/settings";
 import type { ApiLogConfig } from "@/lib/api/settings";
 import type { Settings } from "@/types";
-import { RoutePrefixSettings } from "@/components/settings/RoutePrefixSettings";
+import {
+  RoutePrefixSettings,
+  type RouteModelsListMode,
+} from "@/components/settings/RoutePrefixSettings";
 import {
   useGlobalProxyConfig,
   useProxyStatusQuery,
@@ -112,9 +115,10 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
     }
   };
 
-  // fork 定制：会话级路由前缀 + 路由模型列表接口（原 ProxyTabContent 迁入）
+  // fork 定制：会话级路由前缀 + 聚合模型列表三选一（原 ProxyTabContent 迁入）
   const saveRouteSettings = async (updates: {
     routePrefix?: string;
+    routeModelsEndpoint?: { mode: RouteModelsListMode };
   }): Promise<boolean> => {
     try {
       return await settingsApi.save({
@@ -494,6 +498,7 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
       >
         <RoutePrefixSettings
           routePrefix={settings?.routePrefix}
+          routeModelsMode={settings?.routeModelsEndpoint?.mode}
           onAutoSave={saveRouteSettings}
         />
       </SettingsBlock>

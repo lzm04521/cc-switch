@@ -104,7 +104,7 @@ pub async fn handle_models(
     // fork Task 6: 非发现路径合并 codex 形态聚合条目（完整 + 每成员短形式）
     // （doc/20261009-设计文档-会话路由改造为聚合模式 §7）
     let store = crate::live::engine::DeviceStore::for_device();
-    let data = codex_stack_entries_for(&state.db, &store);
+    let data = codex_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     merge_stack_models_into_catalog(&mut catalog, data);
     Ok(Json(catalog))
 }
@@ -172,7 +172,14 @@ fn merge_stack_models_into_catalog(catalog: &mut Value, data: Vec<Value>) {
 /// fork Task 6: claude 形态聚合条目（完整模型条目 + 每成员一条短形式，
 /// doc/20261009-设计文档-会话路由改造为聚合模式 §7）。不在代理模式 /
 /// 聚合未开时为空。读失败按空处理（客户端只等 3 秒，不因状态文件坏掉而 500）。
-fn claude_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceStore) -> Vec<Value> {
+/// fork: list_mode 控制发布形态（Groups=仅短形式+解绑、Models=仅完整、Both=全部），
+/// 由调用方显式传参（不在这层读全局 settings——OnceLock 会让测试机器相关）
+fn claude_stack_entries_for(
+    db: &Database,
+    store: &crate::live::engine::DeviceStore,
+    list_mode: crate::settings::RouteModelsMode,
+) -> Vec<Value> {
+    use crate::settings::RouteModelsMode;
     let prefix = stack_configured_prefix();
     let mut entries = Vec::new();
     let mut build = || -> Result<(), crate::error::AppError> {
@@ -189,25 +196,44 @@ fn claude_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceSt
             &stack_state,
             mode.proxy_route.as_deref(),
         )?;
-        for model in crate::mode::stack::claude_published(&prefix, &members) {
-            entries.push(json!({
-                "type": "model",
-                "id": model.id,
-                "display_name": model.display_name,
-                "description": model.description,
-            }));
+        // fork: 有成员时置顶解绑条目——粘性绑定建立后从模型列表即可解绑，
+        // 不必手打保留 id（解绑语义见 route_prefix::apply_session_routing）。
+        // 解绑条目本身是短形式形态，Models 模式不发布
+        if !members.is_empty() && list_mode != RouteModelsMode::Models {
+            entries.push(unbind_stack_entry(&prefix, &app));
         }
-        for member in &members {
-            let default_model =
-                crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
-            entries.push(json!({
-                "type": "model",
-                "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
-                "display_name": member.provider.name.clone(),
-                "description": default_model
-                    .map(|model| format!("默认模型 {model} (default model)"))
-                    .unwrap_or_default(),
-            }));
+        if list_mode != RouteModelsMode::Groups {
+            for model in crate::mode::stack::claude_published(&prefix, &members) {
+                entries.push(json!({
+                    "type": "model",
+                    "id": model.id,
+                    "display_name": model.display_name,
+                    "description": model.description,
+                }));
+            }
+        }
+        if list_mode != RouteModelsMode::Models {
+            for member in &members {
+                let default_model =
+                    crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
+                // fork: 默认模型是 1M 窗口时短形式 id 带 [1M] 尾标（替换式，与完整条目
+                // 一致），Claude Code 才按 1M 计算上下文；decode 在 Short 判定前先剥离它
+                let mut id = crate::mode::stack::encode_short(&prefix, &app, &member.key);
+                if default_model
+                    .as_deref()
+                    .is_some_and(crate::live::project::claude::has_one_m_marker)
+                {
+                    id.push_str(crate::live::project::claude::ONE_M_MARKER_FOR_CLIENT);
+                }
+                entries.push(json!({
+                    "type": "model",
+                    "id": id,
+                    "display_name": member.provider.name.clone(),
+                    "description": default_model
+                        .map(|model| format!("默认模型 {model} (default model)"))
+                        .unwrap_or_default(),
+                }));
+            }
         }
         Ok(())
     };
@@ -218,7 +244,13 @@ fn claude_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceSt
 }
 
 /// fork Task 6: codex 形态聚合条目（成员发布的完整模型 id + 每成员短形式）。
-fn codex_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceStore) -> Vec<Value> {
+/// fork: list_mode 语义同 claude 构建器（Groups=仅短形式+解绑、Models=仅完整、Both=全部）
+fn codex_stack_entries_for(
+    db: &Database,
+    store: &crate::live::engine::DeviceStore,
+    list_mode: crate::settings::RouteModelsMode,
+) -> Vec<Value> {
+    use crate::settings::RouteModelsMode;
     let prefix = stack_configured_prefix();
     let mut entries = Vec::new();
     let mut build = || -> Result<(), crate::error::AppError> {
@@ -235,24 +267,34 @@ fn codex_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceSto
             &stack_state,
             mode.proxy_route.as_deref(),
         )?;
-        for member in &members {
-            for id in &member.model_ids {
+        // fork: 有成员时置顶解绑条目（同 claude 构建器；Models 模式不发布）
+        if !members.is_empty() && list_mode != RouteModelsMode::Models {
+            entries.push(unbind_stack_entry(&prefix, &app));
+        }
+        if list_mode != RouteModelsMode::Groups {
+            for member in &members {
+                for id in &member.model_ids {
+                    entries.push(json!({
+                        "type": "model",
+                        "id": id,
+                        "display_name": id.strip_prefix(prefix.as_str()).unwrap_or(id),
+                    }));
+                }
+            }
+        }
+        if list_mode != RouteModelsMode::Models {
+            for member in &members {
+                let default_model =
+                    crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
                 entries.push(json!({
                     "type": "model",
-                    "id": id,
-                    "display_name": id.strip_prefix(prefix.as_str()).unwrap_or(id),
+                    "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
+                    "display_name": member.provider.name.clone(),
+                    "description": default_model
+                        .map(|model| format!("默认模型 {model} (default model)"))
+                        .unwrap_or_default(),
                 }));
             }
-            let default_model =
-                crate::mode::stack::member_default_model(&app, &member.key, &member.provider);
-            entries.push(json!({
-                "type": "model",
-                "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
-                "display_name": member.provider.name.clone(),
-                "description": default_model
-                    .map(|model| format!("默认模型 {model} (default model)"))
-                    .unwrap_or_default(),
-            }));
         }
         Ok(())
     };
@@ -260,6 +302,21 @@ fn codex_stack_entries_for(db: &Database, store: &crate::live::engine::DeviceSto
         log::warn!("[Codex] 读取 Stack 聚合条目失败，返回空列表: {error}");
     }
     entries
+}
+
+/// fork: 解绑条目——短形式保留 key `default` 的公开形态（claude/codex 各自的
+/// encode_short 形状），选中即解绑会话粘性并回落默认成员。
+fn unbind_stack_entry(prefix: &str, app: &AppType) -> Value {
+    json!({
+        "type": "model",
+        "id": crate::mode::stack::encode_short(
+            prefix,
+            app,
+            crate::proxy::route_prefix::RESERVED_ROUTE_KEY,
+        ),
+        "display_name": "default",
+        "description": "解绑会话粘性跟随 (unbind session)",
+    })
 }
 
 /// fork Task 6: 前缀取设置的薄别名（让条目构建器可读性更好）
@@ -274,7 +331,8 @@ pub async fn handle_claude_models(
     State(state): State<ProxyState>,
 ) -> Result<Json<Value>, ProxyError> {
     let store = crate::live::engine::DeviceStore::for_device();
-    let data = claude_stack_entries_for(&state.db, &store);
+    let data =
+        claude_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     Ok(Json(build_anthropic_models_response(data)))
 }
 
@@ -307,7 +365,7 @@ pub async fn handle_codex_models(
     let mut catalog = project_catalog_to_openai_list(read_active_codex_catalog());
 
     let store = crate::live::engine::DeviceStore::for_device();
-    let data = codex_stack_entries_for(&state.db, &store);
+    let data = codex_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     apply_stack_models_to_openai_list(&mut catalog, data);
     Ok(Json(catalog))
 }
@@ -402,7 +460,8 @@ fn is_claude_model_discovery(uri: &axum::http::Uri, headers: &axum::http::Header
 fn claude_model_discovery(state: &ProxyState) -> Value {
     // fork Task 6: claude form aggregation entries (full + short form per member)
     let store = crate::live::engine::DeviceStore::for_device();
-    let data = claude_stack_entries_for(&state.db, &store);
+    let data =
+        claude_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     json!({
         "data": data,
         "has_more": false,
@@ -554,7 +613,6 @@ pub async fn handle_claude_desktop_models(
     // 聚合寻址退役，设计 D4）；gateway 模型菜单本体保留
     Ok(Json(response))
 }
-
 
 async fn handle_messages_for_app(
     state: ProxyState,
@@ -3765,12 +3823,12 @@ async fn log_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_stack_models_to_openai_list,
-        body_looks_like_sse, build_anthropic_models_response, chat_sse_to_response_value,
-        classify_body_for_diagnostics, codex_proxy_error_json, merge_stack_models_into_catalog,
-        project_catalog_to_openai_list, responses_sse_stream_to_anthropic_message,
-        responses_sse_to_response_value, rewritten_sse_response_builder,
-        should_use_claude_transform_streaming, transform, upstream_body_parse_error,
+        apply_stack_models_to_openai_list, body_looks_like_sse, build_anthropic_models_response,
+        chat_sse_to_response_value, classify_body_for_diagnostics, codex_proxy_error_json,
+        merge_stack_models_into_catalog, project_catalog_to_openai_list,
+        responses_sse_stream_to_anthropic_message, responses_sse_to_response_value,
+        rewritten_sse_response_builder, should_use_claude_transform_streaming, transform,
+        upstream_body_parse_error,
     };
     use crate::proxy::ProxyError;
     use bytes::Bytes;
@@ -3911,16 +3969,11 @@ mod tests {
         assert_eq!(null_catalog, serde_json::Value::Null);
         // object 但无 data 字段（防御；投影层保证存在）：直接插入路由条目
         let mut no_data = serde_json::json!({"object": "list"});
-        apply_stack_models_to_openai_list(
-            &mut no_data,
-            vec![serde_json::json!({"id": "G.DS"})],
-        );
+        apply_stack_models_to_openai_list(&mut no_data, vec![serde_json::json!({"id": "G.DS"})]);
         assert_eq!(no_data["data"].as_array().unwrap().len(), 1);
         assert_eq!(no_data["data"][0]["id"], serde_json::json!("G.DS"));
         assert_eq!(no_data["object"], serde_json::json!("list"));
     }
-
-
 
     #[test]
     fn body_looks_like_sse_detects_unlabeled_sse_prefixes() {
@@ -4757,7 +4810,7 @@ mod stack_tests {
 
         let response = handle_messages(
             State(state.clone()),
-            post("/v1/messages", "ccs-claude-kimi--kimi-k3"),
+            post("/v1/messages", "ccs-claude.kimi.kimi-k3"),
         )
         .await
         .expect("response");
@@ -4768,24 +4821,24 @@ mod stack_tests {
         assert!(body["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("ccs-claude-kimi--kimi-k3"));
+            .contains("ccs-claude.kimi.kimi-k3"));
 
         for response in [
             handle_responses(
                 State(state.clone()),
-                post("/v1/responses", "ccs-kimi/kimi-k3"),
+                post("/v1/responses", "ccs-kimi.kimi-k3"),
             )
             .await
             .expect("responses"),
             handle_responses_compact(
                 State(state.clone()),
-                post("/v1/responses/compact", "ccs-kimi/kimi-k3"),
+                post("/v1/responses/compact", "ccs-kimi.kimi-k3"),
             )
             .await
             .expect("compact"),
             handle_chat_completions(
                 State(state.clone()),
-                post("/v1/chat/completions", "ccs-kimi/kimi-k3"),
+                post("/v1/chat/completions", "ccs-kimi.kimi-k3"),
             )
             .await
             .expect("chat"),
@@ -4805,7 +4858,7 @@ mod stack_tests {
         assert!(routed.is_err());
         let routed = handle_grokbuild_responses(
             State(state),
-            post("/grokbuild/v1/responses", "ccs-kimi/kimi-k3"),
+            post("/grokbuild/v1/responses", "ccs-kimi.kimi-k3"),
         )
         .await;
         assert!(routed.is_err(), "Grok Build model ids are not decoded");
@@ -4831,7 +4884,7 @@ mod stack_tests {
         let target = crate::mode::stack::StackTarget {
             provider: kimi,
             upstream_model: "kimi-k3".to_string(),
-            original_model: "ccs-claude-kimi--kimi-k3".to_string(),
+            original_model: "ccs-claude.kimi.kimi-k3".to_string(),
         };
         let body = json!({ "model": "kimi-k3", "messages": [] });
 
@@ -4855,7 +4908,7 @@ mod stack_tests {
                 .collect::<Vec<_>>(),
             vec!["kimi"]
         );
-        assert_eq!(ctx.request_model, "ccs-claude-kimi--kimi-k3");
+        assert_eq!(ctx.request_model, "ccs-claude.kimi.kimi-k3");
         assert!(!ctx.app_config.auto_failover_enabled);
         let streaming = ctx.streaming_timeout_config();
         assert_eq!(
@@ -4943,8 +4996,14 @@ mod stack_tests {
             claude.proxy_route = Some("kimi".to_string());
             claude.stack.enabled = true;
             claude.stack.members = ["kimi", "zhipu"].map(str::to_string).to_vec();
-            claude.stack.keys.insert("kimi".to_string(), "kimi".to_string());
-            claude.stack.keys.insert("zhipu".to_string(), "zhipu".to_string());
+            claude
+                .stack
+                .keys
+                .insert("kimi".to_string(), "kimi".to_string());
+            claude
+                .stack
+                .keys
+                .insert("zhipu".to_string(), "zhipu".to_string());
             let codex = live.apps.entry("codex".to_string()).or_default();
             codex.mode = Some(crate::mode::state::Mode::Proxy);
             codex.stack.enabled = true;
@@ -4966,23 +5025,44 @@ mod stack_tests {
     #[test]
     fn claude_stack_entries_include_full_and_short() {
         let (_dir, store, db) = stack_entries_fixture();
-        let entries = claude_stack_entries_for(&db, &store);
+        let entries = claude_stack_entries_for(&db, &store, Default::default());
         let prefix = stack_configured_prefix();
         let ids = ids_of(&entries);
         assert!(
-            ids.contains(&format!("{prefix}claude-zhipu--glm-5.2[1M]")),
+            ids.contains(&format!("{prefix}claude.zhipu.glm-5.2[1M]")),
             "{ids:?}"
         );
-        // 每成员一条短形式，display_name 为成员名，description 标默认模型
+        // 有成员时置顶解绑条目（保留 key default 的短形式）
+        assert_eq!(
+            ids.first(),
+            Some(&format!("{prefix}claude.default")),
+            "{ids:?}"
+        );
+        // 每成员一条短形式，display_name 为成员名，description 标默认模型。
+        // 默认模型带 1M 标记的成员短形式 id 也带 [1M] 尾标（替换式）；
+        // 不带的成员保持裸短形式。
         let short = entries
             .iter()
-            .find(|entry| entry.get("id").and_then(Value::as_str) == Some(&format!("{prefix}claude-zhipu")))
+            .find(|entry| {
+                entry.get("id").and_then(Value::as_str)
+                    == Some(&format!("{prefix}claude.zhipu[1M]"))
+            })
             .expect("short entry for zhipu");
         assert_eq!(short["display_name"], json!("P-zhipu"));
         assert!(
-            short["description"].as_str().unwrap().contains("glm-5.2[1M]"),
+            short["description"]
+                .as_str()
+                .unwrap()
+                .contains("glm-5.2[1M]"),
             "{}",
             short["description"]
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.get("id").and_then(Value::as_str)
+                    == Some(&format!("{prefix}claude.kimi"))),
+            "no-1M member keeps the bare short id, {ids:?}"
         );
     }
 
@@ -4993,7 +5073,7 @@ mod stack_tests {
             live.apps.get_mut("claude").unwrap().mode = Some(crate::mode::state::Mode::Direct);
         })
         .unwrap();
-        assert!(claude_stack_entries_for(&db, &store).is_empty());
+        assert!(claude_stack_entries_for(&db, &store, Default::default()).is_empty());
     }
 
     #[test]
@@ -5003,21 +5083,94 @@ mod stack_tests {
             live.apps.get_mut("claude").unwrap().stack.enabled = false;
         })
         .unwrap();
-        assert!(claude_stack_entries_for(&db, &store).is_empty());
+        assert!(claude_stack_entries_for(&db, &store, Default::default()).is_empty());
+    }
+
+    #[test]
+    fn claude_stack_entries_no_unbind_without_members() {
+        let (_dir, store, db) = stack_entries_fixture();
+        crate::mode::state::update(&store, |live| {
+            live.apps.get_mut("claude").unwrap().stack.members.clear();
+        })
+        .unwrap();
+        assert!(claude_stack_entries_for(&db, &store, Default::default()).is_empty());
     }
 
     #[test]
     fn codex_stack_entries_include_full_and_short() {
         let (_dir, store, db) = stack_entries_fixture();
-        let entries = codex_stack_entries_for(&db, &store);
+        let entries = codex_stack_entries_for(&db, &store, Default::default());
         let prefix = stack_configured_prefix();
         let ids = ids_of(&entries);
         // 完整条目（modelCatalog 的 deepseek-v4-pro）+ 每成员短形式
         assert!(
-            ids.contains(&format!("{prefix}ds/deepseek-v4-pro")),
+            ids.contains(&format!("{prefix}ds.deepseek-v4-pro")),
             "{ids:?}"
         );
         assert!(ids.contains(&format!("{prefix}ds")), "{ids:?}");
+        // 有成员时置顶解绑条目
+        assert_eq!(ids.first(), Some(&format!("{prefix}default")), "{ids:?}");
+    }
+
+    #[test]
+    fn stack_entries_respect_models_list_mode() {
+        // fork: 三选一——Groups=仅短形式+解绑、Models=仅完整条目、Both=全部
+        use crate::settings::RouteModelsMode;
+        let (_dir, store, db) = stack_entries_fixture();
+        let prefix = stack_configured_prefix();
+
+        let claude_groups = ids_of(&claude_stack_entries_for(
+            &db,
+            &store,
+            RouteModelsMode::Groups,
+        ));
+        assert_eq!(
+            claude_groups.first(),
+            Some(&format!("{prefix}claude.default")),
+            "{claude_groups:?}"
+        );
+        assert!(claude_groups.contains(&format!("{prefix}claude.kimi")));
+        assert!(
+            !claude_groups.iter().any(|id| id.contains(".kimi-k3")),
+            "no full entries in Groups mode, {claude_groups:?}"
+        );
+
+        let claude_models = ids_of(&claude_stack_entries_for(
+            &db,
+            &store,
+            RouteModelsMode::Models,
+        ));
+        assert!(
+            claude_models.contains(&format!("{prefix}claude.kimi.kimi-k3")),
+            "{claude_models:?}"
+        );
+        assert!(
+            !claude_models.contains(&format!("{prefix}claude.kimi"))
+                && !claude_models.contains(&format!("{prefix}claude.default")),
+            "no short/unbind entries in Models mode, {claude_models:?}"
+        );
+
+        let codex_groups = ids_of(&codex_stack_entries_for(
+            &db,
+            &store,
+            RouteModelsMode::Groups,
+        ));
+        assert_eq!(
+            codex_groups,
+            vec![format!("{prefix}default"), format!("{prefix}ds")],
+            "{codex_groups:?}"
+        );
+
+        let codex_models = ids_of(&codex_stack_entries_for(
+            &db,
+            &store,
+            RouteModelsMode::Models,
+        ));
+        assert_eq!(
+            codex_models,
+            vec![format!("{prefix}ds.deepseek-v4-pro")],
+            "{codex_models:?}"
+        );
     }
 
     #[test]
@@ -5027,6 +5180,16 @@ mod stack_tests {
             live.apps.get_mut("codex").unwrap().stack.enabled = false;
         })
         .unwrap();
-        assert!(codex_stack_entries_for(&db, &store).is_empty());
+        assert!(codex_stack_entries_for(&db, &store, Default::default()).is_empty());
+    }
+
+    #[test]
+    fn codex_stack_entries_no_unbind_without_members() {
+        let (_dir, store, db) = stack_entries_fixture();
+        crate::mode::state::update(&store, |live| {
+            live.apps.get_mut("codex").unwrap().stack.members.clear();
+        })
+        .unwrap();
+        assert!(codex_stack_entries_for(&db, &store, Default::default()).is_empty());
     }
 }

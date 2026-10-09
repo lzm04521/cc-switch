@@ -8,9 +8,9 @@
 //! 2. session 粘性绑定表（[`RouteBindingStore`]，进程内）；
 //! 3. [`apply_session_routing`] 粘性钩子——在 `resolve_stack_target` **之前**调用：
 //!    - 短形式 `<prefix><key>` → 该成员默认模型 + 锁定成员 + 绑定 session
-//!    - 保留 key `<prefix>default`（claude 形态 `<prefix>claude-default`）→ 解绑 +
+//!    - 保留 key `<prefix>default`（claude 形态 `<prefix>claude.default`）→ 解绑 +
 //!      本请求显式走默认成员的默认模型
-//!    - 全 id（`<prefix>…--model` / `<prefix>key/model`）→ 只绑定 session，
+//!    - 全 id（`<prefix>claude.key.model` / `<prefix>key.model`）→ 只绑定 session，
 //!      解析与锁定由后续 `resolve_stack_target` 完成
 //!    - 裸模型名 → 粘性跟随绑定的成员（subagent / classifier / 后台 haiku），
 //!      模型名走该成员的常规模型映射，不透传
@@ -538,7 +538,10 @@ mod tests {
         let state = ProxyState::for_test(Arc::new(Database::memory().unwrap()));
         for row in [
             env_provider("kimi", serde_json::json!({ "ANTHROPIC_MODEL": "kimi-k3" })),
-            env_provider("zhipu", serde_json::json!({ "ANTHROPIC_MODEL": "glm-5.2[1M]" })),
+            env_provider(
+                "zhipu",
+                serde_json::json!({ "ANTHROPIC_MODEL": "glm-5.2[1M]" }),
+            ),
         ] {
             state.db.save_provider("claude", &row).unwrap();
         }
@@ -742,9 +745,15 @@ mod tests {
             source: SessionIdSource::Generated,
             client_provided: false,
         };
-        apply_session_routing(&fx.state, &generated, &AppType::Claude, &mut body, &fx.store)
-            .await
-            .unwrap();
+        apply_session_routing(
+            &fx.state,
+            &generated,
+            &AppType::Claude,
+            &mut body,
+            &fx.store,
+        )
+        .await
+        .unwrap();
         assert_eq!(fx.state.route_bindings.lookup("gen-uuid"), None);
     }
 

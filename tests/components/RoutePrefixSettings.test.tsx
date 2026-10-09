@@ -11,8 +11,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// fork Task 8: 模型列表接口区块已随 routeModelsEndpoint 设置删除；
-// 这里只覆盖聚合前缀输入本身
+// fork Task 8: routeModelsEndpoint 设置曾随旧体系删除，聚合三调整恢复为
+// 「聚合模型列表内容」三选一（groups/models/both）
 describe("RoutePrefixSettings 聚合前缀区块", () => {
   it("渲染标题与说明，不含模型列表开关", () => {
     render(<RoutePrefixSettings {...baseProps} />);
@@ -40,5 +40,37 @@ describe("RoutePrefixSettings 聚合前缀区块", () => {
   it("未修改时保存按钮禁用", () => {
     render(<RoutePrefixSettings {...baseProps} />);
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+});
+
+describe("RoutePrefixSettings 聚合模型列表三选一", () => {
+  it("缺省渲染 both 选项", () => {
+    render(<RoutePrefixSettings {...baseProps} />);
+    expect(
+      screen.getByText("分组 + 模型", { exact: false }),
+    ).toBeInTheDocument();
+  });
+
+  it("选中 groups：onAutoSave 收到 routeModelsEndpoint 更新", async () => {
+    render(<RoutePrefixSettings {...baseProps} />);
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(screen.getByText("仅分组（短形式，选中走默认模型）"));
+    await waitFor(() =>
+      expect(baseProps.onAutoSave).toHaveBeenCalledWith({
+        routeModelsEndpoint: { mode: "groups" },
+      }),
+    );
+  });
+
+  it("保存失败不切换选中值", async () => {
+    const onAutoSave = vi.fn(async () => false);
+    render(<RoutePrefixSettings {...baseProps} onAutoSave={onAutoSave} />);
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(screen.getByText("仅模型（完整条目）"));
+    await waitFor(() => expect(onAutoSave).toHaveBeenCalledTimes(1));
+    // 失败回滚：仍显示 both
+    expect(
+      await screen.findByText("分组 + 模型", { exact: false }),
+    ).toBeInTheDocument();
   });
 });

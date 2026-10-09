@@ -410,6 +410,29 @@ impl Default for FloatingBallSettings {
     }
 }
 
+/// 聚合条目在模型列表 / Codex 目录里的发布形态（fork：恢复旧会话路由体系的
+/// routeModelsEndpoint.mode 三选一，语义映射到聚合条目——Groups=仅短形式条目+解绑、
+/// Models=仅完整模型条目、Both=全部）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RouteModelsMode {
+    /// 仅完整模型条目（每成员每模型一条，如 `<prefix>claude.zhipu.glm-5.2`）
+    Models,
+    /// 仅分组条目（每成员一条短形式 + 解绑条目，选中走该成员默认模型）
+    Groups,
+    /// 完整条目在前、分组条目在后（默认，与现状一致）
+    #[default]
+    Both,
+}
+
+/// 聚合模型列表发布形态设置。旧体系字段名沿用（旧 settings.json 的 `mode` 值无缝
+/// 续用）；旧 `enabled` 开关不恢复——聚合开关已是总闸，serde 反序列化静默忽略。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteModelsEndpointSettings {
+    #[serde(default)]
+    pub mode: RouteModelsMode,
+}
 
 /// 应用设置结构
 ///
@@ -459,6 +482,10 @@ pub struct AppSettings {
     /// fork: 会话路由改造为聚合模式后此设置即聚合前缀（doc/20261009-设计文档）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route_prefix: Option<String>,
+    /// 聚合条目在模型列表 / Codex 目录里的发布形态（None = 默认 Both）。
+    /// 作用于 /v1/models、/claude/v1/models、/codex/v1/models 与 Codex 模型目录
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_models_endpoint: Option<RouteModelsEndpointSettings>,
     /// 自动刷新所有 Provider 的脚本用量（默认关闭=仅当前启用的 Provider 自动刷新）。
     /// 开启后非启用 Provider 也定时查询，实际间隔钳制为至少 5 分钟（前端控制）。
     #[serde(default)]
@@ -633,6 +660,7 @@ impl Default for AppSettings {
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
             route_prefix: None,
+            route_models_endpoint: None,
             auto_refresh_all_providers_usage: false,
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
@@ -939,6 +967,14 @@ pub fn get_route_prefix() -> String {
     crate::proxy::route_prefix::normalize_route_prefix(get_settings().route_prefix.as_deref())
 }
 
+/// 读取聚合条目发布形态（缺省 Both）。纯读取层薄包装；端点/目录构建器由调用方显式
+/// 传参（不在这层读全局 settings，OnceLock 惰性读真实磁盘会让纯函数测试机器相关）
+pub fn get_route_models_mode() -> RouteModelsMode {
+    get_settings()
+        .route_models_endpoint
+        .map(|settings| settings.mode)
+        .unwrap_or_default()
+}
 
 fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
 where
@@ -1480,18 +1516,53 @@ mod tests {
     }
 
     #[test]
-    fn route_models_endpoint_legacy_key_is_ignored() {
-        // fork Task 6: routeModelsEndpoint 字段已删除；旧 settings.json 里的
-        // 遗留键反序列化时静默忽略，不阻断加载
+    fn route_models_endpoint_legacy_enabled_is_ignored() {
+        // fork: 字段随聚合三选一恢复；旧 settings.json 的 mode 值无缝续用，
+        // 旧 enabled 开关不恢复（聚合开关已是总闸），反序列化静默忽略
         let raw = serde_json::json!({
             "routePrefix": "G.",
-            "routeModelsEndpoint": { "enabled": true, "mode": "both" }
+            "routeModelsEndpoint": { "enabled": true, "mode": "groups" }
         });
-        let parsed: AppSettings = serde_json::from_value(raw).expect("legacy key ignored");
+        let parsed: AppSettings = serde_json::from_value(raw).expect("legacy key parsed");
         assert_eq!(parsed.route_prefix.as_deref(), Some("G."));
+        assert_eq!(
+            parsed.route_models_endpoint.map(|s| s.mode),
+            Some(RouteModelsMode::Groups)
+        );
     }
 
+    #[test]
+    fn route_models_mode_defaults_to_both() {
+        // 无字段 = Both（与聚合条目现状行为一致，不给存量用户惊喜）
+        assert_eq!(
+            serde_json::from_value::<AppSettings>(serde_json::json!({}))
+                .unwrap()
+                .route_models_endpoint,
+            None
+        );
+        assert_eq!(RouteModelsMode::default(), RouteModelsMode::Both);
+        assert_eq!(
+            Option::<RouteModelsEndpointSettings>::None.map(|s| s.mode),
+            None
+        );
 
+        let mut s = AppSettings::default();
+        s.route_models_endpoint = Some(RouteModelsEndpointSettings {
+            mode: RouteModelsMode::Models,
+        });
+        let json = serde_json::to_value(&s).unwrap();
+        // AppSettings 是 rename_all = "camelCase"
+        assert_eq!(
+            json["routeModelsEndpoint"]["mode"],
+            serde_json::json!("models")
+        );
+        assert!(json["routeModelsEndpoint"].get("enabled").is_none());
+        let back: AppSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            back.route_models_endpoint.map(|s| s.mode),
+            Some(RouteModelsMode::Models)
+        );
+    }
 
     #[test]
     #[serial]

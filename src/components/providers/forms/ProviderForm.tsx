@@ -88,7 +88,11 @@ import {
   type ClaudeStackModelRow,
 } from "./ClaudeStackModelsField";
 import { setClaudeOneMMarker } from "./hooks/useModelState";
-import { useAppMode } from "@/lib/query/proxy";
+import {
+  useAppMode,
+  useProxyStack,
+  useSetProxyStackMemberKey,
+} from "@/lib/query/proxy";
 import { ClaudeDesktopProviderForm } from "./ClaudeDesktopProviderForm";
 import { GrokBuildProviderForm } from "./GrokBuildProviderForm";
 import { CodexFormFields } from "./CodexFormFields";
@@ -905,6 +909,35 @@ function ProviderFormFull({
     onStackLayoutChange?.(useStackLayout);
     return () => onStackLayoutChange?.(false);
   }, [useStackLayout, onStackLayoutChange]);
+
+  // fork：聚合布局下顺便编辑分组 key——编辑已是聚合成员的供应商时展示输入框，
+  // 随表单一起保存（复用 Stack 视图的 set_proxy_stack_member_key 链路）
+  const { data: providerStack } = useProxyStack(appId, useStackLayout);
+  const setStackMemberKey = useSetProxyStackMemberKey();
+  const stackMemberKey = providerStack?.members?.find(
+    (member) => member.providerId === providerId,
+  )?.key;
+  const isStackMember = useStackLayout && !!stackMemberKey;
+  const [stackKeyDraft, setStackKeyDraft] = useState(stackMemberKey ?? "");
+  useEffect(() => {
+    setStackKeyDraft(stackMemberKey ?? "");
+  }, [stackMemberKey]);
+  const maybeSaveStackMemberKey = async () => {
+    if (!isStackMember || !providerId) return;
+    const next = stackKeyDraft.trim();
+    if (!next || next === stackMemberKey) return;
+    try {
+      await setStackMemberKey.mutateAsync({
+        appType: appId,
+        providerId,
+        key: next,
+      });
+      // 成功/失败提示由 mutation 统一处理（provider.stackKeySaved / stackFailed）
+    } catch {
+      // 表单本体已保存成功，key 失败不回滚表单——mutation 已 toast，这里只吞异常
+    }
+  };
+
   const requiresExplicitCodexOfficialSelection =
     isCodexOfficialProvider && !hasValidCodexOfficialSelection;
   const requiresCodexOauthLogin =
@@ -1951,6 +1984,9 @@ function ProviderFormFull({
     payload.meta = nextMeta;
 
     await onSubmit(payload);
+    // fork: 聚合布局下分组 key 随表单一起保存（表单成功后再改 key；
+    // key 校验失败只 toast，不影响已保存的表单本体）
+    await maybeSaveStackMemberKey();
   };
 
   const shouldShowSpeedTest =
@@ -2749,7 +2785,33 @@ function ProviderFormFull({
 
           {/* 配置编辑器：Codex、Claude、Gemini 分别使用不同的编辑器 */}
           {useStackLayout ? (
-            settingsConfigErrorField
+            <>
+              {isStackMember && (
+                <div className="space-y-1.5">
+                  <label
+                    className="text-sm font-medium leading-none"
+                    htmlFor="stack-member-key"
+                  >
+                    {t("providerForm.stackKey.label", {
+                      defaultValue: "分组 key",
+                    })}
+                  </label>
+                  <ImeSafeInput
+                    id="stack-member-key"
+                    value={stackKeyDraft}
+                    onValueChange={setStackKeyDraft}
+                    className="max-w-64"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("providerForm.stackKey.hint", {
+                      defaultValue:
+                        "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。",
+                    })}
+                  </p>
+                </div>
+              )}
+              {settingsConfigErrorField}
+            </>
           ) : appId === "codex" ? (
             <>
               <CodexConfigEditor

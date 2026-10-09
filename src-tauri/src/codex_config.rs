@@ -2385,10 +2385,16 @@ const CODEX_STACK_COMP_HASH: &str = "cc-switch";
 ///
 /// 窗口类全局键（`model_context_window`、`model_auto_compact_token_limit`）这时不写进
 /// `config.toml`（Codex 会拿它覆盖所有行），改由各家写进自己的行，见 [`sink_row_windows`]。
+///
+/// fork: `list_mode` 控制聚合条目形态（Groups=仅短形式+解绑、Models=仅成员镜像行、
+/// Both=全部；路由目标行与官方行不受它影响——那是 Codex 正常运行所需）。由调用方
+/// 显式传参，不在函数内读全局 settings（OnceLock 惰性读会让单测机器相关）。
 pub(crate) fn plan_codex_stack_catalog(
     route: CodexStackRoute<'_>,
     stack: &[CodexStackCatalogMember<'_>],
+    list_mode: crate::settings::RouteModelsMode,
 ) -> Result<Value, AppError> {
+    use crate::settings::RouteModelsMode;
     let mut entries = match route {
         CodexStackRoute::ThirdParty(row) => codex_stack_third_party_rows(&row)?,
         CodexStackRoute::Official {
@@ -2409,71 +2415,96 @@ pub(crate) fn plan_codex_stack_catalog(
             native
         }
     };
-    for member in stack {
-        for mut entry in codex_stack_third_party_rows(&member.row)? {
-            let Some(obj) = entry.as_object_mut() else {
-                continue;
-            };
-            obj.insert("comp_hash".to_string(), json!(CODEX_STACK_COMP_HASH));
-            let Some(model) = obj.get("slug").and_then(Value::as_str).map(str::to_string) else {
-                continue;
-            };
-            let display = obj
-                .get("display_name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| model.clone());
-            obj.insert(
-                "slug".to_string(),
-                json!(crate::mode::stack::encode(
-                    // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
-                    &crate::mode::stack::configured_prefix(),
-                    &crate::app_config::AppType::Codex,
-                    member.key,
-                    &model,
-                    false,
-                )),
-            );
-            obj.insert(
-                "display_name".to_string(),
-                json!(crate::mode::stack::display_name(
-                    &display,
-                    member.provider_name
-                )),
-            );
-            let window = obj
-                .get("context_window")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            obj.insert(
-                "description".to_string(),
-                json!(crate::mode::stack::model_description(&model, window)),
-            );
-            // 第三方不支持 Responses Lite 协议。
-            if obj.get("use_responses_lite") == Some(&Value::Bool(true)) {
-                obj.insert("use_responses_lite".to_string(), Value::Bool(false));
+    // fork: 成员镜像行（完整条目），Groups 模式不发布
+    if list_mode != RouteModelsMode::Groups {
+        for member in stack {
+            for mut entry in codex_stack_third_party_rows(&member.row)? {
+                let Some(obj) = entry.as_object_mut() else {
+                    continue;
+                };
+                obj.insert("comp_hash".to_string(), json!(CODEX_STACK_COMP_HASH));
+                let Some(model) = obj.get("slug").and_then(Value::as_str).map(str::to_string)
+                else {
+                    continue;
+                };
+                let display = obj
+                    .get("display_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| model.clone());
+                obj.insert(
+                    "slug".to_string(),
+                    json!(crate::mode::stack::encode(
+                        // fork: 模型 id 前缀可配置（doc/20261009-设计文档-会话路由改造为聚合模式）
+                        &crate::mode::stack::configured_prefix(),
+                        &crate::app_config::AppType::Codex,
+                        member.key,
+                        &model,
+                        false,
+                    )),
+                );
+                obj.insert(
+                    "display_name".to_string(),
+                    json!(crate::mode::stack::display_name(
+                        &display,
+                        member.provider_name
+                    )),
+                );
+                let window = obj
+                    .get("context_window")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                obj.insert(
+                    "description".to_string(),
+                    json!(crate::mode::stack::model_description(&model, window)),
+                );
+                // 第三方不支持 Responses Lite 协议。
+                if obj.get("use_responses_lite") == Some(&Value::Bool(true)) {
+                    obj.insert("use_responses_lite".to_string(), Value::Bool(false));
+                }
+                entries.push(entry);
             }
-            entries.push(entry);
         }
     }
     // fork Task 7: 每成员一条短形式条目（`<prefix><key>`，选中即走该成员默认
-    // 模型——Codex CLI 把它当模型名发给本地代理，由 apply_session_routing 解码）
-    for member in stack {
-        let description = match member.default_model.as_deref() {
-            Some(model) => format!("默认模型 {model} (default model)"),
-            None => format!("{} 默认模型 (default model)", member.provider_name),
-        };
-        entries.push(json!({
-            "slug": crate::mode::stack::encode_short(
-                &crate::mode::stack::configured_prefix(),
-                &crate::app_config::AppType::Codex,
-                member.key,
-            ),
-            "display_name": member.provider_name,
-            "description": description,
-            "comp_hash": CODEX_STACK_COMP_HASH,
-            "use_responses_lite": false,
-        }));
+    // 模型——Codex CLI 把它当模型名发给本地代理，由 apply_session_routing 解码）。
+    // 短形式与解绑条目同属分组形态，Models 模式不发布
+    if list_mode != RouteModelsMode::Models {
+        for member in stack {
+            let description = match member.default_model.as_deref() {
+                Some(model) => format!("默认模型 {model} (default model)"),
+                None => format!("{} 默认模型 (default model)", member.provider_name),
+            };
+            entries.push(json!({
+                "slug": crate::mode::stack::encode_short(
+                    &crate::mode::stack::configured_prefix(),
+                    &crate::app_config::AppType::Codex,
+                    member.key,
+                ),
+                "display_name": member.provider_name,
+                "description": description,
+                "comp_hash": CODEX_STACK_COMP_HASH,
+                "use_responses_lite": false,
+            }));
+        }
+        // fork: 有成员时置顶一条解绑条目（保留 key `default` 的短形式，选中即解绑
+        // 会话粘性并回落默认成员；与 handlers.rs models 端点的解绑条目一致）
+        if !stack.is_empty() {
+            entries.insert(
+                0,
+                json!({
+                    "slug": crate::mode::stack::encode_short(
+                        &crate::mode::stack::configured_prefix(),
+                        &crate::app_config::AppType::Codex,
+                        crate::proxy::route_prefix::RESERVED_ROUTE_KEY,
+                    ),
+                    "display_name": "default",
+                    "description": "解绑会话粘性跟随 (unbind session)",
+                    "comp_hash": CODEX_STACK_COMP_HASH,
+                    "use_responses_lite": false,
+                }),
+            );
+        }
     }
     for (index, entry) in entries.iter_mut().enumerate() {
         if let Some(obj) = entry.as_object_mut() {
@@ -4880,7 +4911,11 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     fn stacked_gpt_rows_mirror_under_their_prefixed_id() {
+        // fork: plan_codex_stack_catalog 内部经 configured_prefix() 读全局 settings
+        //（OnceLock 惰性读真实磁盘）——隔离 home 保证前缀是默认 ccs-
+        let _home = CodexLiveTestHome::new();
         let models = with_official_models(official_gpt_rows(), || {
             let route = json!({ "modelCatalog": { "models": [{ "model": "gpt-6-sol" }] } });
             let member = json!({ "modelCatalog": { "models": [{ "model": "gpt-6-sol" }] } });
@@ -4900,16 +4935,18 @@ wire_api = "responses"
                         profile: CodexCatalogToolProfile::ProxyChat,
                     },
                 }],
+                Default::default(),
             )
             .unwrap()["models"]
                 .as_array()
                 .unwrap()
                 .clone()
         });
-        // 两家都有 GPT-6 Sol：各一条，内容都是官方的。
-        assert_eq!(models[0]["slug"], "gpt-6-sol");
-        assert_eq!(models[1]["slug"], "ccs-relay/gpt-6-sol");
-        for model in &models[..2] {
+        // 两家都有 GPT-6 Sol：各一条，内容都是官方的；首位是解绑条目。
+        assert_eq!(models[0]["slug"], "ccs-default");
+        assert_eq!(models[1]["slug"], "gpt-6-sol");
+        assert_eq!(models[2]["slug"], "ccs-relay.gpt-6-sol");
+        for model in &models[1..3] {
             assert_eq!(
                 model["model_messages"]["instructions_template"],
                 "GPT-6 Sol prompt"
@@ -4917,8 +4954,8 @@ wire_api = "responses"
             assert_eq!(model["use_responses_lite"], false);
         }
         // 各家按自己的链路：走 Chat 的那家不发 original 精度的图片。
-        assert_eq!(models[0]["supports_image_detail_original"], true);
-        assert_eq!(models[1]["supports_image_detail_original"], false);
+        assert_eq!(models[1]["supports_image_detail_original"], true);
+        assert_eq!(models[2]["supports_image_detail_original"], false);
     }
 
     #[test]
@@ -5046,7 +5083,11 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     fn official_rows_stay_native_and_stacked_rows_follow() {
+        // fork: plan_codex_stack_catalog 内部经 configured_prefix() 读全局 settings
+        //（OnceLock 惰性读真实磁盘）——隔离 home 保证前缀是默认 ccs-
+        let _home = CodexLiveTestHome::new();
         let native = normalize_codex_native_rows(vec![
             native_row(
                 "gpt-6-sol",
@@ -5078,36 +5119,42 @@ wire_api = "responses"
                     profile: CodexCatalogToolProfile::NativeResponses,
                 },
             }],
+            Default::default(),
         )
         .unwrap();
         let models = catalog["models"].as_array().unwrap();
         let slugs: Vec<&str> = models.iter().map(|m| m["slug"].as_str().unwrap()).collect();
-        // 官方的顺序（按 priority）不变，Stack 的在后面。
+        // 官方的顺序（按 priority）不变，解绑条目置顶，Stack 的在后面。
         assert_eq!(
             slugs,
             vec![
+                "ccs-default",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-5.5",
-                "ccs-ds/deepseek-v4-pro",
+                "ccs-ds.deepseek-v4-pro",
                 "ccs-ds"
             ]
         );
         assert_eq!(
-            models[1]["use_responses_lite"], true,
+            models[2]["use_responses_lite"], true,
             "official Lite rows keep Lite"
         );
-        assert_eq!(models[1]["comp_hash"], "3000");
-        assert!(models[0].get("auto_compact_token_limit").is_none());
-        assert_eq!(models[3]["comp_hash"], "cc-switch");
+        assert_eq!(models[2]["comp_hash"], "3000");
+        assert!(models[1].get("auto_compact_token_limit").is_none());
+        assert_eq!(models[4]["comp_hash"], "cc-switch");
     }
 
     #[test]
+    #[serial]
     fn build_simplified_catalog_leaves_stack_models_out_of_the_route_row() {
+        // fork: configured_prefix 读真实 settings（OnceLock），机器配置过非 ccs- 前缀时
+        // fixture 的 ccs- 行不再被认作 Stack 行——用隔离 home 保证前缀是默认值。
+        let _home = CodexLiveTestHome::new();
         let catalog = r#"{
             "models": [
                 { "slug": "deepseek/deepseek-v4" },
-                { "slug": "ccs-kimi/kimi-k3" }
+                { "slug": "ccs-kimi.kimi-k3" }
             ]
         }"#;
         let result = build_simplified_catalog_from_texts("", catalog).expect("entries");
@@ -5122,7 +5169,11 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     fn the_route_rows_keep_the_comp_hash_they_have_without_stack_models() {
+        // fork: plan_codex_stack_catalog 内部经 configured_prefix() 读全局 settings
+        //（OnceLock 惰性读真实磁盘）——隔离 home 保证前缀是默认 ccs-
+        let _home = CodexLiveTestHome::new();
         let route_settings =
             json!({ "modelCatalog": { "models": [{ "model": "deepseek-v4-pro" }] } });
         let route_text = "model_provider = \"deepseek\"\nmodel = \"deepseek-v4-pro\"\n\
@@ -5150,20 +5201,27 @@ wire_api = "responses"
                     profile,
                 },
             }],
+            Default::default(),
         )
         .unwrap();
         let models = stacked["models"].as_array().unwrap();
-        assert_eq!(models[0]["slug"], "deepseek-v4-pro");
-        assert_eq!(models[0]["comp_hash"], plain["models"][0]["comp_hash"]);
-        assert_eq!(models[1]["slug"], "ccs-ds/deepseek-v4-pro");
-        assert_eq!(models[1]["comp_hash"], "cc-switch");
-        // fork Task 7: 每成员一条短形式条目
-        assert_eq!(models[2]["slug"], "ccs-ds");
+        // 首位是解绑条目
+        assert_eq!(models[0]["slug"], "ccs-default");
+        assert_eq!(models[1]["slug"], "deepseek-v4-pro");
+        assert_eq!(models[1]["comp_hash"], plain["models"][0]["comp_hash"]);
+        assert_eq!(models[2]["slug"], "ccs-ds.deepseek-v4-pro");
         assert_eq!(models[2]["comp_hash"], "cc-switch");
+        // fork Task 7: 每成员一条短形式条目
+        assert_eq!(models[3]["slug"], "ccs-ds");
+        assert_eq!(models[3]["comp_hash"], "cc-switch");
     }
 
     #[test]
+    #[serial]
     fn stacked_rows_keep_their_own_tool_profile_and_never_use_responses_lite() {
+        // fork: plan_codex_stack_catalog 内部经 configured_prefix() 读全局 settings
+        //（OnceLock 惰性读真实磁盘）——隔离 home 保证前缀是默认 ccs-
+        let _home = CodexLiveTestHome::new();
         let route_settings = json!({ "modelCatalog": { "models": [{ "model": "route-model" }] } });
         let route_text = "model = \"route-model\"\n";
         let stacked_settings = json!({});
@@ -5184,12 +5242,13 @@ wire_api = "responses"
                     profile: CodexCatalogToolProfile::Anthropic,
                 },
             }],
+            Default::default(),
         )
         .expect("catalog");
         let models = catalog["models"].as_array().unwrap();
-        assert_eq!(models.len(), 3);
-        let stacked = &models[1];
-        assert_eq!(stacked["slug"], "ccs-anth/claude-opus-5");
+        assert_eq!(models.len(), 4);
+        let stacked = &models[2];
+        assert_eq!(stacked["slug"], "ccs-anth.claude-opus-5");
         assert_eq!(stacked["display_name"], "claude-opus-5（Anth）");
         assert_eq!(stacked["description"], "claude-opus-5 · 400K");
         assert_eq!(stacked["shell_type"], "shell_command");
@@ -5201,8 +5260,59 @@ wire_api = "responses"
             .iter()
             .map(|entry| entry["priority"].as_u64().unwrap())
             .collect();
-        // fork Task 7: 多一条短形式条目
-        assert_eq!(priorities, vec![1, 2, 3]);
+        // fork Task 7: 多一条短形式条目 + 置顶解绑条目
+        assert_eq!(priorities, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[serial]
+    fn stack_catalog_respects_models_list_mode() {
+        // fork: 三选一——Groups=仅短形式+解绑（路由行保留）、Models=仅路由行+成员镜像行
+        use crate::settings::RouteModelsMode;
+        let _home = CodexLiveTestHome::new();
+        let route_settings = json!({ "modelCatalog": { "models": [{ "model": "route-model" }] } });
+        let route_text = "model = \"route-model\"\n";
+        let stacked_settings = json!({});
+        let stacked_text = "model = \"claude-opus-5\"\nmodel_context_window = 400000\n";
+        let build = |mode: RouteModelsMode| {
+            plan_codex_stack_catalog(
+                CodexStackRoute::ThirdParty(CodexCatalogRow {
+                    settings: &route_settings,
+                    config_text: route_text,
+                    profile: CodexCatalogToolProfile::NativeResponses,
+                }),
+                &[CodexStackCatalogMember {
+                    key: "anth",
+                    provider_name: "Anth",
+                    default_model: None,
+                    row: CodexCatalogRow {
+                        settings: &stacked_settings,
+                        config_text: stacked_text,
+                        profile: CodexCatalogToolProfile::Anthropic,
+                    },
+                }],
+                mode,
+            )
+            .expect("catalog")
+        };
+        let slugs = |catalog: serde_json::Value| -> Vec<String> {
+            catalog["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| entry["slug"].as_str().unwrap().to_string())
+                .collect()
+        };
+        // Groups：解绑置顶 + 路由那家的行保留，成员镜像行与官方行之外不发布完整条目
+        assert_eq!(
+            slugs(build(RouteModelsMode::Groups)),
+            vec!["ccs-default".to_string(), "route-model".to_string(), "ccs-anth".to_string()]
+        );
+        // Models：路由行 + 成员镜像行，无短形式、无解绑
+        assert_eq!(
+            slugs(build(RouteModelsMode::Models)),
+            vec!["route-model".to_string(), "ccs-anth.claude-opus-5".to_string()]
+        );
     }
 
     #[test]

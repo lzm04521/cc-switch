@@ -478,7 +478,7 @@
       },
       "routePrefix": {
         "title": "聚合模型 id 前缀",
-        "description": "聚合模式下模型 id 形如 \"<前缀>claude-<分组>--<模型>\"（Codex 为 \"<前缀><分组>/<模型>\"）；\"<前缀>claude-<分组>\" 短形式走该分组默认模型，\"<前缀>claude-default\" 解绑会话。留空恢复默认 ccs-。",
+        "description": "聚合模式下模型 id 形如 \"<前缀>claude.<分组>.<模型>\"（Codex 为 \"<前缀><分组>.<模型>\"）；\"<前缀>claude.<分组>\" 短形式走该分组默认模型，\"<前缀>claude.default\" 解绑会话。留空恢复默认 ccs-。",
         "conflictHint": "提示：该前缀与常见模型名相近，可能产生误匹配；建议更换（如 G.、@）",
         "changedNotice": "前缀已变更：已选中的聚合模型 id 全部失效，请在客户端模型列表里重新选择。",
         "invalid": {
@@ -488,6 +488,13 @@
           "colon": "前缀不能包含冒号",
           "boundary": "前缀须以非字母数字字符结尾（如 G.、@、ccs-）"
         }
+      },
+      "routeModelsMode": {
+        "title": "聚合模型列表内容",
+        "description": "控制 /v1/models 系端点与 Codex 模型目录发布哪些聚合条目。",
+        "both": "分组 + 模型",
+        "groups": "仅分组（短形式，选中走默认模型）",
+        "models": "仅模型（完整条目）"
       }
     },
     "language": "界面语言",
@@ -1522,6 +1529,10 @@
     "openReleaseNotesFailed": "打开更新日志失败:"
   },
   "providerForm": {
+    "stackKey": {
+      "label": "分组 key",
+      "hint": "小写字母/数字/横线（输入自动转小写）；改名后旧模型 id 失效需重新选择；default 为保留字。随表单保存一起生效。"
+    },
     "supplierName": "供应商名称",
     "supplierNameRequired": "供应商名称 *",
     "supplierNamePlaceholder": "例如：Anthropic 官方",

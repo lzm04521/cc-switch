@@ -791,7 +791,12 @@ fn stack_catalog(
             },
         })
         .collect();
-    plan_codex_stack_catalog(route_row, &members).map(Some)
+    plan_codex_stack_catalog(
+        route_row,
+        &members,
+        crate::settings::get_route_models_mode(),
+    )
+    .map(Some)
 }
 
 fn table_text(table: &Table) -> String {

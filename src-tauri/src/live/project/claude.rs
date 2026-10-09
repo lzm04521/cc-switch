@@ -724,7 +724,7 @@ mod tests {
             "http://127.0.0.1:15721",
             ProxyAuth::FollowRow,
             Some(StackRoleModel {
-                id: "ccs-claude-z--glm-5.2[1M]",
+                id: "ccs-claude.z.glm-5.2[1M]",
                 name: "GLM 5.2",
             }),
         );
@@ -732,12 +732,12 @@ mod tests {
         for role in ["SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env(&format!("ANTHROPIC_DEFAULT_{role}_MODEL")),
-                Some("ccs-claude-z--glm-5.2[1M]")
+                Some("ccs-claude.z.glm-5.2[1M]")
             );
         }
         assert_eq!(
             env("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-            Some("ccs-claude-z--glm-5.2")
+            Some("ccs-claude.z.glm-5.2")
         );
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(

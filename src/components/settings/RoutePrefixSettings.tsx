@@ -4,21 +4,38 @@ import { Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   routePrefixLikelyConflicts,
   validateRoutePrefixValue,
 } from "@/lib/routePrefix";
 
+export type RouteModelsListMode = "groups" | "models" | "both";
+
 interface RoutePrefixSettingsProps {
   routePrefix?: string;
-  onAutoSave: (updates: { routePrefix?: string }) => Promise<boolean | void>;
+  /** 聚合条目发布形态（fork：恢复旧体系三选一；缺省 both） */
+  routeModelsMode?: RouteModelsListMode;
+  onAutoSave: (updates: {
+    routePrefix?: string;
+    routeModelsEndpoint?: { mode: RouteModelsListMode };
+  }) => Promise<boolean | void>;
 }
 
 /**
  * 聚合模型 id 前缀设置（fork：会话路由改造为聚合模式后，此设置即聚合前缀，
  * doc/20261009-设计文档-会话路由改造为聚合模式 §9）。默认 `ccs-`（与上游一致）。
+ * 同面板承载聚合模型列表三选一（groups/models/both，作用于 /v1/models 系端点与
+ * Codex 模型目录）。
  */
 export function RoutePrefixSettings({
   routePrefix,
+  routeModelsMode,
   onAutoSave,
 }: RoutePrefixSettingsProps) {
   const { t } = useTranslation();
@@ -26,10 +43,17 @@ export function RoutePrefixSettings({
   const [saved, setSaved] = useState(false);
   // 前缀变更提示：已选中的聚合模型 id 全部失效，需要重新选择
   const [changedNotice, setChangedNotice] = useState(false);
+  const [mode, setMode] = useState<RouteModelsListMode>(
+    routeModelsMode ?? "both",
+  );
 
   useEffect(() => {
     setValue(routePrefix ?? "");
   }, [routePrefix]);
+
+  useEffect(() => {
+    setMode(routeModelsMode ?? "both");
+  }, [routeModelsMode]);
 
   const validation =
     value.trim() === ""
@@ -50,6 +74,14 @@ export function RoutePrefixSettings({
     }
   };
 
+  const handleModeChange = async (next: RouteModelsListMode) => {
+    if (next === mode) return;
+    const ok = await onAutoSave({ routeModelsEndpoint: { mode: next } });
+    if (ok !== false) {
+      setMode(next);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -63,7 +95,7 @@ export function RoutePrefixSettings({
       <p className="text-xs text-muted-foreground">
         {t("settings.advanced.routePrefix.description", {
           defaultValue:
-            '聚合模式下模型 id 形如 "<前缀>claude-<分组>-<模型>"（Codex 为 "<前缀><分组>/<模型>"）；"<前缀>claude-<分组>" 短形式走该分组默认模型，"<前缀>claude-default" 解绑会话。留空恢复默认 ccs-。',
+            '聚合模式下模型 id 形如 "<前缀>claude.<分组>.<模型>"（Codex 为 "<前缀><分组>.<模型>"）；"<前缀>claude.<分组>" 短形式走该分组默认模型，"<前缀>claude.default" 解绑会话。留空恢复默认 ccs-。',
         })}
       </p>
       <div className="flex gap-2">
@@ -108,6 +140,47 @@ export function RoutePrefixSettings({
           })}
         </p>
       )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <h4 className="text-sm font-semibold">
+          {t("settings.advanced.routeModelsMode.title", {
+            defaultValue: "聚合模型列表内容",
+          })}
+        </h4>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t("settings.advanced.routeModelsMode.description", {
+          defaultValue:
+            "控制 /v1/models 系端点与 Codex 模型目录发布哪些聚合条目。",
+        })}
+      </p>
+      <Select
+        value={mode}
+        onValueChange={(next) =>
+          void handleModeChange(next as RouteModelsListMode)
+        }
+      >
+        <SelectTrigger className="max-w-64">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="both">
+            {t("settings.advanced.routeModelsMode.both", {
+              defaultValue: "分组 + 模型",
+            })}
+          </SelectItem>
+          <SelectItem value="groups">
+            {t("settings.advanced.routeModelsMode.groups", {
+              defaultValue: "仅分组（短形式，选中走默认模型）",
+            })}
+          </SelectItem>
+          <SelectItem value="models">
+            {t("settings.advanced.routeModelsMode.models", {
+              defaultValue: "仅模型（完整条目）",
+            })}
+          </SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }
