@@ -1,0 +1,12 @@
+{
+  "version": "4.0.6-1",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "关于页 Star 按钮区分原仓库与本 fork，记录目录按钮更醒目",
+      "zh-TW": "關於頁 Star 按鈕區分原倉庫與本 fork，記錄目錄按鈕更醒目",
+      "en": "About page separates Star buttons for upstream and this fork; log folder button restyled",
+      "ja": "Star を元リポジトリと本 fork に分け、ログ保存先ボタンを見やすく"
+    }
+  ]
+}
