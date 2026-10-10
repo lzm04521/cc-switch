@@ -102,15 +102,16 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           ? `v${targetVersion}`
           : "";
 
+      // fork 定制：更新日志指向本 fork 仓库（版本 tag 为 <上游版本>-<N>）
       if (!displayVersion) {
         await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
+          "https://github.com/lzm04521/cc-switch/releases",
         );
         return;
       }
 
       await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
+        `https://github.com/lzm04521/cc-switch/releases/tag/${displayVersion}`,
       );
     } catch (error) {
       console.error("[AboutSection] Failed to open release notes", error);

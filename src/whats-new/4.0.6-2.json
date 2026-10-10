@@ -1,0 +1,12 @@
+{
+  "version": "4.0.6-2",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "关于页「更新日志」改为打开本 fork 仓库对应版本页",
+      "zh-TW": "關於頁「更新日誌」改為開啟本 fork 倉庫對應版本頁",
+      "en": "About page release notes now open this fork's releases page",
+      "ja": "「更新履歴」が本 fork のリリースページを開くように"
+    }
+  ]
+}
