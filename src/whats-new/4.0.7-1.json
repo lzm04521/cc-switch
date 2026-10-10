@@ -1,0 +1,33 @@
+{
+  "version": "4.0.7-1",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "同步上游 v4.0.7：同账号 Plus/Team 工作区可正常切换",
+      "zh-TW": "同步上游 v4.0.7：同帳號 Plus/Team 工作區可正常切換",
+      "en": "Upstream v4.0.7: Plus/Team workspaces under the same OpenAI account now switch correctly",
+      "ja": "上游 v4.0.7：同一 OpenAI アカウントの Plus/Team 切替を修正"
+    },
+    {
+      "type": "new",
+      "zh": "额度显示可选「剩余」或「已用」，卡片、授权中心和托盘联动",
+      "zh-TW": "額度顯示可選「剩餘」或「已用」，卡片、授權中心和托盤聯動",
+      "en": "Quota display can show what is left or what is used, across cards, auth center and tray",
+      "ja": "残量か使用量の表示を選択可能に。カード・認証センター・トレイに反映"
+    },
+    {
+      "type": "new",
+      "zh": "Codex 历史会话可开压缩，会话管理与用量统计支持读取压缩文件",
+      "zh-TW": "Codex 歷史會話可開壓縮，會話管理與用量統計支援讀取壓縮檔案",
+      "en": "Codex session compression toggle; sessions and usage stats read compressed rollouts",
+      "ja": "Codex 履歴セッションの圧縮に対応。使用統計も圧縮ファイルを読む"
+    },
+    {
+      "type": "fix",
+      "zh": "计费修复：1 小时缓存写入价、5.5 定价、中转缓存命中",
+      "zh-TW": "計費修復：1 小時快取寫入價、5.5 定價、中轉快取命中",
+      "en": "Billing fixes: 1h cache write pricing, Sonnet/Haiku 5.5 rates, relay cache hits",
+      "ja": "課金修正：Claude 1h キャッシュ単価、5.5 定価、中継キャッシュ命中"
+    }
+  ]
+}
