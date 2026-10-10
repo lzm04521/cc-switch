@@ -171,7 +171,6 @@ export function AppsPage() {
         <span className="flex flex-col items-center gap-1">
           <Switch
             size="sm"
-            tone="neutral"
             checked={visibleApps[app]}
             disabled={!settings}
             onCheckedChange={(checked) => setManaged(app, checked)}
@@ -189,7 +188,6 @@ export function AppsPage() {
         <span className="flex flex-col items-center gap-1">
           <Switch
             size="sm"
-            tone="neutral"
             checked={sidebarApps[app]}
             disabled={!settings || (sidebarApps[app] && sidebarCount <= 1)}
             onCheckedChange={(checked) => setSidebar(app, checked)}

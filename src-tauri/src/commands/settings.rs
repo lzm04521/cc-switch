@@ -80,6 +80,8 @@ pub async fn save_settings(
     let ball_panel_size_changed = merged.floating_ball.panel_width
         != existing.floating_ball.panel_width
         || merged.floating_ball.panel_height != existing.floating_ball.panel_height;
+    let classic_subagents_changed =
+        merged.codex_stack_classic_subagents != existing.codex_stack_classic_subagents;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
 
     // 悬浮球开关联动：立即显示/隐藏悬浮球窗口 + 刷新托盘菜单勾选态
@@ -97,6 +99,22 @@ pub async fn save_settings(
     // 弹窗尺寸变更：面板可见期间立即重摆，无需关掉重开
     if ball_panel_size_changed {
         crate::floating_ball::refresh_panel_if_visible(&app_handle);
+    }
+
+    // 经典子 agent 开关只影响 Stack 模式下的合并目录：立即重写，失败时回滚设置，
+    // 免得界面显示已打开、客户端还是旧目录。
+    if classic_subagents_changed {
+        if let Err(err) = crate::mode::controller::resync_codex_stack_catalog(state.inner()).await {
+            log::warn!("经典子 agent 开关变更后重写 Codex 模型目录失败，回滚设置: {err}");
+            let mut rollback = crate::settings::get_settings();
+            rollback.codex_stack_classic_subagents = existing.codex_stack_classic_subagents;
+            if let Err(rollback_err) = crate::settings::update_settings(rollback) {
+                log::error!("回滚经典子 agent 开关失败: {rollback_err}");
+            }
+            return Err(format!(
+                "子 agent 开关未生效（Codex 模型目录重写失败） (The sub-agent setting did not take effect: rewriting the Codex model catalog failed): {err}"
+            ));
+        }
     }
 
     // 统一会话开关变更时立即重写当前官方 Codex 供应商的 live 配置，
@@ -169,6 +187,16 @@ pub struct CodexUnifyHistoryRestoreResult {
 #[tauri::command]
 pub async fn has_codex_unify_history_backup() -> Result<bool, String> {
     Ok(crate::codex_history_migration::has_codex_official_history_unify_backup())
+}
+
+/// Codex 的 `config.toml` 是不是用 `[features] multi_agent_v2` 强制了新版子 agent 工具
+/// （这时「经典子 agent 工具」开关不生效，界面上提示）。
+#[tauri::command]
+pub async fn codex_forces_multi_agent_v2() -> Result<bool, String> {
+    let text = crate::codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
+    Ok(crate::codex_config::codex_config_forces_multi_agent_v2(
+        &text,
+    ))
 }
 
 /// 按迁移备份账本把当时迁入共享桶的官方会话还原回 "openai" 桶。

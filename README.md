@@ -110,8 +110,6 @@
 
 本 Fork 基于原作者 [Jason Young](https://github.com/farion1231) 的开源工作，向上游项目致谢。
 
-上游地址：<https://github.com/farion1231/cc-switch>
-
 ## License
 
 MIT © Jason Young（沿用上游协议）

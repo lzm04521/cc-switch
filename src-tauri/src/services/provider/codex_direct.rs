@@ -795,6 +795,7 @@ fn stack_catalog(
         route_row,
         &members,
         crate::settings::get_route_models_mode(),
+        crate::settings::codex_stack_classic_subagents(),
     )
     .map(Some)
 }

@@ -913,7 +913,7 @@ describe("AppsPage concurrent CLI upgrades", () => {
 });
 
 describe("AppsPage visibility column", () => {
-  it("renders the sidebar visibility switches small and neutral", async () => {
+  it("renders the sidebar visibility switches small with the action color", async () => {
     vi.resetModules();
     await renderApps();
     const switches = screen.getAllByRole("switch", {
@@ -922,7 +922,7 @@ describe("AppsPage visibility column", () => {
     expect(switches.length).toBeGreaterThan(0);
     for (const element of switches) {
       expect(element).toHaveAttribute("data-size", "sm");
-      expect(element).toHaveAttribute("data-tone", "neutral");
+      expect(element).not.toHaveAttribute("data-tone");
     }
   });
 });
