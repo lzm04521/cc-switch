@@ -6123,14 +6123,25 @@ model_provider = "c"
 
         set_classic_subagents(true);
         resync_codex_stack_catalog(&state).await.expect("classic");
-        assert_eq!(catalog_agent_versions(), vec![json!("v1"), json!("v1")]);
+        // fork: Both 模式=解绑+短形式+成员镜像+路由行（4 行全打 v1，含 fork 增设条目）
+        assert_eq!(
+            catalog_agent_versions(),
+            vec![json!("v1"), json!("v1"), json!("v1"), json!("v1")]
+        );
         assert_ne!(mode(&AppType::Codex).contract.unwrap(), native_contract);
 
         // 之后增删 Stack 模型照样按开关写。
         set_codex_member(&state, "zhipu", true).await;
         assert_eq!(
             catalog_agent_versions(),
-            vec![json!("v1"), json!("v1"), json!("v1")]
+            vec![
+                json!("v1"),
+                json!("v1"),
+                json!("v1"),
+                json!("v1"),
+                json!("v1"),
+                json!("v1")
+            ]
         );
         set_codex_member(&state, "zhipu", false).await;
 

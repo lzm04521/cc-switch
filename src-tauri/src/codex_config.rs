@@ -5024,7 +5024,8 @@ wire_api = "responses"
                         profile: CodexCatalogToolProfile::ProxyChat,
                     },
                 }],
-                Default::default(),                false,
+                Default::default(),
+                false,
             )
             .unwrap()["models"]
                 .as_array()
@@ -5208,7 +5209,8 @@ wire_api = "responses"
                     profile: CodexCatalogToolProfile::NativeResponses,
                 },
             }],
-            Default::default(),                false,
+            Default::default(),
+            false,
         )
         .unwrap();
         let models = catalog["models"].as_array().unwrap();
@@ -5279,12 +5281,15 @@ wire_api = "responses"
                 &[CodexStackCatalogMember {
                     key: "ds",
                     provider_name: "DS",
+                    default_model: None,
                     row: CodexCatalogRow {
                         settings: &stacked_settings,
                         config_text: "model = \"deepseek-v4-pro\"\n",
                         profile: CodexCatalogToolProfile::NativeResponses,
                     },
                 }],
+                // fork: Models 模式=仅成员镜像行（无短形式/解绑条目），对齐上游断言的 3 行输出
+                crate::settings::RouteModelsMode::Models,
                 classic,
             )
             .unwrap()
@@ -5360,7 +5365,8 @@ wire_api = "responses"
                     profile,
                 },
             }],
-            Default::default(),                false,
+            Default::default(),
+            false,
         )
         .unwrap();
         let models = stacked["models"].as_array().unwrap();
@@ -5401,7 +5407,8 @@ wire_api = "responses"
                     profile: CodexCatalogToolProfile::Anthropic,
                 },
             }],
-            Default::default(),                false,
+            Default::default(),
+            false,
         )
         .expect("catalog");
         let models = catalog["models"].as_array().unwrap();
@@ -5451,6 +5458,7 @@ wire_api = "responses"
                     },
                 }],
                 mode,
+                false,
             )
             .expect("catalog")
         };
@@ -5465,12 +5473,19 @@ wire_api = "responses"
         // Groups：解绑置顶 + 路由那家的行保留，成员镜像行与官方行之外不发布完整条目
         assert_eq!(
             slugs(build(RouteModelsMode::Groups)),
-            vec!["ccs-default".to_string(), "route-model".to_string(), "ccs-anth".to_string()]
+            vec![
+                "ccs-default".to_string(),
+                "route-model".to_string(),
+                "ccs-anth".to_string()
+            ]
         );
         // Models：路由行 + 成员镜像行，无短形式、无解绑
         assert_eq!(
             slugs(build(RouteModelsMode::Models)),
-            vec!["route-model".to_string(), "ccs-anth.claude-opus-5".to_string()]
+            vec![
+                "route-model".to_string(),
+                "ccs-anth.claude-opus-5".to_string()
+            ]
         );
     }
 

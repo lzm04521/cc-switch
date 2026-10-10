@@ -1651,7 +1651,9 @@ mod tests {
         // 墓碑不挡手动改名（fork 五项优化验收后收敛：墓碑只防自动分配，手动
         // 复用旧 key 由用户自负责，后果写进 UI hint）
         let mut stack = StackState::default();
-        stack.keys.insert("zhipupro".to_string(), "zhipu".to_string());
+        stack
+            .keys
+            .insert("zhipupro".to_string(), "zhipu".to_string());
         stack.keys.insert("kimi".to_string(), "kimi".to_string());
         stack.reserved_keys.insert("oldkey".to_string());
         stack.reserved_keys.insert("zhipumax".to_string());
@@ -1684,7 +1686,8 @@ mod tests {
         // 且自动分配本身永远产小写（与历史 key 风格一致）
         let mut stack = StackState::default();
         stack.keys.insert("Zhipu".to_string(), "zhipu".to_string());
-        let provider = Provider::with_id("zhipu2".to_string(), "Zhipu".to_string(), json!({}), None);
+        let provider =
+            Provider::with_id("zhipu2".to_string(), "Zhipu".to_string(), json!({}), None);
         assert_eq!(allocate_key(&mut stack, &provider), "zhipu-2");
     }
 
