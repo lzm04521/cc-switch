@@ -947,7 +947,8 @@
     "officialWebsite": "公式サイト",
     "github": "GitHub",
     "starPrompt": "CC Switch がお役に立てたなら、GitHub でスターをお願いします。私たちにとって大きな励みになります",
-    "starOnGithub": "GitHub でスター",
+    "starOnGithub": "オリジナルリポジトリにスター",
+    "starOnFork": "このフォークにスター",
     "manualInstallCommands": "手動インストールコマンド",
     "oneClickInstallHint": "Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code をインストールまたは更新",
     "localEnvCheck": "ローカル環境チェック",
@@ -1055,7 +1056,6 @@
     "dshConfigDir": "Deepseek 設定ディレクトリ",
     "dshConfigDirDescription": "Deepseek のホームディレクトリ（MCP 設定と skills の配置場所）を上書きします。",
     "browsePlaceholderDsh": "例: /home/<your-username>/.dsh",
-    "forkGithub": "Fork GitHub",
     "zcodeConfigDir": "ZCode 設定ディレクトリ",
     "workbuddyConfigDirHint": "パスはアプリが自動識別します（~/.workbuddy）。設定不要です",
     "browsePlaceholderZcode": "例: C:\\Users\\<ユーザー名>\\.zcode"

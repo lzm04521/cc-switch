@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useQueries } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, FolderOpen, Loader2 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import { proxyApi } from "@/lib/api/proxy";
 import { useProvidersQuery, useSettingsQuery } from "@/lib/query";
@@ -469,13 +469,16 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
             defaultValue: "API 报文记录",
           })}
           description={
-            <Button
-              variant="quiet"
-              size="compact"
-              onClick={() => void handleOpenApiLogDir()}
-            >
-              {t("proxy.apiLog.openDir", { defaultValue: "打开记录目录" })}
-            </Button>
+            <div className="mt-1">
+              <Button
+                variant="neutral"
+                size="compact"
+                onClick={() => void handleOpenApiLogDir()}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                {t("proxy.apiLog.openDir", { defaultValue: "打开记录目录" })}
+              </Button>
+            </div>
           }
           checked={apiLogConfig.enabled}
           onCheckedChange={(value) => void handleApiLogChange(value)}

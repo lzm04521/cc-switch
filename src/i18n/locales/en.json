@@ -947,7 +947,8 @@
     "officialWebsite": "Official Website",
     "github": "GitHub",
     "starPrompt": "If CC Switch has helped you, please star us on GitHub — it means a lot to us",
-    "starOnGithub": "Star on GitHub",
+    "starOnGithub": "Star original repo",
+    "starOnFork": "Star this fork",
     "manualInstallCommands": "Manual Install Commands",
     "oneClickInstallHint": "Install or upgrade Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code",
     "localEnvCheck": "Local environment check",
@@ -1055,7 +1056,6 @@
     "dshConfigDir": "Deepseek Configuration Directory",
     "dshConfigDirDescription": "Override the Deepseek home directory (where MCP config and deployed skills live).",
     "browsePlaceholderDsh": "e.g., /home/<your-username>/.dsh",
-    "forkGithub": "Fork GitHub",
     "zcodeConfigDir": "ZCode Configuration Directory",
     "workbuddyConfigDirHint": "Auto-detected by the app (~/.workbuddy); nothing to configure",
     "browsePlaceholderZcode": "e.g., C:\\Users\\<your-username>\\.zcode"

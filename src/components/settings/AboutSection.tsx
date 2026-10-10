@@ -3,7 +3,6 @@ import {
   Download,
   ExternalLink,
   Github,
-  GitFork,
   Globe,
   Info,
   Loader2,
@@ -122,6 +121,11 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   // fork 定制：GitHub 入口指向本 fork 仓库
   const handleOpenGithub = useCallback(() => {
     void settingsApi.openExternal("https://github.com/lzm04521/cc-switch");
+  }, []);
+
+  // 邀 Star 行的「原仓库点 Star」指向上游原仓库
+  const handleOpenUpstreamGithub = useCallback(() => {
+    void settingsApi.openExternal("https://github.com/farion1231/cc-switch");
   }, []);
 
   const handleDismissStarPrompt = useCallback(() => {
@@ -297,21 +301,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             {t("whatsNew.recentTitle")}
           </Button>
         )}
-        <a
-          href="https://github.com/lzm04521/cc-switch/fork"
-          onClick={(event) => {
-            event.preventDefault();
-            handleOpenGithub();
-          }}
-          className="ms-auto text-caption text-fg-2 underline decoration-border-strong underline-offset-[3px] hover:text-fg-1"
-        >
-          <GitFork className="h-3 w-3" />
-          {t("settings.forkPrompt", { defaultValue: "Fork GitHub" })}
-        </a>
       </div>
 
-      {/* 下载与更新都走 ccswitch.io，用户不再经过仓库页，邀 Star 单独占一行；按钮即 GitHub 入口。
-          关掉后链接行补回 GitHub 按钮 */}
+      {/* 下载与更新都走 ccswitch.io，用户不再经过仓库页，邀 Star 单独占一行；两个按钮分别去
+          上游原仓库与本 fork 点 Star。关掉后链接行补回 GitHub 按钮（本 fork） */}
       {!starPromptDismissed && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 bg-action-soft py-3.5 ps-5 pe-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -323,7 +316,16 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               {t("settings.starPrompt")}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="neutral"
+              size="compact"
+              onClick={handleOpenUpstreamGithub}
+            >
+              <Github className="h-3.5 w-3.5" />
+              {t("settings.starOnGithub")}
+            </Button>
             <Button
               type="button"
               variant="neutral"
@@ -331,7 +333,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               onClick={handleOpenGithub}
             >
               <Github className="h-3.5 w-3.5" />
-              {t("settings.starOnGithub")}
+              {t("settings.starOnFork")}
             </Button>
             <Button
               type="button"
