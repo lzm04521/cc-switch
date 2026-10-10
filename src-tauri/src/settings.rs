@@ -551,6 +551,10 @@ pub struct AppSettings {
     pub common_config_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// 按档的额度百分比写「剩余」还是「已用」（`"left"` / `"used"`，缺省为剩余）。卡片、
+    /// 授权中心和托盘一起变；余额、Credits、重置次数不受影响（#8024）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_display: Option<String>,
 
     // ===== 主页面显示的应用 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -693,6 +697,7 @@ impl Default for AppSettings {
             whats_new_seen_version: None,
             common_config_confirmed: None,
             language: None,
+            quota_display: None,
             visible_apps: None,
             sidebar_apps: None,
             claude_config_dir: None,
@@ -727,6 +732,11 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// 额度百分比按「已用」写（默认按剩余）
+    pub fn quota_shows_used(&self) -> bool {
+        self.quota_display.as_deref() == Some("used")
+    }
+
     fn settings_path() -> Option<PathBuf> {
         // settings.json 保留用于旧版本迁移和无数据库场景
         Some(
@@ -811,6 +821,13 @@ impl AppSettings {
             .as_ref()
             .map(|s| s.trim())
             .filter(|s| matches!(*s, "en" | "zh" | "zh-TW" | "ja"))
+            .map(|s| s.to_string());
+
+        self.quota_display = self
+            .quota_display
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| matches!(*s, "left" | "used"))
             .map(|s| s.to_string());
 
         if let Some(sync) = &mut self.webdav_sync {
