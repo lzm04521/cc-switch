@@ -1,4 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+// fork：CodexFormFields 内部还有 fork 定制的 useSettingsQuery（stack 选择器 id 预览列），
+// 需要 QueryClientProvider，统一走 renderWithQueryClient（同 modelFetch.test.tsx）。
+import { renderWithQueryClient as render } from "../utils/testQueryClient";
 import type { ComponentProps, PropsWithChildren } from "react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
