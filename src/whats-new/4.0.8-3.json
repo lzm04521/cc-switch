@@ -5,7 +5,7 @@
       "type": "improve",
       "zh": "聚合分组 key 改为必填：清空后保存会提示，输入框拉满对齐名称",
       "zh-TW": "聚合分組 key 改為必填：清空後儲存會提示，輸入框拉滿對齊名稱",
-      "en": "Aggregation group key is now required: saving with it empty prompts a warning; the input stretches like the name field",
+      "en": "Aggregated group key is required: empty saves warn; the input stretches like the name field",
       "ja": "集約グループ key を必須に：空欄保存時に警告、入力欄を名前と同幅に"
     }
   ]
