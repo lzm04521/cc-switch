@@ -5540,7 +5540,7 @@ wire_api = "responses"
         assert_eq!(models.len(), 4);
         let stacked = &models[2];
         assert_eq!(stacked["slug"], "ccs-anth.claude-opus-5");
-        assert_eq!(stacked["display_name"], "claude-opus-5（Anth）");
+        assert_eq!(stacked["display_name"], "claude-opus-5(Anth)");
         assert_eq!(stacked["description"], "claude-opus-5 · 400K");
         assert_eq!(stacked["shell_type"], "shell_command");
         assert!(stacked.get("apply_patch_tool_type").is_none());

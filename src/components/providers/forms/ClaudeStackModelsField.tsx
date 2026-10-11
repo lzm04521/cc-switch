@@ -125,19 +125,19 @@ export function ClaudeStackModelsField({
     : "";
   const showPreviewColumns = Boolean(previewKey);
 
-  /** 与后端 stack::encode 一致的聚合模型 id（Claude：`<prefix>claude.<key>.<model>[1M]?`）。 */
+  /** 与后端 stack::encode 一致的聚合模型 id（`<prefix><key>.<model>[1M]?`，Claude/Codex 同构）。 */
   const selectorId = (row: ClaudeStackModelRow): string => {
     const model = stripClaudeOneMMarker(row.model).trim();
     if (!model) return "";
     const oneM = row.oneM === true || hasClaudeOneMMarker(row.model);
-    return `${previewPrefix}claude.${previewKey}.${model}${oneM ? "[1M]" : ""}`;
+    return `${previewPrefix}${previewKey}.${model}${oneM ? "[1M]" : ""}`;
   };
 
-  /** 与后端 stack::display_name 一致的选择器显示名（`<显示名|模型名>（<供应商名>）`）。 */
+  /** 与后端 stack::display_name 一致的选择器显示名（`<显示名|模型名>(<供应商名>)`，英文括号无空格）。 */
   const selectorName = (row: ClaudeStackModelRow): string => {
     const model = stripClaudeOneMMarker(row.model).trim();
     if (!model) return "";
-    return `${row.displayName?.trim() || model}（${providerName ?? ""}）`;
+    return `${row.displayName?.trim() || model}(${providerName ?? ""})`;
   };
 
   const updateRow = (rowId: string, patch: Partial<ClaudeStackModel>) =>

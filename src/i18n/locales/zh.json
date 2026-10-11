@@ -185,6 +185,8 @@
     "terminalOpenFailed": "打开终端失败",
     "name": "名称",
     "namePlaceholder": "例如：Claude 官方",
+    "shortName": "简称",
+    "shortNamePlaceholder": "仅聚合模型列表的显示名使用，留空则用名称",
     "websiteUrl": "官网链接",
     "notes": "备注",
     "notesPlaceholder": "例如：公司专用账号",

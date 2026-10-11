@@ -185,6 +185,8 @@
     "terminalOpenFailed": "ターミナルを開けませんでした",
     "name": "名前",
     "namePlaceholder": "例: Claude Official",
+    "shortName": "略称",
+    "shortNamePlaceholder": "集約モデル一覧の表示名のみで使用。空欄なら名前を使用",
     "websiteUrl": "Web サイト URL",
     "notes": "メモ",
     "notesPlaceholder": "例: 会社用アカウント",

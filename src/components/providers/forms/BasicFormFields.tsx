@@ -34,11 +34,17 @@ interface BasicFormFieldsProps {
   form: UseFormReturn<ProviderFormData>;
   /** Slot to render content between icon and name fields */
   beforeNameSlot?: ReactNode;
+  /** fork：聚合布局——第一行 [名称|简称]、第二行 [分组 key|备注]；非聚合保持 [名称|备注] */
+  stackLayout?: boolean;
+  /** fork：分组 key 输入框节点（ProviderForm 生成，含归一化预览；仅已有成员非空） */
+  stackKeyField?: ReactNode;
 }
 
 export function BasicFormFields({
   form,
   beforeNameSlot,
+  stackLayout = false,
+  stackKeyField,
 }: BasicFormFieldsProps) {
   const { t } = useTranslation();
   const [iconDialogOpen, setIconDialogOpen] = useState(false);
@@ -131,63 +137,107 @@ export function BasicFormFields({
     </Dialog>
   );
 
+  const nameField = (
+    <FormField
+      control={form.control}
+      name="name"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel className={REQUIRED_LABEL}>{t("provider.name")}</FormLabel>
+          <div className="flex items-center gap-2">
+            {iconButton}
+            <FormControl>
+              <ImeSafeInput
+                ref={field.ref}
+                name={field.name}
+                value={field.value ?? ""}
+                onValueChange={field.onChange}
+                onBlur={field.onBlur}
+                disabled={field.disabled}
+                placeholder={t("provider.namePlaceholder")}
+                aria-required="true"
+              />
+            </FormControl>
+          </div>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+
+  // fork：聚合显示名用的简称，仅聚合布局展示（后端 stack::provider_label 回退名称）
+  const shortNameField = (
+    <FormField
+      control={form.control}
+      name="shortName"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{t("provider.shortName")}</FormLabel>
+          <FormControl>
+            <ImeSafeInput
+              ref={field.ref}
+              name={field.name}
+              value={field.value ?? ""}
+              onValueChange={field.onChange}
+              onBlur={field.onBlur}
+              disabled={field.disabled}
+              placeholder={t("provider.shortNamePlaceholder")}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+
+  const notesField = (
+    <FormField
+      control={form.control}
+      name="notes"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{t("provider.notes")}</FormLabel>
+          <FormControl>
+            <ImeSafeInput
+              ref={field.ref}
+              name={field.name}
+              value={field.value ?? ""}
+              onValueChange={field.onChange}
+              onBlur={field.onBlur}
+              disabled={field.disabled}
+              placeholder={t("provider.notesPlaceholder")}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+
   return (
     <>
       {/* Slot for additional fields between icon and name */}
       {beforeNameSlot}
 
-      {/* 基础信息 - 网格布局 */}
-      <div className="grid grid-cols-2 gap-4">
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className={REQUIRED_LABEL}>
-                {t("provider.name")}
-              </FormLabel>
-              <div className="flex items-center gap-2">
-                {iconButton}
-                <FormControl>
-                  <ImeSafeInput
-                    ref={field.ref}
-                    name={field.name}
-                    value={field.value ?? ""}
-                    onValueChange={field.onChange}
-                    onBlur={field.onBlur}
-                    disabled={field.disabled}
-                    placeholder={t("provider.namePlaceholder")}
-                    aria-required="true"
-                  />
-                </FormControl>
-              </div>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="notes"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("provider.notes")}</FormLabel>
-              <FormControl>
-                <ImeSafeInput
-                  ref={field.ref}
-                  name={field.name}
-                  value={field.value ?? ""}
-                  onValueChange={field.onChange}
-                  onBlur={field.onBlur}
-                  disabled={field.disabled}
-                  placeholder={t("provider.notesPlaceholder")}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
+      {stackLayout ? (
+        <>
+          {/* 聚合布局：第一行 名称|简称；第二行 分组key|备注（key 缺席时占格保位） */}
+          <div className="grid grid-cols-2 gap-4">
+            {nameField}
+            {shortNameField}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {stackKeyField ?? <div aria-hidden="true" />}
+            {notesField}
+          </div>
+        </>
+      ) : (
+        /* 基础信息 - 网格布局 */
+        <div className="grid grid-cols-2 gap-4">
+          {nameField}
+          {notesField}
+        </div>
+      )}
 
       <FormField
         control={form.control}

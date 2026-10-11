@@ -228,7 +228,7 @@ fn claude_stack_entries_for(
                 entries.push(json!({
                     "type": "model",
                     "id": id,
-                    "display_name": member.provider.name.clone(),
+                    "display_name": crate::mode::stack::provider_label(&member.provider),
                     "description": default_model
                         .map(|model| format!("默认模型 {model} (default model)"))
                         .unwrap_or_default(),
@@ -289,7 +289,7 @@ fn codex_stack_entries_for(
                 entries.push(json!({
                     "type": "model",
                     "id": crate::mode::stack::encode_short(&prefix, &app, &member.key),
-                    "display_name": member.provider.name.clone(),
+                    "display_name": crate::mode::stack::provider_label(&member.provider),
                     "description": default_model
                         .map(|model| format!("默认模型 {model} (default model)"))
                         .unwrap_or_default(),
@@ -4809,10 +4809,13 @@ mod stack_tests {
     async fn unresolvable_stacked_ids_are_rejected_in_the_clients_protocol() {
         // 名单为空、没有任何供应商：回落到默认路由的话会报「没有供应商」，而不是 400。
         let state = proxy_state();
+        // 机器可能配置了非默认前缀（G. 等），用真实生效前缀构造 id——硬编码 ccs- 会
+        // 在前缀不匹配时退化为普通模型名，单跑翻车（全量跑只是靠用例顺序侥幸）。
+        let stack_id = format!("{}kimi.kimi-k3", stack_configured_prefix());
 
         let response = handle_messages(
             State(state.clone()),
-            post("/v1/messages", "ccs-claude.kimi.kimi-k3"),
+            post("/v1/messages", &stack_id),
         )
         .await
         .expect("response");
@@ -4823,24 +4826,24 @@ mod stack_tests {
         assert!(body["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("ccs-claude.kimi.kimi-k3"));
+            .contains(stack_id.as_str()));
 
         for response in [
             handle_responses(
                 State(state.clone()),
-                post("/v1/responses", "ccs-kimi.kimi-k3"),
+                post("/v1/responses", &stack_id),
             )
             .await
             .expect("responses"),
             handle_responses_compact(
                 State(state.clone()),
-                post("/v1/responses/compact", "ccs-kimi.kimi-k3"),
+                post("/v1/responses/compact", &stack_id),
             )
             .await
             .expect("compact"),
             handle_chat_completions(
                 State(state.clone()),
-                post("/v1/chat/completions", "ccs-kimi.kimi-k3"),
+                post("/v1/chat/completions", &stack_id),
             )
             .await
             .expect("chat"),
@@ -4860,7 +4863,7 @@ mod stack_tests {
         assert!(routed.is_err());
         let routed = handle_grokbuild_responses(
             State(state),
-            post("/grokbuild/v1/responses", "ccs-kimi.kimi-k3"),
+            post("/grokbuild/v1/responses", &stack_id),
         )
         .await;
         assert!(routed.is_err(), "Grok Build model ids are not decoded");
@@ -4886,7 +4889,7 @@ mod stack_tests {
         let target = crate::mode::stack::StackTarget {
             provider: kimi,
             upstream_model: "kimi-k3".to_string(),
-            original_model: "ccs-claude.kimi.kimi-k3".to_string(),
+            original_model: "ccs-kimi.kimi-k3".to_string(),
         };
         let body = json!({ "model": "kimi-k3", "messages": [] });
 
@@ -4910,7 +4913,7 @@ mod stack_tests {
                 .collect::<Vec<_>>(),
             vec!["kimi"]
         );
-        assert_eq!(ctx.request_model, "ccs-claude.kimi.kimi-k3");
+        assert_eq!(ctx.request_model, "ccs-kimi.kimi-k3");
         assert!(!ctx.app_config.auto_failover_enabled);
         let streaming = ctx.streaming_timeout_config();
         assert_eq!(
@@ -5031,13 +5034,13 @@ mod stack_tests {
         let prefix = stack_configured_prefix();
         let ids = ids_of(&entries);
         assert!(
-            ids.contains(&format!("{prefix}claude.zhipu.glm-5.2[1M]")),
+            ids.contains(&format!("{prefix}zhipu.glm-5.2[1M]")),
             "{ids:?}"
         );
         // 有成员时置顶解绑条目（保留 key default 的短形式）
         assert_eq!(
             ids.first(),
-            Some(&format!("{prefix}claude.default")),
+            Some(&format!("{prefix}default")),
             "{ids:?}"
         );
         // 每成员一条短形式，display_name 为成员名，description 标默认模型。
@@ -5047,7 +5050,7 @@ mod stack_tests {
             .iter()
             .find(|entry| {
                 entry.get("id").and_then(Value::as_str)
-                    == Some(&format!("{prefix}claude.zhipu[1M]"))
+                    == Some(&format!("{prefix}zhipu[1M]"))
             })
             .expect("short entry for zhipu");
         assert_eq!(short["display_name"], json!("P-zhipu"));
@@ -5063,7 +5066,7 @@ mod stack_tests {
             entries
                 .iter()
                 .any(|entry| entry.get("id").and_then(Value::as_str)
-                    == Some(&format!("{prefix}claude.kimi"))),
+                    == Some(&format!("{prefix}kimi"))),
             "no-1M member keeps the bare short id, {ids:?}"
         );
     }
@@ -5128,10 +5131,10 @@ mod stack_tests {
         ));
         assert_eq!(
             claude_groups.first(),
-            Some(&format!("{prefix}claude.default")),
+            Some(&format!("{prefix}default")),
             "{claude_groups:?}"
         );
-        assert!(claude_groups.contains(&format!("{prefix}claude.kimi")));
+        assert!(claude_groups.contains(&format!("{prefix}kimi")));
         assert!(
             !claude_groups.iter().any(|id| id.contains(".kimi-k3")),
             "no full entries in Groups mode, {claude_groups:?}"
@@ -5143,12 +5146,12 @@ mod stack_tests {
             RouteModelsMode::Models,
         ));
         assert!(
-            claude_models.contains(&format!("{prefix}claude.kimi.kimi-k3")),
+            claude_models.contains(&format!("{prefix}kimi.kimi-k3")),
             "{claude_models:?}"
         );
         assert!(
-            !claude_models.contains(&format!("{prefix}claude.kimi"))
-                && !claude_models.contains(&format!("{prefix}claude.default")),
+            !claude_models.contains(&format!("{prefix}kimi"))
+                && !claude_models.contains(&format!("{prefix}default")),
             "no short/unbind entries in Models mode, {claude_models:?}"
         );
 

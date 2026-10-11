@@ -39,6 +39,8 @@ export const providerSchema = z.object({
   name: z.string(), // 必填校验移至 handleSubmit 中用 toast 提示
   websiteUrl: z.string().url("请输入有效的网址").optional().or(z.literal("")),
   notes: z.string().optional(),
+  // fork：聚合显示名用的简称（仅聚合布局表单展示，保存进 meta.shortName）
+  shortName: z.string().optional(),
   settingsConfig: z
     .string()
     .min(1, "请填写配置内容")

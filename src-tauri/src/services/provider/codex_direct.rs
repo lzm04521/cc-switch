@@ -783,7 +783,7 @@ fn stack_catalog(
         .iter()
         .map(|(member, config_text, profile)| CodexStackCatalogMember {
             key: &member.key,
-            provider_name: &member.provider.name,
+            provider_name: crate::mode::stack::provider_label(&member.provider),
             // fork Task 7: 短形式条目的说明用默认模型名
             default_model: crate::mode::stack::member_default_model(
                 &crate::app_config::AppType::Codex,

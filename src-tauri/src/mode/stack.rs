@@ -31,7 +31,7 @@ use crate::services::provider::codex_client_catalog::StaleClients;
 use super::state::{self, StackState};
 
 // fork: 模型 id 前缀可配置（会话路由改造为聚合模式，doc/20261009-设计文档-会话路由改造为聚合模式）。
-// 上游默认前缀是 `ccs-`（Claude 为 `ccs-claude.`）；用户可经设置改成 G. 等。生产调用方统一经
+// 上游默认前缀是 `ccs-`；用户可经设置改成 G. 等。生产调用方统一经
 // [`configured_prefix`] 取值一次显式传入——不在这层读全局 settings：settings_store 是 OnceLock
 // 惰性读真实磁盘，掺进纯函数会让测试结果机器相关（开发机配置了 G. 就全挂）。
 /// 配置的模型 id 前缀（settings 缺省/非法时回退上游默认，见 `route_prefix::DEFAULT_ROUTE_PREFIX`）。
@@ -164,23 +164,22 @@ fn slug(text: &str) -> String {
     out.trim_end_matches('-').to_string()
 }
 
-/// Stack 模型 id。Claude 的上游是 1M 窗口时末尾带 `[1M]`，Claude Code 才按 1M 计算。
+/// Stack 模型 id：`<prefix><key>.<model>`（Claude 与 Codex 同构）。Claude 的上游是 1M 窗口时
+/// 末尾带 `[1M]`，Claude Code 才按 1M 计算。
 pub fn encode(prefix: &str, app: &AppType, key: &str, model: &str, one_m: bool) -> String {
     match app {
         AppType::Codex => format!("{prefix}{key}{CODEX_SEPARATOR}{model}"),
         _ => {
             let marker = if one_m { ONE_M_MARKER_FOR_CLIENT } else { "" };
-            format!("{prefix}claude.{key}{CLAUDE_SEPARATOR}{model}{marker}")
+            format!("{prefix}{key}{CLAUDE_SEPARATOR}{model}{marker}")
         }
     }
 }
 
 /// fork: 成员短形式 id（仅 key，选中即走该成员默认模型；保留 key `default` 为解绑语义）。
-pub fn encode_short(prefix: &str, app: &AppType, key: &str) -> String {
-    match app {
-        AppType::Codex => format!("{prefix}{key}"),
-        _ => format!("{prefix}claude.{key}"),
-    }
+/// 两个应用的短形式同构，`app` 仅为兼容既有调用签名保留。
+pub fn encode_short(prefix: &str, _app: &AppType, key: &str) -> String {
+    format!("{prefix}{key}")
 }
 
 /// 解码的结果。
@@ -202,13 +201,12 @@ pub enum Decoded<'a> {
     Short { key: &'a str },
 }
 
-/// 按客户端的格式解码模型 id。Claude：`<prefix>claude.` 开头；Codex：`<prefix>` 开头。
-/// 带前缀但没有分隔符的是短形式（fork：Codex 旧行为是当普通模型名 Plain，已反转）。
+/// 按客户端的格式解码模型 id：`<prefix>` 开头（Claude 与 Codex 同构）。带前缀但没有分隔符的
+/// 是短形式（fork：Codex 旧行为是当普通模型名 Plain，已反转）。Claude 的 id 末尾可带 `[1M]`。
 pub fn decode<'a>(prefix: &str, app: &AppType, id: &'a str) -> Decoded<'a> {
     let (rest, separator, one_m) = match app {
         AppType::Claude => {
-            let claude_prefix = format!("{prefix}claude.");
-            let Some(rest) = id.strip_prefix(&claude_prefix) else {
+            let Some(rest) = id.strip_prefix(prefix) else {
                 return Decoded::Plain;
             };
             let stripped = strip_one_m_suffix_for_upstream(rest);
@@ -389,7 +387,7 @@ fn stack_models(
             let shown_window = if found.one_m { 1_000_000 } else { window };
             StackModel {
                 id: encode(prefix, &AppType::Claude, key, &found.model, found.one_m),
-                display_name: display_name(&name, &provider.name),
+                display_name: display_name(&name, provider_label(provider)),
                 name,
                 description: model_description(&found.model, shown_window),
                 upstream: found.upstream,
@@ -414,9 +412,20 @@ pub fn codex_model_ids(prefix: &str, key: &str, provider: &Provider) -> Vec<Stri
         .collect()
 }
 
-/// 选择器里 Stack 模型的显示名：`<模型显示名>（<供应商名>）`。
+/// 选择器里 Stack 模型的显示名：`<模型显示名>(<供应商名>)`。
 pub fn display_name(model: &str, provider_name: &str) -> String {
-    format!("{model}（{provider_name}）")
+    format!("{model}({provider_name})")
+}
+
+/// 聚合显示名里供应商的叫法：简称（`meta.shortName`，trim 后非空）优先，回退 `name`。
+pub fn provider_label(provider: &Provider) -> &str {
+    provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.short_name.as_deref())
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or(&provider.name)
 }
 
 /// 选择器里 Stack 模型的说明：`<上游模型名> · <窗口>`。显示名可以是用户自己起的，id 又带着
@@ -893,7 +902,7 @@ mod tests {
         }
         // 标记大小写不敏感。
         assert_eq!(
-            decode("ccs-", &claude, "ccs-claude.k.m[1m]"),
+            decode("ccs-", &claude, "ccs-k.m[1m]"),
             Decoded::Stack {
                 key: "k",
                 model: "m",
@@ -934,7 +943,7 @@ mod tests {
             Decoded::Plain
         );
         assert_eq!(
-            decode("ccs-", &AppType::ClaudeDesktop, "ccs-claude.k.m"),
+            decode("ccs-", &AppType::ClaudeDesktop, "ccs-k.m"),
             Decoded::Plain
         );
         assert_eq!(
@@ -946,8 +955,8 @@ mod tests {
     #[test]
     fn reserved_ids_that_do_not_split_are_malformed() {
         let (claude, codex) = (AppType::Claude, AppType::Codex);
-        assert_eq!(decode("ccs-", &claude, "ccs-claude..m"), Decoded::Malformed);
-        assert_eq!(decode("ccs-", &claude, "ccs-claude.k."), Decoded::Malformed);
+        assert_eq!(decode("ccs-", &claude, "ccs-.m"), Decoded::Malformed);
+        assert_eq!(decode("ccs-", &claude, "ccs-k."), Decoded::Malformed);
         assert_eq!(decode("ccs-", &codex, "ccs-.m"), Decoded::Malformed);
         assert_eq!(decode("ccs-", &codex, "ccs-k."), Decoded::Malformed);
         assert_eq!(decode("ccs-", &codex, "ccs-"), Decoded::Malformed);
@@ -973,19 +982,19 @@ mod tests {
             models,
             vec![
                 StackModel {
-                    id: "ccs-claude.zhipu.glm-5.2[1M]".to_string(),
+                    id: "ccs-zhipu.glm-5.2[1M]".to_string(),
                     upstream: "glm-5.2[1M]".to_string(),
                     name: "GLM 5.2".to_string(),
-                    display_name: "GLM 5.2（Zhipu）".to_string(),
+                    display_name: "GLM 5.2(Zhipu)".to_string(),
                     description: "glm-5.2 · 1M".to_string(),
                     one_m: true,
                     window: 128_000,
                 },
                 StackModel {
-                    id: "ccs-claude.zhipu.glm-4.7-air".to_string(),
+                    id: "ccs-zhipu.glm-4.7-air".to_string(),
                     upstream: "glm-4.7-air".to_string(),
                     name: "glm-4.7-air".to_string(),
-                    display_name: "glm-4.7-air（Zhipu）".to_string(),
+                    display_name: "glm-4.7-air(Zhipu)".to_string(),
                     description: "glm-4.7-air · 128K".to_string(),
                     one_m: false,
                     window: 128_000,
@@ -1034,7 +1043,7 @@ mod tests {
             .into_iter()
             .map(|model| model.id)
             .collect();
-        assert_eq!(ids, vec!["ccs-claude.kimi.kimi-k3"]);
+        assert_eq!(ids, vec!["ccs-kimi.kimi-k3"]);
         let meta = serde_json::to_value(unset.meta.as_ref().unwrap()).unwrap();
         assert!(meta.get("stackModels").is_none());
     }
@@ -1075,16 +1084,16 @@ mod tests {
             summary,
             vec![
                 (
-                    "ccs-claude.kimi.kimi-k3[1M]".to_string(),
+                    "ccs-kimi.kimi-k3[1M]".to_string(),
                     "kimi-k3[1M]".to_string(),
-                    "Kimi K3（Kimi）".to_string(),
+                    "Kimi K3(Kimi)".to_string(),
                     true,
                     256_000,
                 ),
                 (
-                    "ccs-claude.kimi.kimi-k3-thinking[1M]".to_string(),
+                    "ccs-kimi.kimi-k3-thinking[1M]".to_string(),
                     "kimi-k3-thinking[1M]".to_string(),
-                    "kimi-k3-thinking（Kimi）".to_string(),
+                    "kimi-k3-thinking(Kimi)".to_string(),
                     true,
                     256_000,
                 ),
@@ -1178,13 +1187,13 @@ mod tests {
         };
         // 路由那家照常发布，和不在代理模式时算出来的一样。
         let all = ids(None);
-        assert!(all.contains(&"ccs-claude.kimi.kimi-k3".to_string()));
+        assert!(all.contains(&"ccs-kimi.kimi-k3".to_string()));
         assert_eq!(ids(Some("kimi")), all);
         assert_eq!(claude_route_default("ccs-", &members(None)), None);
         let default = claude_route_default("ccs-", &members(Some("zhipu"))).unwrap();
         assert_eq!(
             (default.id.as_str(), default.name.as_str()),
-            ("ccs-claude.zhipu.glm-5.2[1M]", "glm-5.2")
+            ("ccs-zhipu.glm-5.2[1M]", "glm-5.2")
         );
 
         // 界面上标出路由那家，它的模型 id 照常列出。
@@ -1230,7 +1239,7 @@ mod tests {
         let default = claude_route_default("ccs-", &published).unwrap();
         assert_eq!(
             (default.id.as_str(), default.name.as_str()),
-            ("ccs-claude.kimi.kimi-k3-mini", "K3 Mini")
+            ("ccs-kimi.kimi-k3-mini", "K3 Mini")
         );
         let ids: Vec<String> = claude_published("ccs-", &published)
             .into_iter()
@@ -1239,9 +1248,9 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                "ccs-claude.kimi.kimi-k3-mini".to_string(),
-                "ccs-claude.kimi.kimi-k3".to_string(),
-                "ccs-claude.zhipu.glm-5.2[1M]".to_string(),
+                "ccs-kimi.kimi-k3-mini".to_string(),
+                "ccs-kimi.kimi-k3".to_string(),
+                "ccs-zhipu.glm-5.2[1M]".to_string(),
             ]
         );
     }
@@ -1250,15 +1259,15 @@ mod tests {
     fn stacked_ids_resolve_to_their_provider_and_upstream_model() {
         let fx = fixture();
         assert_eq!(
-            hit(resolve_in(&fx, AppType::Claude, "ccs-claude.kimi.kimi-k3")),
+            hit(resolve_in(&fx, AppType::Claude, "ccs-kimi.kimi-k3")),
             (
                 "kimi".to_string(),
                 "kimi-k3".to_string(),
-                "ccs-claude.kimi.kimi-k3".to_string()
+                "ccs-kimi.kimi-k3".to_string()
             )
         );
         // 行里带 1M 标记的模型：不管客户端发来的 id 带不带标记，上游都用行里的原值。
-        for id in ["ccs-claude.zhipu.glm-5.2", "ccs-claude.zhipu.glm-5.2[1m]"] {
+        for id in ["ccs-zhipu.glm-5.2", "ccs-zhipu.glm-5.2[1m]"] {
             assert_eq!(
                 hit(resolve_in(&fx, AppType::Claude, id)).1,
                 "glm-5.2[1M]",
@@ -1267,7 +1276,7 @@ mod tests {
         }
         // 行里已经没有的模型照原样发。
         assert_eq!(
-            hit(resolve_in(&fx, AppType::Claude, "ccs-claude.kimi.kimi-k9")).1,
+            hit(resolve_in(&fx, AppType::Claude, "ccs-kimi.kimi-k9")).1,
             "kimi-k9"
         );
     }
@@ -1276,23 +1285,23 @@ mod tests {
     fn stacked_ids_that_cannot_be_resolved_never_fall_back_to_the_route() {
         let fx = fixture();
         let claude = |id| miss(resolve_in(&fx, AppType::Claude, id));
-        assert_eq!(claude("ccs-claude.gone.g-1"), StackMiss::Removed);
-        assert_eq!(claude("ccs-claude.deleted.d-1"), StackMiss::Deleted);
-        assert_eq!(claude("ccs-claude.nobody.m"), StackMiss::Unknown);
-        // fork: "ccs-claude.kimi" 短形式现在解析为成员默认模型（见 short_form_resolves_member_default_model）
+        assert_eq!(claude("ccs-gone.g-1"), StackMiss::Removed);
+        assert_eq!(claude("ccs-deleted.d-1"), StackMiss::Deleted);
+        assert_eq!(claude("ccs-nobody.m"), StackMiss::Unknown);
+        // fork: "ccs-kimi" 短形式现在解析为成员默认模型（见 short_form_resolves_member_default_model）
         // 名单为空（这个应用从没加过 Stack 模型）也一样报错。
         assert_eq!(
             miss(resolve_in(&fx, AppType::Codex, "ccs-kimi.kimi-k3")),
             StackMiss::Unknown
         );
-        let message = StackMiss::Removed.message("ccs-claude.gone.g-1");
-        assert!(message.contains("ccs-claude.gone.g-1"), "{message}");
+        let message = StackMiss::Removed.message("ccs-gone.g-1");
+        assert!(message.contains("ccs-gone.g-1"), "{message}");
     }
 
     #[test]
     fn stacked_ids_are_rejected_outside_stack_mode() {
         let fx = fixture();
-        let id = "ccs-claude.kimi.kimi-k3";
+        let id = "ccs-kimi.kimi-k3";
         assert!(matches!(
             resolve_in(&fx, AppType::Claude, id),
             Resolved::Hit(_)
@@ -1372,7 +1381,7 @@ mod tests {
             (AppType::Claude, "claude-sonnet-5"),
             (AppType::Claude, "kimi-k3"),
             (AppType::Codex, "deepseek/deepseek-v4-pro"),
-            (AppType::ClaudeDesktop, "ccs-claude.kimi.kimi-k3"),
+            (AppType::ClaudeDesktop, "ccs-kimi.kimi.kimi-k3"),
         ] {
             assert!(
                 matches!(resolve_in(&fx, app, model), Resolved::Plain),
@@ -1390,7 +1399,7 @@ mod tests {
     #[test]
     fn claude_full_id_with_custom_prefix() {
         assert_eq!(
-            decode("G.", &AppType::Claude, "G.claude.cc.m"),
+            decode("G.", &AppType::Claude, "G.cc.m"),
             Decoded::Stack {
                 key: "cc",
                 model: "m",
@@ -1414,7 +1423,7 @@ mod tests {
     #[test]
     fn claude_short_id() {
         assert_eq!(
-            decode("G.", &AppType::Claude, "G.claude.cc"),
+            decode("G.", &AppType::Claude, "G.cc"),
             Decoded::Short { key: "cc" }
         );
     }
@@ -1431,7 +1440,7 @@ mod tests {
     #[test]
     fn claude_short_reserved_default() {
         assert_eq!(
-            decode("G.", &AppType::Claude, "G.claude.default"),
+            decode("G.", &AppType::Claude, "G.default"),
             Decoded::Short { key: "default" }
         );
         assert_eq!(
@@ -1442,17 +1451,14 @@ mod tests {
 
     #[test]
     fn empty_key_is_malformed() {
-        assert_eq!(
-            decode("G.", &AppType::Claude, "G.claude."),
-            Decoded::Malformed
-        );
+        assert_eq!(decode("G.", &AppType::Claude, "G."), Decoded::Malformed);
         assert_eq!(decode("G.", &AppType::Codex, "G."), Decoded::Malformed);
     }
 
     #[test]
     fn one_m_marker_stripped_on_custom_prefix() {
         assert_eq!(
-            decode("G.", &AppType::Claude, "G.claude.cc.m[1M]"),
+            decode("G.", &AppType::Claude, "G.cc.m[1M]"),
             Decoded::Stack {
                 key: "cc",
                 model: "m",
@@ -1471,17 +1477,34 @@ mod tests {
 
     #[test]
     fn encode_roundtrip_custom_prefix() {
-        assert_eq!(
-            encode("G.", &AppType::Claude, "cc", "m", true),
-            "G.claude.cc.m[1M]"
-        );
+        assert_eq!(encode("G.", &AppType::Claude, "cc", "m", true), "G.cc.m[1M]");
         assert_eq!(encode("G.", &AppType::Codex, "cc", "m", false), "G.cc.m");
-        assert_eq!(encode_short("G.", &AppType::Claude, "cc"), "G.claude.cc");
+        assert_eq!(encode_short("G.", &AppType::Claude, "cc"), "G.cc");
         assert_eq!(encode_short("G.", &AppType::Codex, "cc"), "G.cc");
-        assert_eq!(
-            encode_short("ccs-", &AppType::Claude, "cc"),
-            "ccs-claude.cc"
-        );
+        assert_eq!(encode_short("ccs-", &AppType::Claude, "cc"), "ccs-cc");
+    }
+
+    #[test]
+    fn provider_label_prefers_trimmed_short_name() {
+        let base = provider("p", "智谱 GLM", None, json!({}));
+        assert_eq!(provider_label(&base), "智谱 GLM");
+        let mut blank = base.clone();
+        blank.meta = Some(crate::provider::ProviderMeta {
+            short_name: Some("   ".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(provider_label(&blank), "智谱 GLM");
+        let mut short = base;
+        short.meta = Some(crate::provider::ProviderMeta {
+            short_name: Some("  智谱  ".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(provider_label(&short), "智谱");
+    }
+
+    #[test]
+    fn display_name_uses_ascii_parens_without_space() {
+        assert_eq!(display_name("GLM-5.3", "智谱"), "GLM-5.3(智谱)");
     }
 
     // fork Task 2: 短形式解析 → 成员默认模型
@@ -1491,15 +1514,15 @@ mod tests {
         let fx = fixture();
         // 映射行：默认模型 = ANTHROPIC_MODEL（upstream 原值，1M 标记保留）
         assert_eq!(
-            hit(resolve_in(&fx, AppType::Claude, "ccs-claude.kimi")),
+            hit(resolve_in(&fx, AppType::Claude, "ccs-kimi")),
             (
                 "kimi".to_string(),
                 "kimi-k3".to_string(),
-                "ccs-claude.kimi".to_string()
+                "ccs-kimi".to_string()
             )
         );
         assert_eq!(
-            hit(resolve_in(&fx, AppType::Claude, "ccs-claude.zhipu")).1,
+            hit(resolve_in(&fx, AppType::Claude, "ccs-zhipu")).1,
             "glm-5.2[1M]"
         );
     }
@@ -1521,7 +1544,7 @@ mod tests {
         );
         fx.db.save_provider("claude", &kimi).unwrap();
         assert_eq!(
-            hit(resolve_in(&fx, AppType::Claude, "ccs-claude.kimi")).1,
+            hit(resolve_in(&fx, AppType::Claude, "ccs-kimi")).1,
             "kimi-k3-mini"
         );
     }
@@ -1563,9 +1586,9 @@ mod tests {
             stack.keys.insert("bare".to_string(), "bare".to_string());
         })
         .unwrap();
-        let miss = miss(resolve_in(&fx, AppType::Claude, "ccs-claude.bare"));
+        let miss = miss(resolve_in(&fx, AppType::Claude, "ccs-bare"));
         assert_eq!(miss, StackMiss::NoDefaultModel);
-        let message = StackMiss::NoDefaultModel.message("ccs-claude.bare");
+        let message = StackMiss::NoDefaultModel.message("ccs-bare");
         assert!(message.contains("默认模型"), "{message}");
     }
 
@@ -1575,7 +1598,7 @@ mod tests {
         // resolve 不实现——钉住该边界
         let fx = fixture();
         assert_eq!(
-            miss(resolve_in(&fx, AppType::Claude, "ccs-claude.default")),
+            miss(resolve_in(&fx, AppType::Claude, "ccs-default")),
             StackMiss::Unknown
         );
     }
@@ -1584,11 +1607,11 @@ mod tests {
     fn short_form_removed_and_deleted_members_miss() {
         let fx = fixture();
         assert_eq!(
-            miss(resolve_in(&fx, AppType::Claude, "ccs-claude.gone")),
+            miss(resolve_in(&fx, AppType::Claude, "ccs-gone")),
             StackMiss::Removed
         );
         assert_eq!(
-            miss(resolve_in(&fx, AppType::Claude, "ccs-claude.deleted")),
+            miss(resolve_in(&fx, AppType::Claude, "ccs-deleted")),
             StackMiss::Deleted
         );
     }
@@ -1601,7 +1624,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            miss(resolve_in(&fx, AppType::Claude, "ccs-claude.kimi")),
+            miss(resolve_in(&fx, AppType::Claude, "ccs-kimi")),
             StackMiss::StackOff
         );
     }

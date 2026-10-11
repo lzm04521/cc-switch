@@ -185,6 +185,8 @@
     "terminalOpenFailed": "Failed to open terminal",
     "name": "Name",
     "namePlaceholder": "e.g., Claude Official",
+    "shortName": "Short Name",
+    "shortNamePlaceholder": "Used only in aggregated model list display names; falls back to the name",
     "websiteUrl": "Website URL",
     "notes": "Notes",
     "notesPlaceholder": "e.g., Company dedicated account",

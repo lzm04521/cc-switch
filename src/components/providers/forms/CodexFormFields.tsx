@@ -210,8 +210,6 @@ interface CodexFormFieldsProps {
    * 模型列表 + 高级），没有默认模型字段，列表第一行就是默认模型。
    */
   variant?: "classic" | "stack";
-  /** fork 五项优化：分组 key 输入框（渲染在模型列表上方，ProviderForm 提供）。 */
-  stackKeyField?: ReactNode;
   /** fork 五项优化：分组 key 归一化后的预览值（stack 布局只读列生成 id 用）。 */
   stackPreviewKey?: string;
 }
@@ -549,7 +547,6 @@ export function CodexFormFields({
   localProxyBodyOverride,
   onLocalProxyBodyOverrideChange,
   variant = "classic",
-  stackKeyField,
   stackPreviewKey,
 }: CodexFormFieldsProps) {
   const { t } = useTranslation();
@@ -1714,9 +1711,6 @@ export function CodexFormFields({
         {apiKeySection}
         {showFormatFields && isAnthropicFormat && anthropicAuthFieldSelect}
         {endpointSection}
-
-        {/* fork 五项优化：分组 key 输入框在模型列表上方（从表单底部配置区迁入） */}
-        {stackKeyField}
 
         {canEditCatalog && (
           <div className="space-y-3">

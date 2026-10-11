@@ -185,6 +185,8 @@
     "terminalOpenFailed": "開啟終端機失敗",
     "name": "名稱",
     "namePlaceholder": "例如：Claude 官方",
+    "shortName": "簡稱",
+    "shortNamePlaceholder": "僅聚合模型列表的顯示名使用，留空則用名稱",
     "websiteUrl": "官網連結",
     "notes": "備註",
     "notesPlaceholder": "例如：公司專用帳號",

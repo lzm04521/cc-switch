@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { useForm, type FieldPath, type UseFormReturn } from "react-hook-form";
 import { describe, expect, it, vi } from "vitest";
 import { BasicFormFields } from "@/components/providers/forms/BasicFormFields";
@@ -21,7 +22,9 @@ const defaultValues: Partial<ProviderFormData> = {
   iconColor: "",
 };
 
-function renderBasicForm() {
+function renderBasicForm(
+  props: { stackLayout?: boolean; stackKeyField?: ReactNode } = {},
+) {
   let formApi!: UseFormReturn<ProviderFormData>;
 
   function TestForm() {
@@ -29,7 +32,7 @@ function renderBasicForm() {
     formApi = form;
     return (
       <Form {...form}>
-        <BasicFormFields form={form} />
+        <BasicFormFields form={form} {...props} />
       </Form>
     );
   }
@@ -97,4 +100,43 @@ describe("BasicFormFields", () => {
       ).toBe("失焦提交");
     },
   );
+});
+
+describe("BasicFormFields 聚合布局（fork）", () => {
+  const queryInput = (container: HTMLElement, name: string) =>
+    container.querySelector(`input[name="${name}"]`);
+
+  const isAfter = (earlier: Element, later: Element) =>
+    Boolean(
+      earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+  it("非聚合：只有 名称/备注，没有简称输入框", () => {
+    const { container } = renderBasicForm();
+    expect(queryInput(container, "name")).toBeTruthy();
+    expect(queryInput(container, "notes")).toBeTruthy();
+    expect(queryInput(container, "shortName")).toBeNull();
+  });
+
+  it("聚合：DOM 顺序为 名称 → 简称 → 分组 key → 备注", () => {
+    const { container } = renderBasicForm({
+      stackLayout: true,
+      stackKeyField: <div data-testid="stack-key-slot" />,
+    });
+    const name = queryInput(container, "name")!;
+    const shortName = queryInput(container, "shortName")!;
+    const key = screen.getByTestId("stack-key-slot");
+    const notes = queryInput(container, "notes")!;
+    expect(isAfter(name, shortName)).toBe(true);
+    expect(isAfter(shortName, key)).toBe(true);
+    expect(isAfter(key, notes)).toBe(true);
+  });
+
+  it("聚合且尚无分组 key（新增供应商）：简称仍在，备注在其后", () => {
+    const { container } = renderBasicForm({ stackLayout: true });
+    const shortName = queryInput(container, "shortName")!;
+    const notes = queryInput(container, "notes")!;
+    expect(shortName).toBeTruthy();
+    expect(isAfter(shortName, notes)).toBe(true);
+  });
 });

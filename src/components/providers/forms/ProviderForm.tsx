@@ -457,6 +457,7 @@ function ProviderFormFull({
   const defaultValues: ProviderFormData = useMemo(
     () => ({
       name: initialData?.name ?? "",
+      shortName: initialData?.meta?.shortName ?? "",
       websiteUrl: initialData?.websiteUrl ?? "",
       notes: initialData?.notes ?? "",
       settingsConfig: initialData?.settingsConfig
@@ -2053,6 +2054,8 @@ function ProviderFormFull({
           ? true
           : undefined,
       stackModels,
+      // fork：聚合显示名用的简称，trim 后为空 = 未设置（回退名称）
+      shortName: values.shortName?.trim() || undefined,
     };
 
     // Remove the legacy representative value, including on existing Copilot cards.
@@ -2416,6 +2419,8 @@ function ProviderFormFull({
 
           <BasicFormFields
             form={form}
+            stackLayout={useStackLayout}
+            stackKeyField={stackKeyFieldNode}
             beforeNameSlot={
               appId === "opencode" && !isAnyOmoCategory ? (
                 <div className="space-y-2">
@@ -2687,9 +2692,10 @@ function ProviderFormFull({
               variant={useStackLayout ? "stack" : "classic"}
               stackModelRows={shownClaudeStackRows}
               onStackModelRowsChange={handleClaudeStackRowsChange}
-              stackKeyField={stackKeyFieldNode}
               stackPreviewKey={stackKeyPreviewKey}
-              stackProviderName={form.watch("name")}
+              stackProviderName={
+                form.watch("shortName")?.trim() || form.watch("name")
+              }
             />
           )}
 
@@ -2772,7 +2778,6 @@ function ProviderFormFull({
               localProxyBodyOverride={localProxyBodyOverride}
               onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
               variant={useStackLayout ? "stack" : "classic"}
-              stackKeyField={stackKeyFieldNode}
               stackPreviewKey={stackKeyPreviewKey}
             />
           )}

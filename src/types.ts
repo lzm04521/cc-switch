@@ -239,6 +239,8 @@ export interface ProviderMeta {
   githubAccountId?: string;
   // Stack 模式下这家 Claude Code 供应商发布的模型；没有时按模型映射发布，空列表什么都不发布
   stackModels?: ClaudeStackModel[];
+  // 聚合显示名里供应商的简称（后端 stack::provider_label）；空 = 用名称
+  shortName?: string;
 }
 
 // Stack 模式下 Claude Code 供应商发布的一个模型

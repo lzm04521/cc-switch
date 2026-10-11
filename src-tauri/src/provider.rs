@@ -619,6 +619,9 @@ pub struct ProviderMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub stack_models: Option<Vec<ClaudeStackModel>>,
+    /// 聚合显示名里供应商的简称（`mode::stack::provider_label`）；空 = 用 `name`。
+    #[serde(rename = "shortName", skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
 }
 
 /// Stack 模式下 Claude Code 供应商发布的一个模型。

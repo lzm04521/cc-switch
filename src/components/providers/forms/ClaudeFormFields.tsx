@@ -176,8 +176,6 @@ interface ClaudeFormFieldsProps {
   /** Stack 布局的模型列表（第一行是这家的默认模型）。 */
   stackModelRows?: ClaudeStackModelRow[];
   onStackModelRowsChange?: (rows: ClaudeStackModelRow[]) => void;
-  /** fork 五项优化：分组 key 输入框（渲染在模型列表上方，ProviderForm 提供）。 */
-  stackKeyField?: ReactNode;
   /** fork 五项优化：分组 key 归一化后的预览值（只读列生成 id 用）。 */
   stackPreviewKey?: string;
   /** fork 五项优化：供应商名（表单当前名称，只读列显示名用）。 */
@@ -252,7 +250,6 @@ export function ClaudeFormFields({
   variant = "classic",
   stackModelRows = [],
   onStackModelRowsChange,
-  stackKeyField,
   stackPreviewKey,
   stackProviderName,
 }: ClaudeFormFieldsProps) {
@@ -959,9 +956,6 @@ export function ClaudeFormFields({
         {templateSection}
         {endpointSection}
         {speedTestModal}
-
-        {/* fork 五项优化：分组 key 输入框在模型列表上方（从表单底部配置区迁入） */}
-        {stackKeyField}
 
         {onStackModelRowsChange && (
           <ClaudeStackModelsField

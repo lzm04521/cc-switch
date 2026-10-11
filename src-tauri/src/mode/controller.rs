@@ -5223,17 +5223,17 @@ model_provider = "c"
         assert_eq!(stack_state().members, vec!["a"]);
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude.a.claude-sonnet-4-6".to_string()])
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
         );
         let options = &settings()[CLAUDE_MODEL_PICKER]["options"][0];
-        assert_eq!(options["label"], "claude-sonnet-4-6（A）");
+        assert_eq!(options["label"], "claude-sonnet-4-6(A)");
         assert_eq!(options["description"], "claude-sonnet-4-6 · 200K");
         let env = settings()["env"].clone();
         assert!(env.get(DISCOVERY_ENV).is_none(), "{env}");
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env[format!("ANTHROPIC_DEFAULT_{role}_MODEL")],
-                "ccs-claude.a.claude-sonnet-4-6",
+                "ccs-a.claude-sonnet-4-6",
                 "{role}"
             );
             assert_eq!(
@@ -5245,21 +5245,21 @@ model_provider = "c"
         let views = set_member(&state, "kimi", true).await;
         assert_eq!(views.len(), 2);
         assert!(views[0].route);
-        assert_eq!(views[0].model_ids, vec!["ccs-claude.a.claude-sonnet-4-6"]);
+        assert_eq!(views[0].model_ids, vec!["ccs-a.claude-sonnet-4-6"]);
         assert_eq!(stack_state().key_of("kimi"), Some("kimi"));
-        assert_eq!(views[1].model_ids, vec!["ccs-claude.kimi.kimi-k3"]);
+        assert_eq!(views[1].model_ids, vec!["ccs-kimi.kimi-k3"]);
         assert_eq!(
             picker(),
             Some(vec![
-                "ccs-claude.a.claude-sonnet-4-6".to_string(),
-                "ccs-claude.kimi.kimi-k3".to_string(),
+                "ccs-a.claude-sonnet-4-6".to_string(),
+                "ccs-kimi.kimi-k3".to_string(),
             ])
         );
         let env = settings()["env"].clone();
         assert_eq!(env[CLAUDE_MAX_CONTEXT_ENV], "128000");
         assert_eq!(
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-            "ccs-claude.a.claude-sonnet-4-6"
+            "ccs-a.claude-sonnet-4-6"
         );
         assert_eq!(
             mode(&AppType::Claude).contract.unwrap().exclusive[CLAUDE_MAX_CONTEXT_ENV],
@@ -5273,8 +5273,8 @@ model_provider = "c"
         assert_eq!(
             picker(),
             Some(vec![
-                "ccs-claude.a.claude-sonnet-4-6".to_string(),
-                "ccs-claude.zhipu.glm-5.2[1M]".to_string(),
+                "ccs-a.claude-sonnet-4-6".to_string(),
+                "ccs-zhipu.glm-5.2[1M]".to_string(),
             ])
         );
         let env = settings()["env"].clone();
@@ -5327,7 +5327,7 @@ model_provider = "c"
         enter(&state, &AppType::Claude, true).await.expect("enter");
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude.a.claude-sonnet-4-6".to_string()])
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
         );
 
         exit(&state, &AppType::Claude).await.expect("exit");
@@ -5386,7 +5386,7 @@ model_provider = "c"
         assert_eq!(env[CLAUDE_MAX_CONTEXT_ENV], "128000");
         assert_eq!(
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
-            "ccs-claude.kimi.kimi-k3"
+            "ccs-kimi.kimi-k3"
         );
         assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"], "kimi-k3");
         let views = stack_views(&state, &AppType::Claude).unwrap().members;
@@ -5547,18 +5547,18 @@ model_provider = "c"
         let env = settings()["env"].clone();
         assert_eq!(
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-            "ccs-claude.zhipu.glm-5.2[1M]"
+            "ccs-zhipu.glm-5.2[1M]"
         );
         assert_eq!(
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
-            "ccs-claude.zhipu.glm-5.2"
+            "ccs-zhipu.glm-5.2"
         );
         let with_a = settings();
         set_member(&state, "a", false).await;
         assert_eq!(stack_state().members, vec!["zhipu"]);
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude.zhipu.glm-5.2[1M]".to_string()])
+            Some(vec!["ccs-zhipu.glm-5.2[1M]".to_string()])
         );
         let env = settings()["env"].clone();
         assert_eq!(env, with_a["env"], "a is not the default any more");
@@ -5865,7 +5865,7 @@ model_provider = "c"
         let env = settings()["env"].clone();
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude.a.claude-sonnet-4-6".to_string()]),
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()]),
             "a still publishes"
         );
         assert!(env.get(CLAUDE_MAX_CONTEXT_ENV).is_none(), "{env}");
@@ -5888,7 +5888,7 @@ model_provider = "c"
         enter(&state, &AppType::Claude, true).await.expect("enter");
         let mapped_contract = mode(&AppType::Claude).contract.unwrap();
         let sonnet = || settings()["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"].clone();
-        assert_eq!(sonnet(), "ccs-claude.a.claude-sonnet-4-6");
+        assert_eq!(sonnet(), "ccs-a.claude-sonnet-4-6");
 
         // 配了列表：整张照常发布，第一个占四档。
         let mut a = state.db.get_provider_by_id("a", "claude").unwrap().unwrap();
@@ -5901,9 +5901,9 @@ model_provider = "c"
         assert!(views[0].route);
         assert_eq!(
             views[0].model_ids,
-            vec!["ccs-claude.a.a-vision", "ccs-claude.a.claude-sonnet-4-6"]
+            vec!["ccs-a.a-vision", "ccs-a.claude-sonnet-4-6"]
         );
-        assert_eq!(sonnet(), "ccs-claude.a.a-vision");
+        assert_eq!(sonnet(), "ccs-a.a-vision");
         assert_eq!(
             settings()["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"],
             "A Vision"
@@ -5918,14 +5918,14 @@ model_provider = "c"
             .unwrap()
             .reverse();
         ProviderService::update(&state, AppType::Claude, None, a.clone()).expect("reorder a");
-        assert_eq!(sonnet(), "ccs-claude.a.claude-sonnet-4-6");
+        assert_eq!(sonnet(), "ccs-a.claude-sonnet-4-6");
 
         // 用户清空了列表：什么都不发布，四档回到路由契约的写法。
         a.meta.as_mut().unwrap().stack_models = Some(Vec::new());
         ProviderService::update(&state, AppType::Claude, None, a.clone()).expect("clear a");
         let views = stack_views(&state, &AppType::Claude).unwrap().members;
         assert!(views[0].model_ids.is_empty());
-        assert!(!sonnet().as_str().unwrap().starts_with("ccs-claude."));
+        assert!(!sonnet().as_str().unwrap().starts_with("ccs-"));
 
         // 没配列表：回到按映射发布，第一个是 `ANTHROPIC_MODEL`。
         a.meta.as_mut().unwrap().stack_models = None;
@@ -6047,7 +6047,7 @@ model_provider = "c"
         // 路由那家的行保持模板的值（这里模板没有），加进第一家不会让路由上的会话被压缩。
         assert_eq!(route["comp_hash"], Value::Null);
         assert_eq!(stacked["priority"], 3);
-        assert_eq!(stacked["display_name"], "DeepSeek V4 Pro（DEEPSEEK）");
+        assert_eq!(stacked["display_name"], "DeepSeek V4 Pro(DEEPSEEK)");
         // DeepSeek 官方目录的 "3000" 不带过来，窗口按它自己的行算。
         assert_eq!(stacked["comp_hash"], "cc-switch");
         let window = stacked["context_window"].as_u64().unwrap();

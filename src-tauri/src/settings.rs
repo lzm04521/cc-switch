@@ -416,7 +416,7 @@ impl Default for FloatingBallSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RouteModelsMode {
-    /// 仅完整模型条目（每成员每模型一条，如 `<prefix>claude.zhipu.glm-5.2`）
+    /// 仅完整模型条目（每成员每模型一条，如 `<prefix>zhipu.glm-5.2`）
     Models,
     /// 仅分组条目（每成员一条短形式 + 解绑条目，选中走该成员默认模型）
     Groups,
