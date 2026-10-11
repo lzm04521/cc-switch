@@ -81,7 +81,7 @@ import GeminiConfigEditor from "./GeminiConfigEditor";
 import JsonEditor from "@/components/JsonEditor";
 import { Label } from "@/components/ui/label";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
-import { BasicFormFields } from "./BasicFormFields";
+import { BasicFormFields, REQUIRED_LABEL } from "./BasicFormFields";
 import { ClaudeFormFields } from "./ClaudeFormFields";
 import {
   claudeStackModelsFromEnv,
@@ -975,7 +975,7 @@ function ProviderFormFull({
   const stackKeyFieldNode = isStackMember ? (
     <div className="space-y-1.5">
       <label
-        className="text-sm font-medium leading-none"
+        className={`text-sm font-medium leading-none ${REQUIRED_LABEL}`}
         htmlFor="stack-member-key"
       >
         {t("providerForm.stackKey.label", {
@@ -986,7 +986,6 @@ function ProviderFormFull({
         id="stack-member-key"
         value={stackKeyDraft}
         onValueChange={setStackKeyDraft}
-        className="max-w-64"
       />
       <p className="text-xs text-muted-foreground">
         {t("providerForm.stackKey.hint", {
@@ -1349,6 +1348,15 @@ function ProviderFormFull({
       issues.push(
         t("providerForm.fillSupplierName", {
           defaultValue: "请填写供应商名称",
+        }),
+      );
+    }
+
+    // 聚合成员分组 key 空：A 类（与名称必填同款软确认；选「仍要保存」时 key 保持原值不改名）
+    if (isStackMember && !stackKeyDraftTrimmed) {
+      issues.push(
+        t("providerForm.stackKey.required", {
+          defaultValue: "请填写分组 key",
         }),
       );
     }

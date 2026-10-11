@@ -1571,7 +1571,8 @@
     "stackKey": {
       "label": "分組 key",
       "hint": "字母/數字/橫線（大小寫保留）；「.」等符號自動轉為橫線；改名後舊模型 id 失效需重新選擇，複用舊 key 會讓仍帶舊 id 的會話轉投這家；default 為保留字。隨表單儲存一起生效。",
-      "normalizedPreview": "將儲存為 {{key}}"
+      "normalizedPreview": "將儲存為 {{key}}",
+      "required": "請填寫分組 key"
     },
     "supplierName": "供應商名稱",
     "supplierNameRequired": "供應商名稱 *",

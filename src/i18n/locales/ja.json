@@ -1570,7 +1570,8 @@
     "stackKey": {
       "label": "グループ key",
       "hint": "英数字とハイフン（大文字小文字を保持）；「.」などの記号はハイフンに変換；変更後は旧モデル id が無効になり再選択が必要で、旧 key を再利用すると旧 id を持つセッションはこのプロバイダーに送られます；default は予約語。フォームの保存と同時に反映されます。",
-      "normalizedPreview": "{{key}} として保存されます"
+      "normalizedPreview": "{{key}} として保存されます",
+      "required": "グループ key を入力してください"
     },
     "supplierName": "プロバイダー名",
     "supplierNameRequired": "プロバイダー名 *",
