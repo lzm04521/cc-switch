@@ -1,0 +1,33 @@
+{
+  "version": "4.0.8-1",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "同步上游 v4.0.8：只装 Codex 桌面版也能用聚合模式",
+      "zh-TW": "同步上游 v4.0.8：只裝 Codex 桌面版也能用聚合模式",
+      "en": "Upstream v4.0.8: Codex aggregation works when only the desktop app is installed",
+      "ja": "上游 v4.0.8：デスクトップ版のみでも集約モードが動作"
+    },
+    {
+      "type": "improve",
+      "zh": "官方模型列表读不到时提示写明原因，恢复后自动消失",
+      "zh-TW": "官方模型列表讀不到時提示寫明原因，恢復後自動消失",
+      "en": "Official model list notices now say why they are unavailable and clear once fixed",
+      "ja": "公式モデル一覧のエラー理由を表示、復旧で自動解消"
+    },
+    {
+      "type": "fix",
+      "zh": "获取模型列表时带上供应商配置的请求头（Header 覆盖）",
+      "zh-TW": "取得模型列表時帶上供應商設定的請求標頭（Header 覆蓋）",
+      "en": "Model list fetches now send the provider's configured header overrides",
+      "ja": "モデル一覧取得時に設定済みリクエストヘッダーを送信"
+    },
+    {
+      "type": "improve",
+      "zh": "深色模式文字调暗不刺眼，设置页可一键定位日志文件",
+      "zh-TW": "深色模式文字調暗不刺眼，設定頁可一鍵定位日誌檔案",
+      "en": "Softer dark-mode text; settings gains a button to reveal the log file",
+      "ja": "ダークモードの文字を緩和、設定からログを直接開ける"
+    }
+  ]
+}
