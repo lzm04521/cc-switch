@@ -128,6 +128,17 @@
     "officialModelsBundled": "The official model list isn't available yet, so Codex's built-in list is used for now and account-specific models may be missing",
     "officialModelsUnavailable": "Aggregated models are unavailable for now: the Codex model list can't be read",
     "officialModelsOutdated": "Codex on this computer is too old to get the full official model list: update Codex (including the CLI) to the latest version",
+    "officialModelsReason": {
+      "noLogin": "Official list: Codex has no usable ChatGPT login. Sign in to Codex with a ChatGPT account",
+      "loginStale": "Official list: the Codex login hasn't been refreshed for over 8 days. Use Codex once and it refreshes automatically",
+      "loginIncomplete": "Official list: the Codex login is incomplete (missing the workspace or user ID). Sign in to Codex again",
+      "noVersion": "Official list: can't read the Codex version on this computer. It will retry after you start a conversation in Codex",
+      "fetchFailed": "Official list: fetching it failed; retrying every 15 minutes (see the log for details)",
+      "invalidList": "Official list: the returned data is incomplete (see the log for details)",
+      "noCli": "Codex built-in list: no Codex CLI found on this computer",
+      "cliFailed": "Codex built-in list: the Codex CLI didn't output a model list (see the log for details)",
+      "nothingUsable": "Codex built-in list: it has no usable models. Update Codex to the latest version"
+    },
     "routeOwnsCatalog": "Aggregated models won't show up in Codex: the routed provider uses its own model catalog file (model_catalog_json)",
     "adoptCatalog": "Use CC Switch's model catalog",
     "adoptCatalogDone": "Now using CC Switch's model catalog. Restart Codex to apply",
@@ -371,7 +382,7 @@
       "quotaDisplay": "Quota display",
       "quotaDisplayLeft": "Left",
       "quotaDisplayUsed": "Used",
-      "quotaDisplayHelp": "Whether each quota window on provider cards, in the auth center and in the tray shows how much is left or how much is used. Balances and Credits always show what is left.",
+      "quotaDisplayHelp": "Whether each quota window on provider cards, in Accounts and in the tray shows how much is left or how much is used. Balances and Credits always show what is left.",
       "sidebarAndHeader": "Sidebar and header",
       "visibleApps": "Choose each app's sidebar and management visibility",
       "goToApps": "Open Apps",
@@ -464,6 +475,8 @@
         "description": "Control the output level for application diagnostic logs",
         "enabled": "Enable Diagnostic Logs",
         "enabledDescription": "Controls cc-switch.log; request usage records and crash.log are unaffected",
+        "openLog": "Open log",
+        "openLogFailed": "Failed to open the log location: {{error}}",
         "level": "Log Level",
         "levelDescription": "Set the minimum log level to output",
         "levels": {
@@ -592,7 +605,7 @@
         },
         "codexHistoryUnify": {
           "name": "Codex session unify migration backups",
-          "hint": "Session copies kept when \"Unify Codex session history\" migrated existing sessions. \"Restore backup\" when turning that switch off depends on them; after deleting, migrated official sessions can no longer be moved back to their original group."
+          "hint": "Session copies kept when \"Unified Codex session history\" migrated existing sessions. \"Restore backup\" when turning that switch off depends on them; after deleting, migrated official sessions can no longer be moved back to their original group."
         },
         "codexHistoryUnifyRestore": {
           "name": "Codex session unify restore backups",

@@ -128,6 +128,17 @@
     "officialModelsBundled": "公式モデル一覧をまだ取得できていないため、Codex 内蔵の一覧を使っています。アカウント専用のモデルが表示されない場合があります",
     "officialModelsUnavailable": "Codex のモデル一覧を読み込めないため、集約したモデルは現在使用できません",
     "officialModelsOutdated": "このコンピューターの Codex が古いため、公式モデル一覧を完全に取得できません。Codex（CLI を含む）を最新版に更新してください",
+    "officialModelsReason": {
+      "noLogin": "公式一覧：Codex に使える ChatGPT ログインがありません。Codex で ChatGPT アカウントにログインしてください",
+      "loginStale": "公式一覧：Codex のログインが 8 日以上更新されていません。Codex を一度使うと自動で更新されます",
+      "loginIncomplete": "公式一覧：Codex のログイン情報が不完全です（ワークスペースまたはユーザー ID がありません）。Codex でもう一度ログインしてください",
+      "noVersion": "公式一覧：このコンピューターの Codex のバージョンを読み取れません。Codex で会話を始めると自動で再試行します",
+      "fetchFailed": "公式一覧：取得に失敗しました。15 分ごとに自動で再試行します（詳細はログを参照）",
+      "invalidList": "公式一覧：返されたデータが不完全です（詳細はログを参照）",
+      "noCli": "Codex 内蔵の一覧：このコンピューターに Codex CLI が見つかりません",
+      "cliFailed": "Codex 内蔵の一覧：Codex CLI がモデル一覧を出力しませんでした（詳細はログを参照）",
+      "nothingUsable": "Codex 内蔵の一覧：使えるモデルがありません。Codex を最新版に更新してください"
+    },
     "routeOwnsCatalog": "ルーティング先のプロバイダーが独自のモデルカタログファイル（model_catalog_json）を使っているため、集約したモデルは Codex に表示されません",
     "adoptCatalog": "CC Switch のモデルカタログを使う",
     "adoptCatalogDone": "CC Switch のモデルカタログに切り替えました。Codex を再起動すると反映されます",
@@ -371,7 +382,7 @@
       "quotaDisplay": "残量の表示",
       "quotaDisplayLeft": "残り",
       "quotaDisplayUsed": "使用済み",
-      "quotaDisplayHelp": "プロバイダーカード、認証センター、トレイで、各枠の残量を「残り」と「使用済み」のどちらで表示するかを選びます。残高と Credits は常に残りを表示します。",
+      "quotaDisplayHelp": "プロバイダーカード、アカウント、トレイで、各枠の残量を「残り」と「使用済み」のどちらで表示するかを選びます。残高と Credits は常に残りを表示します。",
       "sidebarAndHeader": "サイドバーとヘッダー",
       "visibleApps": "サイドバー表示と管理参加を選択",
       "goToApps": "「アプリ」を開く",
@@ -464,6 +475,8 @@
         "description": "アプリ診断ログの出力レベルを制御",
         "enabled": "診断ログを有効化",
         "enabledDescription": "cc-switch.log を制御します。リクエスト使用量記録と crash.log には影響しません",
+        "openLog": "ログを開く",
+        "openLogFailed": "ログの場所を開けませんでした：{{error}}",
         "level": "ログレベル",
         "levelDescription": "出力する最小ログレベルを設定",
         "levels": {
@@ -592,7 +605,7 @@
         },
         "codexHistoryUnify": {
           "name": "Codex セッション統合の移行バックアップ",
-          "hint": "「Codex のセッション履歴を統合」で既存セッションを移行したときのコピー。このスイッチをオフにする際の「バックアップから復元」はこれに依存します。削除すると、移行した公式セッションを元のグループに戻せなくなります。"
+          "hint": "「Codex セッション履歴を統一」で既存セッションを移行したときのコピー。このスイッチをオフにする際の「バックアップから復元」はこれに依存します。削除すると、移行した公式セッションを元のグループに戻せなくなります。"
         },
         "codexHistoryUnifyRestore": {
           "name": "Codex セッション統合の復元バックアップ",

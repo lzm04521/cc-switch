@@ -500,7 +500,15 @@ export function SwitchModePanel({
             </Button>
           ) : undefined
         }
-      />,
+      >
+        {stack.noticeReasons?.length
+          ? stack.noticeReasons.map((reason) => (
+              <div key={reason}>
+                {t(`provider.officialModelsReason.${reason}`)}
+              </div>
+            ))
+          : undefined}
+      </Notice>,
     );
   }
   if (

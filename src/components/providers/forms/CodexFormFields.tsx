@@ -56,6 +56,7 @@ import {
 import {
   fetchModelsForConfig,
   fetchXaiOauthModels,
+  modelFetchRequestHeaders,
   showFetchModelsError,
   type FetchedModel,
 } from "@/lib/api/model-fetch";
@@ -555,9 +556,9 @@ export function CodexFormFields({
 
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
-  // 拉取请求序号：请求身份（Base URL / 完整地址开关 / API Key / 自定义 UA）
-  // 一变即自增，清空旧列表并作废在途响应——/models 结果可能按 Key 的模型
-  // 授权返回，换号后残留旧列表会误导选择
+  // 拉取请求序号：请求身份（Base URL / 完整地址开关 / API Key / 自定义 UA /
+  // Header 覆盖）一变即自增，清空旧列表并作废在途响应——/models 结果可能按
+  // Key 的模型授权或请求头身份返回，换号/换 Header 后残留旧列表会误导选择
   const fetchModelsSeqRef = useRef(0);
 
   useEffect(() => {
@@ -572,6 +573,7 @@ export function CodexFormFields({
     copilotApiFormat,
     isCopilotAuthenticated,
     selectedGitHubAccountId,
+    localProxyHeadersOverride,
     isXaiOauthPreset,
     isXaiOauthAuthenticated,
     selectedXaiAccountId,
@@ -827,6 +829,9 @@ export function CodexFormFields({
           isFullUrl,
           undefined,
           customUserAgent,
+          {
+            requestHeaders: modelFetchRequestHeaders(localProxyHeadersOverride),
+          },
         ),
       receiveFetchedModels,
       "[ModelFetch] Failed:",
@@ -846,6 +851,7 @@ export function CodexFormFields({
     selectedGitHubAccountId,
     onCatalogModelsChange,
     onModelChange,
+    localProxyHeadersOverride,
     isXaiOauthPreset,
     isXaiOauthAuthenticated,
     selectedXaiAccountId,
