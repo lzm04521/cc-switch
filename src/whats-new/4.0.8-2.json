@@ -1,0 +1,33 @@
+{
+  "version": "4.0.8-2",
+  "items": [
+    {
+      "type": "new",
+      "zh": "供应商新增可选简称，聚合模型显示名用它，留空回退名称",
+      "zh-TW": "供應商新增可選簡稱，聚合模型顯示名用它，留空回退名稱",
+      "en": "Providers gain an optional short name for aggregated model display names, falling back to the name",
+      "ja": "プロバイダーに略称を追加。集約モデルの表示名に使用（空欄なら名前）"
+    },
+    {
+      "type": "improve",
+      "zh": "聚合表单改两行：名称+简称、分组 key+备注",
+      "zh-TW": "聚合表單改兩行：名稱+簡稱、分組 key+備註",
+      "en": "Aggregation form is now two rows: name + short name, group key + notes",
+      "ja": "集約フォームを2行に：名前+略称、グループ key+メモ"
+    },
+    {
+      "type": "improve",
+      "zh": "聚合模型显示名改英文括号且无空格，更省位置",
+      "zh-TW": "聚合模型顯示名改英文括號且無空格，更省位置",
+      "en": "Aggregated model display names now use compact ASCII parentheses without spaces",
+      "ja": "集約モデルの表示名を半角括弧・スペースなしに変更"
+    },
+    {
+      "type": "improve",
+      "zh": "Claude 聚合模型 id 去掉 claude 段，旧选中条目需重选一次",
+      "zh-TW": "Claude 聚合模型 id 去掉 claude 段，舊選中條目需重選一次",
+      "en": "Claude aggregated model ids drop the claude. segment; old selections need re-selecting once",
+      "ja": "Claude 集約モデル id から claude 部分を削除。旧選択は再選択が必要"
+    }
+  ]
+}
