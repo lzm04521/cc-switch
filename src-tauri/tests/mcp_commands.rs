@@ -1803,7 +1803,11 @@ fn resync_targets_default_to_managed_apps_and_reject_unsupported() {
             "opencode",
             "hermes",
             "pi",
-            "mcode"
+            "mcode",
+            // fork：McpApps 还包含 zcode / dsh / workbuddy
+            "zcode",
+            "dsh",
+            "workbuddy"
         ]
     );
     assert_eq!(McpService::resync_targets(Some(&[])).unwrap(), all);

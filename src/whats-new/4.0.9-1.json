@@ -1,0 +1,33 @@
+{
+  "version": "4.0.9-1",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "模型列表改为弹窗勾选，Codex 列表第一行即默认模型",
+      "zh-TW": "模型列表改為彈窗勾選，Codex 列表第一行即預設模型",
+      "en": "Model lists are now picked in a dialog; the first Codex row is the default",
+      "ja": "モデルリストをダイアログで選択、Codex の先頭行が既定モデルに"
+    },
+    {
+      "type": "fix",
+      "zh": "聚合模式合并各成员兼容开关，选别家模型不再报错",
+      "zh-TW": "聚合模式合併各成員相容開關，選別家模型不再報錯",
+      "en": "Aggregate mode merges member compatibility switches so other members' models work",
+      "ja": "集約モードがメンバー互換スイッチを統合し他メンバー模型も動作"
+    },
+    {
+      "type": "fix",
+      "zh": "Codex 新线程在 DeepSeek、xAI 等上游报错的问题已修复",
+      "zh-TW": "Codex 新執行緒在 DeepSeek、xAI 等上游報錯的問題已修復",
+      "en": "Codex new threads no longer fail on DeepSeek, xAI and similar upstreams",
+      "ja": "Codex の新規スレッドが DeepSeek や xAI などでエラーにならないように"
+    },
+    {
+      "type": "improve",
+      "zh": "新增 TokenFlux、YYLX、BotCF、OpenModel 等供应商预设",
+      "zh-TW": "新增 TokenFlux、YYLX、BotCF、OpenModel 等供應商預設",
+      "en": "New presets: TokenFlux, YYLX, BotCF, OpenModel and more; per-device connection address",
+      "ja": "TokenFlux、YYLX、BotCF、OpenModel などのプリセットを追加"
+    }
+  ]
+}
