@@ -1,0 +1,12 @@
+{
+  "version": "4.0.10-3",
+  "items": [
+    {
+      "type": "new",
+      "zh": "聚合表单模型列表恢复 ★ 设为默认模型（上游 v4.0.9 删除）",
+      "zh-TW": "聚合表單模型列表恢復 ★ 設為預設模型（上游 v4.0.9 刪除）",
+      "en": "Restore the \"make default model\" star action in aggregation model lists",
+      "ja": "集約フォームのモデル一覧の ★「デフォルトにする」を復元（上流 v4.0.9 で削除）"
+    }
+  ]
+}
