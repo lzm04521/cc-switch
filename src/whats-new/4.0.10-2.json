@@ -1,0 +1,19 @@
+{
+  "version": "4.0.10-2",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "修复更新检查误报：更新源曾被上游合并覆盖，现指回本 fork",
+      "zh-TW": "修復更新檢查誤報：更新源曾被上游合併覆蓋，現指回本 fork",
+      "en": "Fix update false alarm: the updater now points back to this fork after an upstream merge",
+      "ja": "更新チェックの誤報を修正：マージで上流を向いていた更新源を本 fork に戻した"
+    },
+    {
+      "type": "fix",
+      "zh": "本次需手动安装，之后的版本内更新恢复正常",
+      "zh-TW": "本次需手動安裝，之後的版本內更新恢復正常",
+      "en": "Install this build manually; in-app updates work again from this version on",
+      "ja": "今回は手動インストールが必要、以降のアプリ内更新は正常動作"
+    }
+  ]
+}
