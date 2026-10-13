@@ -65,8 +65,7 @@ describe("ClaudeStackModelsField 聚合只读预览列", () => {
   });
 });
 
-describe("ClaudeStackModelsField model picker", () => {
-  it("keeps checked rows untouched, removes unchecked ones and appends new picks", () => {
+describe("ClaudeStackModelsField model picker", () => {  it("keeps checked rows untouched, removes unchecked ones and appends new picks", () => {
     const first = createClaudeStackModelRow({
       model: "glm-5.2[1m]",
       displayName: "GLM",
@@ -113,5 +112,41 @@ describe("ClaudeStackModelsField model picker", () => {
     expect(rows.slice(0, 2)).toEqual([first, draft]);
     expect(rows).toHaveLength(3);
     expect(rows[2]).toMatchObject({ model: "minimax-m3" });
+  });
+});
+
+// fork：上游 4f08989a 删除的「设为默认模型」交互，fork 恢复
+describe("ClaudeStackModelsField 设为默认模型", () => {
+  it("第一行 ★ 标记默认且不可点，点其余行 ★ 把该行挪到首位", () => {
+    const first = createClaudeStackModelRow({
+      model: "glm-5.2",
+      displayName: "GLM",
+    });
+    const second = createClaudeStackModelRow({ model: "kimi-k3" });
+    const onRowsChange = vi.fn();
+    render(
+      <FormShell>
+        <ClaudeStackModelsField
+          rows={[first, second]}
+          onRowsChange={onRowsChange}
+          fetchedModels={[]}
+          onFetchModels={vi.fn()}
+          isFetchingModels={false}
+        />
+      </FormShell>,
+    );
+
+    const defaultStar = screen.getByRole("button", { name: "默认模型" });
+    expect(defaultStar).toBeDisabled();
+    expect(defaultStar).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "设为默认模型" }),
+    );
+    expect(onRowsChange).toHaveBeenCalledTimes(1);
+    const [rows] = onRowsChange.mock.calls[0];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toBe(second);
+    expect(rows[1]).toBe(first);
   });
 });

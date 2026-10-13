@@ -1713,10 +1713,11 @@
     "modelMappingHint": "表示名は /model メニューだけに影響します。1M は Claude Code へのコンテキスト能力宣言です。",
     "stackModelsLabel": "モデル一覧",
     "addStackModel": "手動で追加",
-    "stackModelDefaultHelp": "これらのモデルは Claude Code の /model に表示され、選ぶとこのプロバイダーへ直接送られます。先頭の行がデフォルトモデルで、このカードの ANTHROPIC_MODEL にも書き込まれます。",
+    "stackModelDefaultHelp": "これらのモデルは Claude Code の /model に表示され、選ぶとこのプロバイダーへ直接送られます。先頭の行（★）がデフォルトモデルで、このカードの ANTHROPIC_MODEL にも書き込まれます。",
     "stackModelsEmpty": "モデルが未設定です：集約に追加してもモデル選択には表示されません",
     "stackModelPlaceholder": "例: deepseek-v4-pro",
     "stackModelDefault": "デフォルトモデル",
+    "stackModelMakeDefault": "デフォルトモデルにする",
     "stackLayout": {
       "noModels": "モデル一覧が空です：集約に追加してもモデル選択には表示されません"
     },
@@ -1985,7 +1986,7 @@
     "modelListDefaultHelp": "これらのモデルは Codex の /model に表示され、先頭の行がデフォルトモデルです。公式 GPT モデル名の行は公式エントリから生成されるため、表示名・ウィンドウ・思考レベルは反映されません。",
     "addCatalogModel": "手動で追加",
     "modelListTitle": "モデル一覧",
-    "stackModelDefaultHelp": "これらのモデルは Codex の /model に表示され、選ぶとこのプロバイダーへ直接送られます。先頭の行がデフォルトモデルで、このプロバイダーがデフォルトのとき使われます。",
+    "stackModelDefaultHelp": "これらのモデルは Codex の /model に表示され、選ぶとこのプロバイダーへ直接送られます。先頭の行（★）がデフォルトモデルで、このプロバイダーがデフォルトのとき使われます。",
     "defaultModelNotInList": "デフォルトモデル {{model}} は一覧にありません。Codex は既定でこれをリクエストしますが、/model には表示されません。",
     "addToModelList": "一覧に追加",
     "modelListEmpty": "モデル未設定：集約モードでは下のデフォルトモデルだけが公開されます。",

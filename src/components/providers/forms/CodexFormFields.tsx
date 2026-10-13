@@ -46,6 +46,7 @@ import {
   Download,
   Loader2,
   Plus,
+  Star,
   Trash2,
 } from "lucide-react";
 import EndpointSpeedTest from "./EndpointSpeedTest";
@@ -1015,6 +1016,22 @@ export function CodexFormFields({
     seedWithDefaultModel,
   ]);
 
+  // fork：Stack 布局里把这一行设为默认模型（写进 `model`），并移到第一位。
+  // 上游 4f08989a 删除了该交互，fork 恢复（doc/20261013-实施计划-聚合表单模型列表设为默认模型.md）。
+  const handleMakeCatalogRowDefault = useCallback(
+    (index: number) => {
+      const model = catalogRows[index]?.model.trim();
+      if (!model) return;
+      onModelChange?.(model);
+      setCatalogRows((current) =>
+        index <= 0 || index >= current.length
+          ? current
+          : [current[index], ...current.filter((_, i) => i !== index)],
+      );
+    },
+    [catalogRows, onModelChange],
+  );
+
   const handleUpdateCatalogRow = useCallback(
     (index: number, patch: Partial<CodexCatalogModel>) => {
       if (patch.model !== undefined && index === linkedDefaultIndex) {
@@ -1550,168 +1567,213 @@ export function CodexFormFields({
       "grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
     : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]";
 
-  const renderCatalogRows = () => (
-    <div className="space-y-2">
-      {/* 列头：md+ 显示 */}
-      <div
-        className={cn(
-          "hidden gap-2 px-1 text-xs font-medium text-fg-2 md:grid",
-          catalogGridTemplate,
-        )}
-      >
-        {showPreviewColumns && (
-          <>
-            <span>
-              {t("providerForm.selectorIdLabel", {
-                defaultValue: "选择器 id",
-              })}
-            </span>
-            <span>
-              {t("providerForm.selectorNameLabel", {
-                defaultValue: "选择器显示名",
-              })}
-            </span>
-          </>
-        )}
-        <span>
-          {t("codexConfig.catalogColumnDisplay", {
-            defaultValue: "菜单显示名",
-          })}
-        </span>
-        <span>
-          {t("codexConfig.catalogColumnModel", {
-            defaultValue: "实际请求模型",
-          })}
-        </span>
-        <span>
-          {t("codexConfig.catalogColumnContext", {
-            defaultValue: "上下文窗口",
-          })}
-        </span>
-        <span>
-          {t("codexConfig.catalogColumnReasoning", {
-            defaultValue: "思考等级",
-          })}
-        </span>
-        <span />
-      </div>
+  // fork：Stack 布局里 ★ 是这家的默认模型（`model`），点 ☆ 把这一行设为默认并移到第一位。
+  // 没填 `model` 时保存会用第一行，所以标第一行；它不在列表里时哪一行都不标。
+  // （上游 4f08989a 删除，fork 恢复）
+  const renderDefaultStar = (index: number) => {
+    const isDefault = index === defaultRowIndex;
+    const label = isDefault
+      ? t("providerForm.stackModelDefault", { defaultValue: "默认模型" })
+      : t("providerForm.stackModelMakeDefault", {
+          defaultValue: "设为默认模型",
+        });
+    return (
+      <HoverTip content={label}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => handleMakeCatalogRowDefault(index)}
+          disabled={isDefault || !catalogRows[index]?.model.trim()}
+          aria-label={label}
+          aria-pressed={isDefault}
+          className="h-9 w-9 text-fg-2 hover:text-warning-text disabled:opacity-100"
+        >
+          <Star
+            className={
+              isDefault ? "h-4 w-4 fill-warning text-warning-text" : "h-4 w-4"
+            }
+          />
+        </Button>
+      </HoverTip>
+    );
+  };
 
-      {catalogRows.map((row, index) => (
+  // fork：模型列表的行。Stack 布局多一列 ★（见 renderDefaultStar）；列模板按
+  // withDefault × 预览列组合写字面量（tailwind JIT 只收字面量类名）。
+  const renderCatalogRows = (withDefault: boolean) => {
+    const headerGrid = withDefault
+      ? showPreviewColumns
+        ? "grid-cols-[36px_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+        : "grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+      : catalogGridTemplate;
+    const rowGrid = withDefault
+      ? showPreviewColumns
+        ? "md:grid-cols-[36px_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+        : "md:grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+      : showPreviewColumns
+        ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
+        : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]";
+    return (
+      <div className="space-y-2">
+        {/* 列头：md+ 显示 */}
         <div
-          key={row.rowId}
           className={cn(
-            "grid grid-cols-1 gap-2",
-            showPreviewColumns
-              ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]"
-              : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_minmax(0,1fr)_36px]",
+            "hidden gap-2 px-1 text-xs font-medium text-fg-2 md:grid",
+            headerGrid,
           )}
         >
+          {withDefault && <span />}
           {showPreviewColumns && (
             <>
-              <div
-                className="flex h-9 min-w-0 items-center"
-                title={previewSelectorId(row.model)}
-              >
-                <span className="truncate text-xs text-fg-2">
-                  {previewSelectorId(row.model) || "—"}
-                </span>
-              </div>
-              <div
-                className="flex h-9 min-w-0 items-center"
-                title={previewSelectorName(row.model)}
-              >
-                <span className="truncate text-xs text-fg-2">
-                  {previewSelectorName(row.model) || "—"}
-                </span>
-              </div>
+              <span>
+                {t("providerForm.selectorIdLabel", {
+                  defaultValue: "选择器 id",
+                })}
+              </span>
+              <span>
+                {t("providerForm.selectorNameLabel", {
+                  defaultValue: "选择器显示名",
+                })}
+              </span>
             </>
           )}
-          <Input
-            value={row.displayName ?? ""}
-            onChange={(event) =>
-              handleUpdateCatalogRow(index, {
-                displayName: event.target.value,
-              })
-            }
-            placeholder={t("codexConfig.catalogDisplayNamePlaceholder", {
-              defaultValue: "例如: DeepSeek V4 Flash",
-            })}
-            aria-label={t("codexConfig.catalogColumnDisplay", {
+          <span>
+            {t("codexConfig.catalogColumnDisplay", {
               defaultValue: "菜单显示名",
             })}
-          />
-          <div className="flex gap-1">
-            <Input
-              value={row.model}
-              onChange={(event) =>
-                handleUpdateCatalogRow(index, {
-                  model: event.target.value,
-                })
-              }
-              placeholder={t("codexConfig.catalogModelPlaceholder", {
-                defaultValue: "例如: deepseek-v4-flash",
-              })}
-              aria-label={t("codexConfig.catalogColumnModel", {
-                defaultValue: "实际请求模型",
-              })}
-              className="flex-1"
-            />
-            {fetchedModels.length > 0 && (
-              <ModelDropdown
-                models={fetchedModels}
-                onSelect={(id) =>
-                  handleSelectFetchedCatalogModel(row.rowId, id)
-                }
-              />
-            )}
-          </div>
-          <Input
-            type="number"
-            min={1}
-            inputMode="numeric"
-            value={row.contextWindow ?? ""}
-            onChange={(event) =>
-              handleUpdateCatalogRow(index, {
-                contextWindow: event.target.value.replace(/[^\d]/g, ""),
-              })
-            }
-            placeholder={t("codexConfig.contextWindowPlaceholder", {
-              defaultValue: "例如: 128000",
+          </span>
+          <span>
+            {t("codexConfig.catalogColumnModel", {
+              defaultValue: "实际请求模型",
             })}
-            aria-label={t("codexConfig.catalogColumnContext", {
+          </span>
+          <span>
+            {t("codexConfig.catalogColumnContext", {
               defaultValue: "上下文窗口",
             })}
-          />
-          <ReasoningLevelsEditor
-            levels={row.reasoningLevels}
-            defaultLevel={row.defaultReasoningLevel}
-            onLevelsChange={(levels) =>
-              handleUpdateCatalogRow(index, {
-                reasoningLevels: levels,
-              })
-            }
-            onDefaultLevelChange={(level) =>
-              handleUpdateCatalogRow(index, {
-                defaultReasoningLevel: level,
-              })
-            }
-          />
-          <HoverTip content={t("common.delete", { defaultValue: "删除" })}>
-            <Button
-              aria-label={t("common.delete", { defaultValue: "删除" })}
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="text-fg-2 hover:text-destructive"
-              onClick={() => handleRemoveCatalogRow(index)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </HoverTip>
+          </span>
+          <span>
+            {t("codexConfig.catalogColumnReasoning", {
+              defaultValue: "思考等级",
+            })}
+          </span>
+          <span />
         </div>
-      ))}
-    </div>
-  );
+
+        {catalogRows.map((row, index) => (
+          <div
+            key={row.rowId}
+            className={cn("grid grid-cols-1 gap-2", rowGrid)}
+          >
+            {withDefault && renderDefaultStar(index)}
+            {showPreviewColumns && (
+              <>
+                <div
+                  className="flex h-9 min-w-0 items-center"
+                  title={previewSelectorId(row.model)}
+                >
+                  <span className="truncate text-xs text-fg-2">
+                    {previewSelectorId(row.model) || "—"}
+                  </span>
+                </div>
+                <div
+                  className="flex h-9 min-w-0 items-center"
+                  title={previewSelectorName(row.model)}
+                >
+                  <span className="truncate text-xs text-fg-2">
+                    {previewSelectorName(row.model) || "—"}
+                  </span>
+                </div>
+              </>
+            )}
+            <Input
+              value={row.displayName ?? ""}
+              onChange={(event) =>
+                handleUpdateCatalogRow(index, {
+                  displayName: event.target.value,
+                })
+              }
+              placeholder={t("codexConfig.catalogDisplayNamePlaceholder", {
+                defaultValue: "例如: DeepSeek V4 Flash",
+              })}
+              aria-label={t("codexConfig.catalogColumnDisplay", {
+                defaultValue: "菜单显示名",
+              })}
+            />
+            <div className="flex gap-1">
+              <Input
+                value={row.model}
+                onChange={(event) =>
+                  handleUpdateCatalogRow(index, {
+                    model: event.target.value,
+                  })
+                }
+                placeholder={t("codexConfig.catalogModelPlaceholder", {
+                  defaultValue: "例如: deepseek-v4-flash",
+                })}
+                aria-label={t("codexConfig.catalogColumnModel", {
+                  defaultValue: "实际请求模型",
+                })}
+                className="flex-1"
+              />
+              {fetchedModels.length > 0 && (
+                <ModelDropdown
+                  models={fetchedModels}
+                  onSelect={(id) =>
+                    handleSelectFetchedCatalogModel(row.rowId, id)
+                  }
+                />
+              )}
+            </div>
+            <Input
+              type="number"
+              min={1}
+              inputMode="numeric"
+              value={row.contextWindow ?? ""}
+              onChange={(event) =>
+                handleUpdateCatalogRow(index, {
+                  contextWindow: event.target.value.replace(/[^\d]/g, ""),
+                })
+              }
+              placeholder={t("codexConfig.contextWindowPlaceholder", {
+                defaultValue: "例如: 128000",
+              })}
+              aria-label={t("codexConfig.catalogColumnContext", {
+                defaultValue: "上下文窗口",
+              })}
+            />
+            <ReasoningLevelsEditor
+              levels={row.reasoningLevels}
+              defaultLevel={row.defaultReasoningLevel}
+              onLevelsChange={(levels) =>
+                handleUpdateCatalogRow(index, {
+                  reasoningLevels: levels,
+                })
+              }
+              onDefaultLevelChange={(level) =>
+                handleUpdateCatalogRow(index, {
+                  defaultReasoningLevel: level,
+                })
+              }
+            />
+            <HoverTip content={t("common.delete", { defaultValue: "删除" })}>
+              <Button
+                aria-label={t("common.delete", { defaultValue: "删除" })}
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-fg-2 hover:text-destructive"
+                onClick={() => handleRemoveCatalogRow(index)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </HoverTip>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   const oauthSections = (
     <>
@@ -1991,7 +2053,7 @@ export function CodexFormFields({
                   >
                     {t("codexConfig.stackModelDefaultHelp", {
                       defaultValue:
-                        "这些模型会出现在 Codex 的 /model 里，选中后请求直达这家。第一行是默认模型：这家被设为默认时，Codex 默认用它。",
+                        "这些模型会出现在 Codex 的 /model 里，选中后请求直达这家。第一个（★）是默认模型：这家被设为默认时，Codex 默认用它。",
                     })}
                   </HelpTip>
                 </div>
@@ -2010,7 +2072,7 @@ export function CodexFormFields({
             </div>
             {defaultModelNotInListNotice}
             {catalogRows.length > 0 ? (
-              renderCatalogRows()
+              renderCatalogRows(true)
             ) : (
               <p className="text-xs leading-relaxed text-fg-2">
                 {t("codexConfig.modelListEmpty", {
@@ -2134,7 +2196,7 @@ export function CodexFormFields({
           </div>
 
           {defaultModelNotInListNotice}
-          {catalogRows.length > 0 && renderCatalogRows()}
+          {catalogRows.length > 0 && renderCatalogRows(false)}
         </div>
       )}
 

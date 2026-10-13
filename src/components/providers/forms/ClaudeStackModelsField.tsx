@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -166,6 +166,14 @@ export function ClaudeStackModelsField({
     onRowsChange([...kept, ...additions]);
   };
 
+  // fork：把这一行设为这家的默认模型（挪到第一位；第一行会写成这张卡的 ANTHROPIC_MODEL）。
+  // 上游 4f08989a 删除了该交互，fork 恢复（doc/20261013-实施计划-聚合表单模型列表设为默认模型.md）。
+  const makeDefault = (rowId: string) => {
+    const row = rows.find((other) => other.rowId === rowId);
+    if (!row) return;
+    onRowsChange([row, ...rows.filter((other) => other.rowId !== rowId)]);
+  };
+
   return (
     <div className="space-y-3">
       <div className="space-y-1">
@@ -181,7 +189,7 @@ export function ClaudeStackModelsField({
             >
               {t("providerForm.stackModelDefaultHelp", {
                 defaultValue:
-                  "这些模型会出现在 Claude Code 的 /model 里，选中后请求直达这家。第一行是默认模型，也会写成这张卡的 ANTHROPIC_MODEL。",
+                  "这些模型会出现在 Claude Code 的 /model 里，选中后请求直达这家。第一个（★）是默认模型，也会写成这张卡的 ANTHROPIC_MODEL。",
               })}
             </HelpTip>
           </div>
@@ -223,14 +231,17 @@ export function ClaudeStackModelsField({
         <div className="space-y-2">
           {/* fork 五项优化：最前两列只读预览（选择器 id / 选择器显示名），有分组 key
               才显示；窄列 truncate + title 悬停看全 */}
+          {/* fork：行首多一列 ★（设为默认模型，上游 4f08989a 删除，fork 恢复）；
+              列模板写字面量（tailwind JIT 只收字面量类名） */}
           <div
             className={cn(
               "hidden gap-2 px-1 text-xs font-medium text-fg-2 md:grid",
               showPreviewColumns
-                ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_1fr_minmax(0,1fr)_64px_36px]"
-                : "grid-cols-[1fr_minmax(0,1fr)_64px_36px]",
+                ? "grid-cols-[36px_minmax(0,1.2fr)_minmax(0,1fr)_1fr_minmax(0,1fr)_64px_36px]"
+                : "grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px]",
             )}
           >
+            <span />
             {showPreviewColumns && (
               <>
                 <span>
@@ -260,18 +271,47 @@ export function ClaudeStackModelsField({
             </span>
             <span />
           </div>
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const modelBase = stripClaudeOneMMarker(row.model).trim();
+            // fork：第一行是这家的默认模型（★），其余行点 ☆ 设为默认并挪到第一位
+            const isDefault = index === 0;
+            const defaultLabel = isDefault
+              ? t("providerForm.stackModelDefault", {
+                  defaultValue: "默认模型",
+                })
+              : t("providerForm.stackModelMakeDefault", {
+                  defaultValue: "设为默认模型",
+                });
             return (
               <div
                 key={row.rowId}
                 className={cn(
                   "grid grid-cols-1 gap-2",
                   showPreviewColumns
-                    ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_1fr_minmax(0,1fr)_64px_36px]"
-                    : "md:grid-cols-[1fr_minmax(0,1fr)_64px_36px]",
+                    ? "md:grid-cols-[36px_minmax(0,1.2fr)_minmax(0,1fr)_1fr_minmax(0,1fr)_64px_36px]"
+                    : "md:grid-cols-[36px_1fr_minmax(0,1fr)_64px_36px]",
                 )}
               >
+                <HoverTip content={defaultLabel}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => makeDefault(row.rowId)}
+                    disabled={isDefault}
+                    aria-label={defaultLabel}
+                    aria-pressed={isDefault}
+                    className="h-9 w-9 text-fg-2 hover:text-warning-text disabled:opacity-100"
+                  >
+                    <Star
+                      className={
+                        isDefault
+                          ? "h-4 w-4 fill-warning text-warning-text"
+                          : "h-4 w-4"
+                      }
+                    />
+                  </Button>
+                </HoverTip>
                 {showPreviewColumns && (
                   <>
                     <div

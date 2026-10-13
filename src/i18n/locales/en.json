@@ -1713,10 +1713,11 @@
     "modelMappingHint": "Display names only affect the /model menu; 1M is only a Claude Code context-capability declaration.",
     "stackModelsLabel": "Models",
     "addStackModel": "Add manually",
-    "stackModelDefaultHelp": "These models appear in Claude Code's /model menu and picking one sends requests straight to this provider. The first row is the default model and is also written as this card's ANTHROPIC_MODEL.",
+    "stackModelDefaultHelp": "These models appear in Claude Code's /model menu and picking one sends requests straight to this provider. The first (★) is the default model and is also written as this card's ANTHROPIC_MODEL.",
     "stackModelsEmpty": "No models configured: this provider won't appear in the model picker once added to the aggregation",
     "stackModelPlaceholder": "e.g. deepseek-v4-pro",
     "stackModelDefault": "Default model",
+    "stackModelMakeDefault": "Make default model",
     "stackLayout": {
       "noModels": "The model list is empty: this provider won't appear in the model picker once added to the aggregation"
     },
@@ -1985,7 +1986,7 @@
     "modelListDefaultHelp": "These models appear in Codex's /model menu; the first row is the default model. Rows named after an official GPT model use the official entry, so their display name, window and reasoning levels are ignored.",
     "addCatalogModel": "Add manually",
     "modelListTitle": "Models",
-    "stackModelDefaultHelp": "These models appear in Codex's /model menu and picking one sends requests straight to this provider. The first row is the default model, used while this provider is the default.",
+    "stackModelDefaultHelp": "These models appear in Codex's /model menu and picking one sends requests straight to this provider. The first (★) is the default model, used while this provider is the default.",
     "defaultModelNotInList": "The default model {{model}} is not in the list: Codex still requests it by default, but /model won't show it.",
     "addToModelList": "Add to list",
     "modelListEmpty": "No models configured: in Aggregation mode only the default model below is published.",
