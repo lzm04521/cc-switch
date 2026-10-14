@@ -1,0 +1,33 @@
+{
+  "version": "4.0.12-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "新增本地推理预设：Ollama、LM Studio、vLLM 等",
+      "zh-TW": "新增本地推理預設：Ollama、LM Studio、vLLM 等",
+      "en": "New local inference presets: Ollama, LM Studio, llama.cpp and vLLM in a Local group",
+      "ja": "ローカル推論プリセット追加（Ollama、vLLM など）"
+    },
+    {
+      "type": "new",
+      "zh": "新增 Cloudflare、Mistral、Groq 等十余个官方预设",
+      "zh-TW": "新增 Cloudflare、Mistral、Groq 等十餘個官方預設",
+      "en": "New official presets: Cloudflare, Mistral, Fireworks, Groq, and more",
+      "ja": "Cloudflare、Mistral、Groq など公式プリセット追加"
+    },
+    {
+      "type": "improve",
+      "zh": "应用页重排：操作列不再挤压版本号，卸载移入行尾「⋯」菜单",
+      "zh-TW": "應用頁重排：操作欄不再擠壓版本號，解除安裝移入行尾「⋯」選單",
+      "en": "Apps page relaid out: the version column no longer shifts, uninstall moved into the row menu",
+      "ja": "アプリページ改善：バージョン列がずれなくなり、アンインストールは行末メニューへ"
+    },
+    {
+      "type": "improve",
+      "zh": "用量页按所选自动刷新间隔同步会话用量统计",
+      "zh-TW": "用量頁按所選自動整理距同步工作階段用量統計",
+      "en": "Usage page now scans session usage at your chosen auto-refresh interval",
+      "ja": "使用量ページが自動更新間隔でセッション使用量を同期"
+    }
+  ]
+}
