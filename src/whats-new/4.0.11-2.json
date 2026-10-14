@@ -1,0 +1,12 @@
+{
+  "version": "4.0.11-2",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "聚合模式勾选模型时，自动填入上游返回的上下文窗口大小",
+      "zh-TW": "聚合模式勾選模型時，自動填入上游回傳的上下文視窗大小",
+      "en": "Stack mode now carries the upstream context window when you pick a model from the fetched list",
+      "ja": "スタックモード：モデル選択時に上流の contextLength を自動反映"
+    }
+  ]
+}
