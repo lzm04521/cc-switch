@@ -251,6 +251,8 @@ export interface ClaudeStackModel {
   displayName?: string;
   // 上游是 1M 窗口
   oneM?: boolean;
+  // 来自上游 /v1/models 的上下文窗口（token 数）；手动填入的行无此字段
+  contextLength?: number;
 }
 
 // Skill 同步方式

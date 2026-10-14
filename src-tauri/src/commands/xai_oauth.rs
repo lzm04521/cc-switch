@@ -85,6 +85,10 @@ struct ModelEntry {
     id: String,
     #[serde(default)]
     owned_by: Option<String>,
+    #[serde(default)]
+    context_length: Option<u64>,
+    #[serde(default)]
+    context_window: Option<u64>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -128,6 +132,7 @@ pub async fn get_xai_oauth_models(
         .map(|model| FetchedModel {
             id: model.id,
             owned_by: model.owned_by,
+            context_length: model.context_length.or(model.context_window),
         })
         .collect();
     models.sort_by(|a, b| a.id.cmp(&b.id));

@@ -115,6 +115,46 @@ describe("ClaudeStackModelsField model picker", () => {  it("keeps checked rows 
   });
 });
 
+// 勾选带 contextLength 的 FetchedModel 时，新行应保留 contextLength
+describe("ClaudeStackModelsField contextLength 透传", () => {
+  it("勾选有 contextLength 的模型，新行写入 contextLength", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <FormShell>
+        <ClaudeStackModelsField
+          rows={[]}
+          onRowsChange={onRowsChange}
+          fetchedModels={[
+            { id: "glm-5.2", ownedBy: null, contextLength: 128_000 },
+            { id: "kimi-k3", ownedBy: null },
+          ]}
+          onFetchModels={vi.fn()}
+          isFetchingModels={false}
+        />
+      </FormShell>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "providerForm.modelPicker.title" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "glm-5.2" }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "kimi-k3" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "providerForm.modelPicker.apply" }),
+    );
+
+    expect(onRowsChange).toHaveBeenCalledTimes(1);
+    const [rows] = onRowsChange.mock.calls[0];
+    expect(rows).toHaveLength(2);
+    // 有 contextLength 的模型应透传
+    expect(rows[0]).toMatchObject({ model: "glm-5.2", contextLength: 128_000 });
+    // 无 contextLength 的模型不带该字段
+    expect(rows[1]).toMatchObject({ model: "kimi-k3" });
+    expect(rows[1].contextLength).toBeUndefined();
+  });
+});
+
 // fork：上游 4f08989a 删除的「设为默认模型」交互，fork 恢复
 describe("ClaudeStackModelsField 设为默认模型", () => {
   it("第一行 ★ 标记默认且不可点，点其余行 ★ 把该行挪到首位", () => {

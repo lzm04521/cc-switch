@@ -636,6 +636,9 @@ pub struct ClaudeStackModel {
     /// 上游是 1M 窗口。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub one_m: bool,
+    /// 来自上游 /v1/models 的上下文窗口（token 数）。手动填入的行为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<u64>,
 }
 
 /// 解析 Provider 级自定义 User-Agent 字符串（单一真理来源）。

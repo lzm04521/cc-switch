@@ -278,11 +278,18 @@ struct Found {
     upstream: String,
     name: Option<String>,
     one_m: bool,
+    /// 来自 meta.stackModels 行的上下文窗口（token 数）；映射来源和手动填入的行为 None。
+    context_length: Option<u64>,
 }
 
 /// 按去掉 1M 标记后的名字去重地加入 `found`。同一个模型有一处带 1M 标记就按 1M，发往上游的
-/// 也用带标记的那个写法；显示名取第一个有的。
-fn push_found(found: &mut Vec<Found>, upstream: &str, name: Option<String>) {
+/// 也用带标记的那个写法；显示名取第一个有的；context_length 取第一个有的。
+fn push_found(
+    found: &mut Vec<Found>,
+    upstream: &str,
+    name: Option<String>,
+    context_length: Option<u64>,
+) {
     let model = strip_one_m_suffix_for_upstream(upstream).trim().to_string();
     if model.is_empty() {
         return;
@@ -297,12 +304,16 @@ fn push_found(found: &mut Vec<Found>, upstream: &str, name: Option<String>) {
             if entry.name.is_none() {
                 entry.name = name;
             }
+            if entry.context_length.is_none() {
+                entry.context_length = context_length;
+            }
         }
         None => found.push(Found {
             model,
             upstream: upstream.to_string(),
             name,
             one_m,
+            context_length,
         }),
     }
 }
@@ -331,7 +342,7 @@ fn listed_models(list: &[ClaudeStackModel]) -> Vec<Found> {
             .map(str::trim)
             .filter(|name| !name.is_empty())
             .map(str::to_string);
-        push_found(&mut found, &upstream, name);
+        push_found(&mut found, &upstream, name, entry.context_length);
     }
     found
 }
@@ -363,20 +374,21 @@ fn mapped_models(env: &Map<String, Value>) -> Vec<Found> {
             continue;
         };
         let name = name_key.and_then(|name_key| env_string(env, name_key).map(str::to_string));
-        push_found(&mut found, upstream, name);
+        // 映射来源没有行级 context_length，使用 provider 级窗口兜底
+        push_found(&mut found, upstream, name, None);
     }
     found
 }
 
-/// 给找到的模型加上前缀、显示名和窗口。非 1M 模型的窗口是行里的
-/// `CLAUDE_CODE_MAX_CONTEXT_TOKENS`（Claude Code 只有一个全局窗口，没法按模型设），没有是 200K。
+/// 给找到的模型加上前缀、显示名和窗口。窗口优先级：行级 context_length >
+/// 供应商级 CLAUDE_CODE_MAX_CONTEXT_TOKENS > 200K 默认。1M 模型强制 1_000_000。
 fn stack_models(
     prefix: &str,
     key: &str,
     provider: &Provider,
     found: Vec<Found>,
 ) -> Vec<StackModel> {
-    let window = claude_env(provider)
+    let provider_window = claude_env(provider)
         .and_then(|env| env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS"))
         .and_then(|value| match value {
             Value::Number(number) => number.as_u64(),
@@ -389,7 +401,18 @@ fn stack_models(
         .into_iter()
         .map(|found| {
             let name = found.name.unwrap_or_else(|| found.model.clone());
-            let shown_window = if found.one_m { 1_000_000 } else { window };
+            // 1M 模型固定 1M 窗口；普通模型优先用行级值，退回 provider_window
+            let shown_window = if found.one_m {
+                1_000_000
+            } else {
+                found.context_length.unwrap_or(provider_window)
+            };
+            // `window` 字段记录非 1M 时实际生效的窗口，供路由决策使用
+            let window = if found.one_m {
+                provider_window
+            } else {
+                found.context_length.unwrap_or(provider_window)
+            };
             StackModel {
                 id: encode(prefix, &AppType::Claude, key, &found.model, found.one_m),
                 display_name: display_name(&name, provider_label(provider)),
@@ -1111,6 +1134,30 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn context_length_from_stack_model_row_beats_provider_window() {
+        // 行级 contextLength 优先于供应商级 CLAUDE_CODE_MAX_CONTEXT_TOKENS；
+        // 无行级值时退回供应商窗口。
+        let row = with_stack_models(
+            provider(
+                "p",
+                "Kimi",
+                None,
+                json!({ "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "256000" }),
+            ),
+            json!([
+                { "model": "kimi-k3", "contextLength": 128000 },
+                { "model": "kimi-k4" }
+            ]),
+        );
+        let models = claude_models("ccs-", "kimi", &row);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].window, 128_000, "行级 contextLength 应覆盖供应商窗口");
+        assert_eq!(models[0].description, "kimi-k3 · 128K");
+        assert_eq!(models[1].window, 256_000, "无行级值时应退回供应商窗口");
+        assert_eq!(models[1].description, "kimi-k4 · 256K");
     }
 
     struct Fixture {

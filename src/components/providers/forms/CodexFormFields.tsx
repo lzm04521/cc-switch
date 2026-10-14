@@ -1098,7 +1098,16 @@ export function CodexFormFields({
       const configured = new Set(kept.map((row) => row.model.trim()));
       const picked = add
         .filter((id) => !configured.has(id))
-        .map((id) => createCatalogRow({ model: id, displayName: id }));
+        .map((id) => {
+          const meta = fetchedModels.find((m) => m.id === id);
+          return createCatalogRow({
+            model: id,
+            displayName: id,
+            ...(meta?.contextLength != null
+              ? { contextWindow: meta.contextLength }
+              : {}),
+          });
+        });
       const additions =
         current.length === 0 ? seedWithDefaultModel(picked) : picked;
       const next = [...kept, ...additions];
@@ -1116,6 +1125,7 @@ export function CodexFormFields({
     [
       catalogRowsRef,
       commitCatalogRows,
+      fetchedModels,
       fillCatalogRowMetadata,
       linkedDefaultIndex,
       onModelChange,

@@ -6,6 +6,8 @@ import { parseHeaderOverrideJson } from "@/lib/requestOverrides";
 export interface FetchedModel {
   id: string;
   ownedBy: string | null;
+  /** 上游 /v1/models 返回的上下文窗口（token 数）。未返回时为 undefined。 */
+  contextLength?: number;
 }
 
 export interface ModelFetchOptions {

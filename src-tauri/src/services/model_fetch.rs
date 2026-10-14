@@ -16,6 +16,10 @@ use std::time::Duration;
 pub struct FetchedModel {
     pub id: String,
     pub owned_by: Option<String>,
+    /// 上游 /v1/models 返回的上下文窗口（token 数）。未返回时为 None。
+    /// 兼容 OpenAI 的 `context_length` 和 Anthropic 的 `context_window` 两种字段名。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<u64>,
 }
 
 /// 模型列表响应的兼容格式。
@@ -36,6 +40,10 @@ struct ModelsResponse {
 struct ModelEntry {
     id: String,
     owned_by: Option<String>,
+    /// OpenAI 风格字段名
+    context_length: Option<u64>,
+    /// Anthropic 风格字段名（兼容）
+    context_window: Option<u64>,
 }
 
 /// `models[]` 条目对应的模型 id：`slug` 优先，回退 OpenAI 风格的 `id`；
@@ -128,12 +136,14 @@ pub async fn fetch_models(
                     .map(|m| FetchedModel {
                         id: m.id,
                         owned_by: m.owned_by,
+                        // OpenAI 用 context_length，Anthropic 用 context_window，两者均可
+                        context_length: m.context_length.or(m.context_window),
                     })
                     .collect()
             } else {
                 catalog_model_ids(resp.models)
                     .into_iter()
-                    .map(|id| FetchedModel { id, owned_by: None })
+                    .map(|id| FetchedModel { id, owned_by: None, context_length: None })
                     .collect()
             };
 

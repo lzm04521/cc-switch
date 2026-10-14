@@ -162,7 +162,15 @@ export function ClaudeStackModelsField({
     );
     const additions = add
       .filter((id) => !configured.has(id))
-      .map((id) => createClaudeStackModelRow({ model: id }));
+      .map((id) => {
+        const meta = fetchedModels.find((m) => m.id === id);
+        return createClaudeStackModelRow({
+          model: id,
+          ...(meta?.contextLength != null
+            ? { contextLength: meta.contextLength }
+            : {}),
+        });
+      });
     onRowsChange([...kept, ...additions]);
   };
 
