@@ -1,0 +1,33 @@
+{
+  "version": "4.0.11-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "「应用」页新增卸载按钮，菜单附手动卸载命令",
+      "zh-TW": "「應用」頁新增解除安裝按鈕，選單附手動命令",
+      "en": "Apps page can uninstall tools, with manual commands in the menu",
+      "ja": "アプリページにアンインストールボタンと手動コマンドを追加"
+    },
+    {
+      "type": "improve",
+      "zh": "套餐额度查询在所有应用里默认开启",
+      "zh-TW": "套餐額度查詢在所有應用裡預設開啟",
+      "en": "Coding-plan usage lookup is now enabled by default for every app",
+      "ja": "プラン使用量照会を全アプリでデフォルト有効化"
+    },
+    {
+      "type": "fix",
+      "zh": "Codex 分叉与分页会话用量统计修复，升级后自动补回",
+      "zh-TW": "Codex 分岔與分頁會話用量統計修復，升級後自動補回",
+      "en": "Codex forked and paginated session usage fixed; backfilled after upgrade",
+      "ja": "Codex 分岐・ページ分割セッションの使用量を修正し自動補填"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 Windows 自动更新重启后找不到 npm 等问题",
+      "zh-TW": "修復 Windows 自動更新重啟後找不到 npm 等問題",
+      "en": "Fix npm not found after Windows auto-update restart, and more",
+      "ja": "Windows 自動更新再起動後の npm 未検出などを修正"
+    }
+  ]
+}
