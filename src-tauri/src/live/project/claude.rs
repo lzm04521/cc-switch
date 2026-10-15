@@ -225,8 +225,8 @@ pub enum ProxyAuth {
     Managed { auth_token: bool },
 }
 
-/// Stack 模式下 Claude Code 四档别名都指向的模型：默认那家列表里的第一个
-/// （`mode::stack::claude_route_default`）。
+/// Stack 模式下 Claude Code 一个档位别名指向的模型：发布 id 与显示名（来自
+/// `mode::stack` 解析出的 `StackModel`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StackRoleModel<'a> {
     /// 发布给客户端的 Stack id，1M 模型带 `[1M]`。
@@ -235,19 +235,29 @@ pub struct StackRoleModel<'a> {
     pub name: &'a str,
 }
 
+/// Stack 模式下四档别名各自的指向：未配映射的档都是默认那家列表的第一个模型，配了
+/// 档位映射的档用映射到的模型（`mode::stack::claude_route_roles`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StackRoles<'a> {
+    pub haiku: StackRoleModel<'a>,
+    pub sonnet: StackRoleModel<'a>,
+    pub opus: StackRoleModel<'a>,
+    pub fable: StackRoleModel<'a>,
+}
+
 /// 代理契约：代理模式下 `settings.json` 的关键字段和独有字段。
 ///
 /// - 关键字段：本地代理地址、占位凭据、按角色写的模型；其余关键字段（协议选择器、云凭据、
 ///   `/model` 的选择等）一律清空，否则 Claude Code 会绕过代理；
 ///   - 路由模式（`stack_default` 为 `None`）：稳定的 `claude-*` 别名，显示名跟着路由供应商，
 ///     真实模型由代理映射；
-///   - Stack 模式：四档都写 `stack_default` 的 Stack id，请求直达默认那家的这个模型；
+///   - Stack 模式：四档各写 `stack_default` 里对应档的 Stack id，请求直达默认那家的那个模型；
 /// - 独有字段：路由供应商的。它们在客户端发请求时生效，代理不能替它补上。
 pub fn proxy_projection(
     route: &ClaudeProjection,
     proxy_url: &str,
     auth: ProxyAuth,
-    stack_default: Option<StackRoleModel<'_>>,
+    stack_default: Option<StackRoles<'_>>,
 ) -> ClaudeProjection {
     let mut env = Map::new();
     env.insert(
@@ -255,7 +265,7 @@ pub fn proxy_projection(
         Value::String(proxy_url.to_string()),
     );
     let fields = match stack_default {
-        Some(model) => stack_model_fields(model),
+        Some(models) => stack_model_fields(models),
         None => proxy_model_fields(&route.env),
     };
     for (key, value) in fields {
@@ -368,40 +378,46 @@ fn proxy_model_fields(env: &Map<String, Value>) -> Vec<(&'static str, String)> {
     fields
 }
 
-/// Stack 模式的四档：都写同一个 Stack id，显示名也一样。haiku 档不带 1M 标记（和路由契约
-/// 一样，haiku 别名不写 1M；去掉标记的 id 解析到同一个模型）。不写
-/// `CLAUDE_CODE_SUBAGENT_MODEL`：子代理跟随主模型，也就是用户在 `/model` 里选的。
-fn stack_model_fields(model: StackRoleModel<'_>) -> Vec<(&'static str, String)> {
-    let haiku = model
+/// Stack 模式的四档：每档写自己指向的 Stack id 和显示名（未配映射的档都是默认模型，
+/// 见 [`StackRoles`]）。haiku 档不带 1M 标记（和路由契约一样，haiku 别名不写 1M；
+/// 去掉标记的 id 解析到同一个模型）。不写 `CLAUDE_CODE_SUBAGENT_MODEL`：子代理跟随主模型，
+/// 也就是用户在 `/model` 里选的。
+fn stack_model_fields(models: StackRoles<'_>) -> Vec<(&'static str, String)> {
+    let haiku = models
+        .haiku
         .id
         .strip_suffix(ONE_M_MARKER_FOR_CLIENT)
-        .unwrap_or(model.id);
+        .unwrap_or(models.haiku.id);
     let roles = [
         (
             "ANTHROPIC_DEFAULT_HAIKU_MODEL",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
             haiku,
+            models.haiku.name,
         ),
         (
             "ANTHROPIC_DEFAULT_SONNET_MODEL",
             "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
-            model.id,
+            models.sonnet.id,
+            models.sonnet.name,
         ),
         (
             "ANTHROPIC_DEFAULT_OPUS_MODEL",
             "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
-            model.id,
+            models.opus.id,
+            models.opus.name,
         ),
         (
             "ANTHROPIC_DEFAULT_FABLE_MODEL",
             "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
-            model.id,
+            models.fable.id,
+            models.fable.name,
         ),
     ];
-    let name = model.name.trim();
     let mut fields = Vec::with_capacity(roles.len() * 2);
-    for (model_key, name_key, id) in roles {
+    for (model_key, name_key, id, name) in roles {
         fields.push((model_key, id.to_string()));
+        let name = name.trim();
         if !name.is_empty() {
             fields.push((name_key, name.to_string()));
         }
@@ -723,13 +739,19 @@ mod tests {
             "CLAUDE_CODE_SUBAGENT_MODEL": "glm-4.7-air"
         }});
         let route = ClaudeProjection::of(&row);
+        let tier = StackRoleModel {
+            id: "ccs-z.glm-5.2[1M]",
+            name: "GLM 5.2",
+        };
         let stacked = proxy_projection(
             &route,
             "http://127.0.0.1:15721",
             ProxyAuth::FollowRow,
-            Some(StackRoleModel {
-                id: "ccs-z.glm-5.2[1M]",
-                name: "GLM 5.2",
+            Some(StackRoles {
+                haiku: tier,
+                sonnet: tier,
+                opus: tier,
+                fable: tier,
             }),
         );
         let env = |key: &str| stacked.env.get(key).and_then(Value::as_str);
@@ -759,5 +781,48 @@ mod tests {
             "claude-sonnet-5[1M]"
         );
         assert_eq!(routed.env["CLAUDE_CODE_SUBAGENT_MODEL"], "glm-4.7-air");
+    }
+
+    #[test]
+    fn stack_mode_writes_each_tier_at_its_own_model() {
+        let row = json!({ "env": { "ANTHROPIC_AUTH_TOKEN": "sk" }});
+        let route = ClaudeProjection::of(&row);
+        fn tier<'a>(id: &'a str, name: &'a str) -> StackRoleModel<'a> {
+            StackRoleModel { id, name }
+        }
+        let stacked = proxy_projection(
+            &route,
+            "http://127.0.0.1:15721",
+            ProxyAuth::FollowRow,
+            Some(StackRoles {
+                haiku: tier("ccs-z.glm-4.7-air[1M]", "GLM 4.7 Air"),
+                sonnet: tier("ccs-z.glm-5.2[1M]", "GLM 5.2"),
+                opus: tier("ccs-z.glm-5.2", "GLM 5.2 200K"),
+                fable: tier("ccs-z.glm-5.2", "GLM 5.2 200K"),
+            }),
+        );
+        let env = |key: &str| stacked.env.get(key).and_then(Value::as_str);
+        assert_eq!(
+            env("ANTHROPIC_DEFAULT_SONNET_MODEL"),
+            Some("ccs-z.glm-5.2[1M]")
+        );
+        // haiku 档剥掉 1M 标记，其余档保留。
+        assert_eq!(
+            env("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+            Some("ccs-z.glm-4.7-air")
+        );
+        assert_eq!(env("ANTHROPIC_DEFAULT_OPUS_MODEL"), Some("ccs-z.glm-5.2"));
+        // 各档的显示名取各自 StackRoleModel。
+        assert_eq!(
+            env("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"),
+            Some("GLM 4.7 Air")
+        );
+        assert_eq!(env("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"), Some("GLM 5.2"));
+        assert_eq!(
+            env("ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"),
+            Some("GLM 5.2 200K")
+        );
+        // 子代理照旧不写。
+        assert_eq!(env("CLAUDE_CODE_SUBAGENT_MODEL"), None);
     }
 }

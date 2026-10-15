@@ -26,7 +26,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::live::engine::DeviceStore;
 use crate::live::project::claude::{
-    direct_patch, proxy_projection, ClaudeProjection, ProxyAuth, StackRoleModel,
+    direct_patch, proxy_projection, ClaudeProjection, ProxyAuth, StackRoleModel, StackRoles,
     PROXY_TOKEN_PLACEHOLDER,
 };
 use crate::live::project::gemini::GeminiProjection;
@@ -193,9 +193,18 @@ fn claude_contract(
         &ClaudeProjection::of(&route.settings_config),
         proxy_url,
         claude_proxy_auth(route),
-        stack_default.map(|model| StackRoleModel {
-            id: &model.id,
-            name: &model.name,
+        // 四档先同源（默认那家的第一模型）；按档映射的数据源在 `enter` 的 Claude 分支换上。
+        stack_default.map(|model| {
+            let tier = StackRoleModel {
+                id: &model.id,
+                name: &model.name,
+            };
+            StackRoles {
+                haiku: tier,
+                sonnet: tier,
+                opus: tier,
+                fable: tier,
+            }
         }),
     );
     with_stack_models(&mut projection, stack);
