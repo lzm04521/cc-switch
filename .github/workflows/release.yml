@@ -23,6 +23,9 @@ jobs:
   whats-new-check:
     name: Check in-app what's new summaries
     runs-on: ubuntu-22.04
+    outputs:
+      # 该版本是否发预发布：由 src/whats-new/<版本>.json 的 channel 字段驱动（见下方读取步骤）
+      prerelease: ${{ steps.channel.outputs.prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -39,6 +42,27 @@ jobs:
             echo "::error file=$file::Missing $file. Write the in-app summary for $TAG (see src/whats-new/README.md); use \"items\": [] to skip the popup."
             exit 1
           fi
+
+      # 测试版标记：MSI 打包要求版本号预发布段是单个纯数字（≤65535），没法用
+      # -beta.N 之类的 tag 后缀区分，所以测试版属性写进摘要文件的 channel 字段。
+      # 预发布 Release 不占 GitHub latest 通道，updater（releases/latest/download/
+      # latest.json）仍指上一正式版，正式用户不会收到测试版更新；版本号照常 -N
+      # 自增（测试版烧号，之后的正式版跳到下一个 -N）。
+      - name: Read release channel
+        id: channel
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          file="src/whats-new/${TAG#v}.json"
+          channel=$(jq -r '.channel // "stable"' "$file")
+          case "$channel" in
+            stable) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+            beta|rc) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error file=$file::Unknown channel '$channel' (expected stable|beta|rc)"; exit 1 ;;
+          esac
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -392,7 +416,8 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
-    needs: release
+    # whats-new-check 显式列入：发布是否标记预发布要读它的 channel 输出
+    needs: [whats-new-check, release]
     # 只有推 tag 才发布。手动触发时也能选 tag 作为运行版本，单看 ref_type 会把干跑当成正式发布，
     # 覆盖已发布 release 的正文和安装包
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -537,12 +562,9 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: CC Switch ${{ github.ref_name }}
-          # fork：tag 带 -beta.N / -rc.N 后缀发预发布。prerelease 不占 GitHub 的 latest
-          # 通道，updater endpoint（releases/latest/download/latest.json）仍指上一正式版，
-          # 正式用户不会收到测试版更新。版本号约定：测试版须 semver 小于目标正式版
-          # （如 4.0.12-4.1-beta.1 < 4.0.12-5，注意字母段优先级高于数字段，
-          # 4.0.12-5-beta.1 这种号会反超正式版导致 beta 用户收不到正式更新）。
-          prerelease: ${{ contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') }}
+          # 测试版（channel: beta|rc）发预发布：不占 GitHub latest 通道，
+          # 正式用户的 updater 不受影响。判定来源见 whats-new-check 的 Read release channel。
+          prerelease: ${{ needs.whats-new-check.outputs.prerelease == 'true' }}
           body: |
             ## CC Switch ${{ github.ref_name }}
 
