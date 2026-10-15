@@ -201,6 +201,25 @@ describe("ClaudeFormFields", () => {
 });
 
 describe("ClaudeFormFields stack 变体：聚合默认分组模型映射区块", () => {
+  it("门控开启且未配过映射（values 缺省）也渲染区块——首次配置入口", () => {
+    // ProviderForm 侧 meta.stackRoleMapping 不存在时传 undefined；不回退的话
+    // 区块永不渲染，用户没有首次配置的入口（曾导致 v4.0.12-4 编辑页看不到映射设置）。
+    renderCopilotForm({
+      variant: "stack",
+      isCopilotPreset: false,
+      isCopilotAuthenticated: false,
+      stackModelRows: [
+        createClaudeStackModelRow({ model: "glm-5.2" }),
+        createClaudeStackModelRow({ model: "glm-flash" }),
+      ],
+      stackRoleMappingEnabled: true,
+      onStackRoleMappingChange: vi.fn(),
+    });
+    expect(screen.getByText("模型映射")).toBeInTheDocument();
+    expect(screen.getByText("Sonnet")).toBeInTheDocument();
+    expect(screen.getByText("Haiku")).toBeInTheDocument();
+  });
+
   it("门控开启时渲染四档映射区块，未开启不渲染", () => {
     // 不传 onStackModelRowsChange：模型列表区块跳过（避免 settings query 依赖），映射区块独立渲染。
     const { unmount } = renderCopilotForm({

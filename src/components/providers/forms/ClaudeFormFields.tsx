@@ -79,6 +79,17 @@ import {
   type TemplateValueConfig,
 } from "@/config/claudeProviderPresets";
 
+/**
+ * 首次配置（meta.stackRoleMapping 不存在，values 缺省）时的回退：四档全「跟随默认」。
+ * 不回退的话区块永远不渲染，用户没有首次配置的入口。
+ */
+const EMPTY_CLAUDE_ROLE_TIERS: ClaudeStackRoleTiers = {
+  sonnet: "",
+  opus: "",
+  fable: "",
+  haiku: "",
+};
+
 interface EndpointCandidate {
   url: string;
 }
@@ -1061,15 +1072,13 @@ export function ClaudeFormFields({
           />
         )}
 
-        {stackRoleMappingEnabled &&
-          stackRoleMappingValues &&
-          onStackRoleMappingChange && (
-            <ClaudeStackRoleMappingField
-              rows={stackModelRows}
-              values={stackRoleMappingValues}
-              onTierChange={onStackRoleMappingChange}
-            />
-          )}
+        {stackRoleMappingEnabled && onStackRoleMappingChange && (
+          <ClaudeStackRoleMappingField
+            rows={stackModelRows}
+            values={stackRoleMappingValues ?? EMPTY_CLAUDE_ROLE_TIERS}
+            onTierChange={onStackRoleMappingChange}
+          />
+        )}
 
         {/* 高级区只有 UA 和请求覆盖；Copilot 的转发会跳过这两项，整块不显示 */}
         {!isCopilotPreset && (
