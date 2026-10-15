@@ -242,8 +242,19 @@ export interface ProviderMeta {
   githubAccountId?: string;
   // Stack 模式下这家 Claude Code 供应商发布的模型；没有时按模型映射发布，空列表什么都不发布
   stackModels?: ClaudeStackModel[];
+  // 聚合模式默认分组的四档别名映射（后端 stack::claude_route_roles）；没有 = 四档全跟列表第一模型。
+  // 与完整表单的模型映射（env 档位键）是两份数据，互不影响
+  stackRoleMapping?: ClaudeStackRoleMapping;
   // 聚合显示名里供应商的简称（后端 stack::provider_label）；空 = 用名称
   shortName?: string;
+}
+
+// 聚合模式默认分组的四档别名映射：值为模型名，与发布列表行去掉 1M 标记后比对；空/缺 = 跟随默认
+export interface ClaudeStackRoleMapping {
+  haiku?: string;
+  sonnet?: string;
+  opus?: string;
+  fable?: string;
 }
 
 // Stack 模式下 Claude Code 供应商发布的一个模型
