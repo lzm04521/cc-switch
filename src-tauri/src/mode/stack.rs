@@ -4,8 +4,8 @@
 //! （[`StackState::enabled`]）。Stack 模式下供应商列表是累加式的：添加的每一家（第三方）的
 //! 模型以带保留前缀的 id 发布给客户端，选中后请求直达那一家；不带前缀的请求发往「默认」
 //! 那家（代理路由），不做故障转移。Claude Code 的四档别名（启动默认、后台任务、子代理别名）
-//! 都指向默认那家列表里的第一个模型（[`claude_route_default`]），平时用哪个由用户在
-//! `/model` 里选。
+//! 未配映射时都指向默认那家列表里的第一个模型，配了档位映射的档用映射到的模型
+//! （[`claude_route_roles`]），平时用哪个由用户在 `/model` 里选。
 //!
 //! - 名单和 key 登记簿存在 `live-state.json`（[`StackState`]），增删和客户端文件在同一个
 //!   操作里提交（`controller::set_stack_member`）；默认那家也在名单里，不能移除；
@@ -589,18 +589,27 @@ pub struct RouteRoles {
     pub fable: StackModel,
 }
 
-/// 四档别名指向的模型：每档读默认分组 env 的档位键（`ANTHROPIC_DEFAULT_*_MODEL`），在它
-/// 自己发布的模型列表里按去掉 `[1M]` 标记后的名字查表（id 的 1M 跟随列表行）；未配或不在
-/// 列表里回落列表第一模型（默认模型，即 [`claude_route_default`]）。没有 route 成员（或它
-/// 没有可发布的模型）时为 `None`，与 `claude_route_default` 一致。
+/// 四档别名指向的模型：每档读默认分组 `meta.stackRoleMapping` 里配的模型名，在它自己发布
+/// 的模型列表里按去掉 `[1M]` 标记后的名字查表（id 的 1M 跟随列表行）；未配或不在列表里
+/// 回落列表第一模型（默认模型，即 [`claude_route_default`]）。没有 route 成员（或它没有可
+/// 发布的模型）时为 `None`，与 `claude_route_default` 一致。
+///
+/// 映射只认 `meta.stackRoleMapping` 这份显式数据，不读 env 档位键：`ProviderService` 保存时
+/// 会把缺失的档位键自动回填成 `ANTHROPIC_MODEL`（`normalize_claude_models_in_value`），若把
+/// env 当映射源，回填的旧默认值会静默生效、压过「第一模型占四档」的语义。
 pub fn claude_route_roles(prefix: &str, members: &[Member]) -> Option<RouteRoles> {
     let fallback = claude_route_default(prefix, members)?;
     let route = members.iter().find(|member| member.route)?;
     let list = claude_models(prefix, &route.key, &route.provider);
-    let env = claude_env(&route.provider);
-    let tier = |key: &str| -> StackModel {
-        let hit = env
-            .and_then(|env| env_string(env, key))
+    let mapping = route
+        .provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.stack_role_mapping.as_ref());
+    let tier = |mapped: Option<&str>| -> StackModel {
+        let hit = mapped
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .map(|value| strip_one_m_suffix_for_upstream(value).trim().to_string())
             .and_then(|model| {
                 list.iter()
@@ -612,10 +621,10 @@ pub fn claude_route_roles(prefix: &str, members: &[Member]) -> Option<RouteRoles
         hit.unwrap_or_else(|| fallback.clone())
     };
     Some(RouteRoles {
-        haiku: tier("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-        sonnet: tier("ANTHROPIC_DEFAULT_SONNET_MODEL"),
-        opus: tier("ANTHROPIC_DEFAULT_OPUS_MODEL"),
-        fable: tier("ANTHROPIC_DEFAULT_FABLE_MODEL"),
+        haiku: tier(mapping.and_then(|mapping| mapping.haiku.as_deref())),
+        sonnet: tier(mapping.and_then(|mapping| mapping.sonnet.as_deref())),
+        opus: tier(mapping.and_then(|mapping| mapping.opus.as_deref())),
+        fable: tier(mapping.and_then(|mapping| mapping.fable.as_deref())),
     })
 }
 
@@ -1101,6 +1110,14 @@ mod tests {
         provider
     }
 
+    fn with_role_mapping(mut provider: Provider, mapping: Value) -> Provider {
+        provider
+            .meta
+            .get_or_insert_with(Default::default)
+            .stack_role_mapping = serde_json::from_value(mapping).unwrap();
+        provider
+    }
+
     #[test]
     fn an_emptied_list_publishes_nothing_and_an_unset_one_follows_the_mapping() {
         let mapped = provider("p", "Kimi", None, json!({ "ANTHROPIC_MODEL": "kimi-k3" }));
@@ -1356,23 +1373,25 @@ mod tests {
     #[test]
     fn route_roles_map_tiers_to_list_models_with_fallback_to_the_first() {
         let fx = fixture();
-        let kimi = with_stack_models(
-            provider(
-                "kimi",
-                "Kimi",
-                Some("kimi"),
-                json!({
-                    "ANTHROPIC_MODEL": "kimi-k3",
-                    // 带 1M 标记和首尾空格：去标记后命中列表行；id 的 1M 跟随行里的 oneM。
-                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": " kimi-k3-mini[1M] ",
-                    // 不在列表里的值静默回落第一模型。
-                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "not-in-list",
-                }),
+        let kimi = with_role_mapping(
+            with_stack_models(
+                provider(
+                    "kimi",
+                    "Kimi",
+                    Some("kimi"),
+                    json!({ "ANTHROPIC_MODEL": "kimi-k3" }),
+                ),
+                json!([
+                    { "model": "kimi-k3" },
+                    { "model": "kimi-k3-mini", "displayName": "K3 Mini", "oneM": true }
+                ]),
             ),
-            json!([
-                { "model": "kimi-k3" },
-                { "model": "kimi-k3-mini", "displayName": "K3 Mini", "oneM": true }
-            ]),
+            json!({
+                // 带 1M 标记和首尾空格：去标记后命中列表行；id 的 1M 跟随行里的 oneM。
+                "haiku": " kimi-k3-mini[1M] ",
+                // 不在列表里的值静默回落第一模型。
+                "opus": "not-in-list",
+            }),
         );
         fx.db.save_provider("claude", &kimi).unwrap();
         let stack = state::stack(&fx.store, "claude").unwrap();
@@ -1391,20 +1410,23 @@ mod tests {
     #[test]
     fn route_roles_use_the_env_derived_list_when_no_stack_models() {
         let fx = fixture();
-        let kimi = provider(
-            "kimi",
-            "Kimi",
-            Some("kimi"),
-            json!({
-                "ANTHROPIC_MODEL": "kimi-k3",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k3-mini"
-            }),
+        // 发布列表来自 env 档位推导（含 normalize 会回填的档位值），档位查表对象即该推导列表。
+        let kimi = with_role_mapping(
+            provider(
+                "kimi",
+                "Kimi",
+                Some("kimi"),
+                json!({
+                    "ANTHROPIC_MODEL": "kimi-k3",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "kimi-k3-mini"
+                }),
+            ),
+            json!({ "haiku": "kimi-k3-mini" }),
         );
         fx.db.save_provider("claude", &kimi).unwrap();
         let stack = state::stack(&fx.store, "claude").unwrap();
         let published =
             published_members("ccs-", &fx.db, &AppType::Claude, &stack, Some("kimi")).unwrap();
-        // 发布列表来自 env 档位推导，档位查表对象即该推导列表。
         let roles = claude_route_roles("ccs-", &published).unwrap();
         assert_eq!(roles.haiku.id, "ccs-kimi.kimi-k3-mini");
         assert_eq!(roles.sonnet.id, "ccs-kimi.kimi-k3");

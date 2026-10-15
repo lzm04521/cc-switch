@@ -627,9 +627,33 @@ pub struct ProviderMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub stack_models: Option<Vec<ClaudeStackModel>>,
+    /// 聚合模式默认分组的四档别名映射（`mode::stack::claude_route_roles`）。`None` 未启用：
+    /// 四档全跟发布列表的第一模型（★设为默认）。与 classic 表单的模型映射（env 档位键）
+    /// 是两份数据，互不影响。
+    #[serde(
+        rename = "stackRoleMapping",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub stack_role_mapping: Option<StackRoleMapping>,
     /// 聚合显示名里供应商的简称（`mode::stack::provider_label`）；空 = 用 `name`。
     #[serde(rename = "shortName", skip_serializing_if = "Option::is_none")]
     pub short_name: Option<String>,
+}
+
+/// 聚合模式默认分组的四档别名映射：值为模型名，与发布列表（`stackModels` 或 env 推导）
+/// 的行按去掉 1M 标记后的名字比对；未配/未命中的档回落列表第一模型。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StackRoleMapping {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub haiku: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sonnet: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opus: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fable: Option<String>,
 }
 
 /// Stack 模式下 Claude Code 供应商发布的一个模型。

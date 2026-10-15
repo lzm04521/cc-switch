@@ -179,31 +179,33 @@ fn claude_proxy_auth(provider: &Provider) -> ProxyAuth {
     }
 }
 
-/// `stack` 是发布的 Stack 模型，`stack_default` 是四档别名指向的模型（Stack 模式下默认那家
-/// 列表里的第一个，见 [`stack::claude_route_default`]；路由模式为 `None`）。`others` 是其余
-/// 发布模型的成员，它们的兼容开关按 [`with_member_switches`] 并进契约。
+/// `stack` 是发布的 Stack 模型，`stack_default` 是四档别名各自的指向（Stack 模式下按默认
+/// 那家 env 的档位映射解析，未配/未命中的档回落它列表的第一个模型，见
+/// [`stack::claude_route_roles`]；路由模式为 `None`）。`others` 是其余发布模型的成员，
+/// 它们的兼容开关按 [`with_member_switches`] 并进契约。
 fn claude_contract(
     route: &Provider,
     proxy_url: &str,
     stack: &[StackModel],
-    stack_default: Option<&StackModel>,
+    stack_default: Option<&stack::RouteRoles>,
     others: &[&Provider],
 ) -> (ClaudeProjection, Contract) {
     let mut projection = proxy_projection(
         &ClaudeProjection::of(&route.settings_config),
         proxy_url,
         claude_proxy_auth(route),
-        // 四档先同源（默认那家的第一模型）；按档映射的数据源在 `enter` 的 Claude 分支换上。
-        stack_default.map(|model| {
-            let tier = StackRoleModel {
-                id: &model.id,
-                name: &model.name,
-            };
+        stack_default.map(|roles| {
+            fn tier(model: &StackModel) -> StackRoleModel<'_> {
+                StackRoleModel {
+                    id: &model.id,
+                    name: &model.name,
+                }
+            }
             StackRoles {
-                haiku: tier,
-                sonnet: tier,
-                opus: tier,
-                fable: tier,
+                haiku: tier(&roles.haiku),
+                sonnet: tier(&roles.sonnet),
+                opus: tier(&roles.opus),
+                fable: tier(&roles.fable),
             }
         }),
     );
@@ -416,7 +418,7 @@ async fn write_proxy(
             let members = published_members(state, app, &stack, route)?;
             let prefix = stack::configured_prefix();
             let published = stack::claude_published(&prefix, &members);
-            let stack_default = stack::claude_route_default(&prefix, &members);
+            let stack_default = stack::claude_route_roles(&prefix, &members);
             let others: Vec<&Provider> = members
                 .iter()
                 .filter(|member| !member.route)
@@ -1966,7 +1968,13 @@ mod tests {
                 provider,
             ))
             .collect();
-        let default = stack.first().cloned();
+        // 这些用例只看 exclusive 字段：四档按同源（默认那家的第一模型）传入。
+        let default = stack.first().cloned().map(|model| stack::RouteRoles {
+            haiku: model.clone(),
+            sonnet: model.clone(),
+            opus: model.clone(),
+            fable: model,
+        });
         let (projection, contract) = claude_contract(
             route,
             "http://127.0.0.1:15721",
@@ -2537,6 +2545,7 @@ mod mode_tests {
     use crate::mode::operation::failpoint;
     use crate::mode::stack::StackMemberView;
     use crate::mode::state::{self, Mode};
+    use crate::provider::StackRoleMapping;
     use crate::proxy::types::ProxyConfig;
     use crate::services::provider::ProviderService;
     use serde_json::{json, Value};
@@ -6235,6 +6244,47 @@ model_provider = "c"
         a.meta.as_mut().unwrap().stack_models = None;
         ProviderService::update(&state, AppType::Claude, None, a).expect("unset a");
         assert_eq!(mode(&AppType::Claude).contract.unwrap(), mapped_contract);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn tier_mapping_routes_each_alias_at_its_own_stack_model() {
+        let _home = Home::new();
+        seed_settings(USER_SETTINGS);
+        let state = state_with(AppType::Claude, &stack_rows(), "a").await;
+        enter(&state, &AppType::Claude, true).await.expect("enter");
+
+        // 默认分组（a）列表两个模型，haiku 档映射到第二个：各档写各自的 Stack id。
+        let mut a = state.db.get_provider_by_id("a", "claude").unwrap().unwrap();
+        let meta = a.meta.get_or_insert_with(Default::default);
+        meta.stack_models = serde_json::from_value(
+            json!([{ "model": "claude-sonnet-4-6" }, { "model": "a-vision", "displayName": "A Vision" }]),
+        )
+        .unwrap();
+        meta.stack_role_mapping = Some(StackRoleMapping {
+            haiku: Some("a-vision".to_string()),
+            ..Default::default()
+        });
+        ProviderService::update(&state, AppType::Claude, None, a.clone()).expect("update a");
+        let env = settings()["env"].clone();
+        assert_eq!(
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            "ccs-a.claude-sonnet-4-6"
+        );
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "ccs-a.a-vision");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"], "A Vision");
+
+        // 档位值不在列表里：静默回落第一模型。
+        let mut a = state.db.get_provider_by_id("a", "claude").unwrap().unwrap();
+        a.meta.as_mut().unwrap().stack_role_mapping = Some(StackRoleMapping {
+            haiku: Some("not-in-list".to_string()),
+            ..Default::default()
+        });
+        ProviderService::update(&state, AppType::Claude, None, a).expect("remap a");
+        assert_eq!(
+            settings()["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            "ccs-a.claude-sonnet-4-6"
+        );
     }
 
     #[tokio::test]
