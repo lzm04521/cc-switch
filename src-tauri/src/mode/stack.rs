@@ -580,6 +580,45 @@ pub fn claude_route_default(prefix: &str, members: &[Member]) -> Option<StackMod
         .next()
 }
 
+/// 聚合模式默认分组四档别名各指向的模型（doc/20261015-设计文档-聚合默认分组模型映射）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RouteRoles {
+    pub haiku: StackModel,
+    pub sonnet: StackModel,
+    pub opus: StackModel,
+    pub fable: StackModel,
+}
+
+/// 四档别名指向的模型：每档读默认分组 env 的档位键（`ANTHROPIC_DEFAULT_*_MODEL`），在它
+/// 自己发布的模型列表里按去掉 `[1M]` 标记后的名字查表（id 的 1M 跟随列表行）；未配或不在
+/// 列表里回落列表第一模型（默认模型，即 [`claude_route_default`]）。没有 route 成员（或它
+/// 没有可发布的模型）时为 `None`，与 `claude_route_default` 一致。
+pub fn claude_route_roles(prefix: &str, members: &[Member]) -> Option<RouteRoles> {
+    let fallback = claude_route_default(prefix, members)?;
+    let route = members.iter().find(|member| member.route)?;
+    let list = claude_models(prefix, &route.key, &route.provider);
+    let env = claude_env(&route.provider);
+    let tier = |key: &str| -> StackModel {
+        let hit = env
+            .and_then(|env| env_string(env, key))
+            .map(|value| strip_one_m_suffix_for_upstream(value).trim().to_string())
+            .and_then(|model| {
+                list.iter()
+                    .find(|entry| {
+                        strip_one_m_suffix_for_upstream(&entry.upstream).trim() == model
+                    })
+                    .cloned()
+            });
+        hit.unwrap_or_else(|| fallback.clone())
+    };
+    Some(RouteRoles {
+        haiku: tier("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+        sonnet: tier("ANTHROPIC_DEFAULT_SONNET_MODEL"),
+        opus: tier("ANTHROPIC_DEFAULT_OPUS_MODEL"),
+        fable: tier("ANTHROPIC_DEFAULT_FABLE_MODEL"),
+    })
+}
+
 /// 这个应用在 Stack 模式（代理模式且 Stack 模式开着）。读不出状态按不在处理。
 pub fn stack_mode_now(app: &AppType) -> bool {
     if !supports_stack(app) {
@@ -1312,6 +1351,72 @@ mod tests {
                 "ccs-zhipu.glm-5.2[1M]".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn route_roles_map_tiers_to_list_models_with_fallback_to_the_first() {
+        let fx = fixture();
+        let kimi = with_stack_models(
+            provider(
+                "kimi",
+                "Kimi",
+                Some("kimi"),
+                json!({
+                    "ANTHROPIC_MODEL": "kimi-k3",
+                    // 带 1M 标记和首尾空格：去标记后命中列表行；id 的 1M 跟随行里的 oneM。
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": " kimi-k3-mini[1M] ",
+                    // 不在列表里的值静默回落第一模型。
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "not-in-list",
+                }),
+            ),
+            json!([
+                { "model": "kimi-k3" },
+                { "model": "kimi-k3-mini", "displayName": "K3 Mini", "oneM": true }
+            ]),
+        );
+        fx.db.save_provider("claude", &kimi).unwrap();
+        let stack = state::stack(&fx.store, "claude").unwrap();
+        let published =
+            published_members("ccs-", &fx.db, &AppType::Claude, &stack, Some("kimi")).unwrap();
+        let roles = claude_route_roles("ccs-", &published).unwrap();
+        assert_eq!(roles.haiku.id, "ccs-kimi.kimi-k3-mini[1M]");
+        assert_eq!(roles.haiku.name, "K3 Mini");
+        // 未配的 sonnet/fable 与配了但查不到的 opus 都回落第一模型。
+        for tier in [&roles.sonnet, &roles.opus, &roles.fable] {
+            assert_eq!(tier.id, "ccs-kimi.kimi-k3");
+            assert_eq!(tier.name, "kimi-k3");
+        }
+    }
+
+    #[test]
+    fn route_roles_use_the_env_derived_list_when_no_stack_models() {
+        let fx = fixture();
+        let kimi = provider(
+            "kimi",
+            "Kimi",
+            Some("kimi"),
+            json!({
+                "ANTHROPIC_MODEL": "kimi-k3",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k3-mini"
+            }),
+        );
+        fx.db.save_provider("claude", &kimi).unwrap();
+        let stack = state::stack(&fx.store, "claude").unwrap();
+        let published =
+            published_members("ccs-", &fx.db, &AppType::Claude, &stack, Some("kimi")).unwrap();
+        // 发布列表来自 env 档位推导，档位查表对象即该推导列表。
+        let roles = claude_route_roles("ccs-", &published).unwrap();
+        assert_eq!(roles.haiku.id, "ccs-kimi.kimi-k3-mini");
+        assert_eq!(roles.sonnet.id, "ccs-kimi.kimi-k3");
+    }
+
+    #[test]
+    fn route_roles_are_none_without_a_route_member() {
+        let fx = fixture();
+        let stack = state::stack(&fx.store, "claude").unwrap();
+        let members =
+            published_members("ccs-", &fx.db, &AppType::Claude, &stack, None).unwrap();
+        assert!(claude_route_roles("ccs-", &members).is_none());
     }
 
     #[test]
