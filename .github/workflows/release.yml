@@ -537,7 +537,12 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: CC Switch ${{ github.ref_name }}
-          prerelease: false
+          # fork：tag 带 -beta.N / -rc.N 后缀发预发布。prerelease 不占 GitHub 的 latest
+          # 通道，updater endpoint（releases/latest/download/latest.json）仍指上一正式版，
+          # 正式用户不会收到测试版更新。版本号约定：测试版须 semver 小于目标正式版
+          # （如 4.0.12-4.1-beta.1 < 4.0.12-5，注意字母段优先级高于数字段，
+          # 4.0.12-5-beta.1 这种号会反超正式版导致 beta 用户收不到正式更新）。
+          prerelease: ${{ contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') }}
           body: |
             ## CC Switch ${{ github.ref_name }}
 
