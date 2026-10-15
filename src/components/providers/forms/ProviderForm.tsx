@@ -25,6 +25,7 @@ import type {
   ProviderMeta,
   ClaudeApiFormat,
   ClaudeStackModel,
+  ClaudeStackRoleMapping,
   CodexApiFormat,
   CodexCopilotApiFormat,
   CodexCatalogModel,
@@ -90,6 +91,7 @@ import {
   normalizeClaudeStackModels,
   type ClaudeStackModelRow,
 } from "./ClaudeStackModelsField";
+import type { ClaudeStackRoleTiers } from "./ClaudeStackRoleMappingField";
 import { setClaudeOneMMarker } from "./hooks/useModelState";
 import {
   useAppMode,
@@ -263,6 +265,19 @@ const initialClaudeStackRows = (
   models: ClaudeStackModel[] | undefined,
 ): ClaudeStackModelRow[] | null =>
   models ? models.map((model) => createClaudeStackModelRow(model)) : null;
+
+/** 表单里的四档映射草稿：`null` 是 meta 里没有（未启用），动过（含从 meta 读到）才有对象。 */
+const initialClaudeRoleTiers = (
+  mapping: ClaudeStackRoleMapping | undefined,
+): ClaudeStackRoleTiers | null =>
+  mapping
+    ? {
+        sonnet: mapping.sonnet ?? "",
+        opus: mapping.opus ?? "",
+        fable: mapping.fable ?? "",
+        haiku: mapping.haiku ?? "",
+      }
+    : null;
 
 /** 列表的第一个模型（默认模型）写进 `ANTHROPIC_MODEL` 的样子：1M 模型带标记。 */
 const claudeStackDefaultModel = (
@@ -458,6 +473,7 @@ function ProviderFormFull({
       ),
     );
     setClaudeStackRows(initialClaudeStackRows(initialData?.meta?.stackModels));
+    setClaudeRoleMapping(initialClaudeRoleTiers(initialData?.meta?.stackRoleMapping));
   }, [appId, initialData, supportsFullUrl]);
 
   const defaultValues: ProviderFormData = useMemo(
@@ -683,6 +699,10 @@ function ProviderFormFull({
   const [claudeStackRows, setClaudeStackRows] = useState<
     ClaudeStackModelRow[] | null
   >(() => initialClaudeStackRows(initialData?.meta?.stackModels));
+  // 聚合默认分组的四档映射存在 meta.stackRoleMapping；`null` 表示未启用（没配过也没动过）。
+  const [claudeRoleMapping, setClaudeRoleMapping] = useState<
+    ClaudeStackRoleTiers | null
+  >(() => initialClaudeRoleTiers(initialData?.meta?.stackRoleMapping));
   // 按行里实际写的映射算（和后端一样），不用 useModelState 回填过的值。
   const claudeSettingsConfig =
     appId === "claude" ? form.watch("settingsConfig") : "";
@@ -706,6 +726,21 @@ function ProviderFormFull({
     if (next && next !== claudeStackDefaultModel(shownClaudeStackRows)) {
       handleModelChange("ANTHROPIC_MODEL", next);
     }
+  };
+
+  // 四档映射草稿：动过才有对象；切回「跟随默认」写空串，全空保存时按移除处理。
+  const handleClaudeRoleMappingChange = (
+    tier: keyof ClaudeStackRoleTiers,
+    value: string,
+  ) => {
+    setClaudeRoleMapping((current) => ({
+      sonnet: "",
+      opus: "",
+      fable: "",
+      haiku: "",
+      ...current,
+      [tier]: value,
+    }));
   };
 
   // 聚合模式下 Claude Code / Codex 的第三方供应商用简化面板（连接 + 模型列表 + 高级）；
@@ -1000,6 +1035,16 @@ function ProviderFormFull({
   const stackKeyPreviewKey = stackKeyDraftTrimmed
     ? normalizeStackKey(stackKeyDraftTrimmed)
     : (stackMemberKey ?? "");
+  // fork：聚合默认分组的模型映射区块——仅默认分组（route 成员）且有效模型列表 ≥2 时展示
+  //（含未配列表时按 env 推导的列表）。映射数据跟着供应商走，换默认分组后各自生效各自的。
+  const isStackRouteMember =
+    useStackLayout &&
+    appId === "claude" &&
+    providerStack?.members?.find((m) => m.providerId === providerId)?.route ===
+      true;
+  const stackRoleMappingEnabled =
+    isStackRouteMember &&
+    normalizeClaudeStackModels(shownClaudeStackRows).length >= 2;
   const stackKeyFieldNode = isStackMember ? (
     <div className="space-y-1.5">
       <label
@@ -1975,6 +2020,24 @@ function ProviderFormFull({
       appId === "claude" && category !== "official" && claudeStackRows
         ? normalizeClaudeStackModels(claudeStackRows)
         : undefined;
+    // 四档映射：动过且有非空档才存；全空 = 移除（效果与未启用一致：四档全跟第一模型）。
+    const hasRoleMappingValue = claudeRoleMapping
+      ? [
+          claudeRoleMapping.sonnet,
+          claudeRoleMapping.opus,
+          claudeRoleMapping.fable,
+          claudeRoleMapping.haiku,
+        ].some((value) => value.trim() !== "")
+      : false;
+    const stackRoleMapping: ClaudeStackRoleMapping | undefined =
+      appId === "claude" && hasRoleMappingValue && claudeRoleMapping
+        ? {
+            sonnet: claudeRoleMapping.sonnet.trim() || undefined,
+            opus: claudeRoleMapping.opus.trim() || undefined,
+            fable: claudeRoleMapping.fable.trim() || undefined,
+            haiku: claudeRoleMapping.haiku.trim() || undefined,
+          }
+        : undefined;
 
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
@@ -2091,6 +2154,7 @@ function ProviderFormFull({
           ? true
           : undefined,
       stackModels,
+      stackRoleMapping,
       // fork：聚合显示名用的简称，trim 后为空 = 未设置（回退名称）
       shortName: values.shortName?.trim() || undefined,
     };
@@ -2736,6 +2800,9 @@ function ProviderFormFull({
               stackProviderName={
                 form.watch("shortName")?.trim() || form.watch("name")
               }
+              stackRoleMappingEnabled={stackRoleMappingEnabled}
+              stackRoleMappingValues={claudeRoleMapping ?? undefined}
+              onStackRoleMappingChange={handleClaudeRoleMappingChange}
             />
           )}
 

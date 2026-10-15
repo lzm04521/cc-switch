@@ -57,6 +57,10 @@ import {
   ClaudeStackModelsField,
   type ClaudeStackModelRow,
 } from "./ClaudeStackModelsField";
+import {
+  ClaudeStackRoleMappingField,
+  type ClaudeStackRoleTiers,
+} from "./ClaudeStackRoleMappingField";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import type {
   ProviderCategory,
@@ -188,6 +192,13 @@ interface ClaudeFormFieldsProps {
   stackPreviewKey?: string;
   /** fork 五项优化：供应商名（表单当前名称，只读列显示名用）。 */
   stackProviderName?: string;
+  /** fork：聚合默认分组的四档模型映射（ProviderForm 判定 claude+聚合布局+默认分组+列表≥2 后传 true）。 */
+  stackRoleMappingEnabled?: boolean;
+  stackRoleMappingValues?: ClaudeStackRoleTiers;
+  onStackRoleMappingChange?: (
+    tier: keyof ClaudeStackRoleTiers,
+    value: string,
+  ) => void;
 }
 
 export function ClaudeFormFields({
@@ -263,6 +274,9 @@ export function ClaudeFormFields({
   onStackModelRowsChange,
   stackPreviewKey,
   stackProviderName,
+  stackRoleMappingEnabled,
+  stackRoleMappingValues,
+  onStackRoleMappingChange,
 }: ClaudeFormFieldsProps) {
   const { t } = useTranslation();
   const hasRequestOverrides = Boolean(
@@ -1046,6 +1060,16 @@ export function ClaudeFormFields({
             baseUrl={baseUrl}
           />
         )}
+
+        {stackRoleMappingEnabled &&
+          stackRoleMappingValues &&
+          onStackRoleMappingChange && (
+            <ClaudeStackRoleMappingField
+              rows={stackModelRows}
+              values={stackRoleMappingValues}
+              onTierChange={onStackRoleMappingChange}
+            />
+          )}
 
         {/* 高级区只有 UA 和请求覆盖；Copilot 的转发会跳过这两项，整块不显示 */}
         {!isCopilotPreset && (

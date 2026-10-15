@@ -3,6 +3,7 @@ import type { ComponentProps, PropsWithChildren } from "react";
 import { useForm } from "react-hook-form";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeFormFields } from "@/components/providers/forms/ClaudeFormFields";
+import { createClaudeStackModelRow } from "@/components/providers/forms/ClaudeStackModelsField";
 import { Form } from "@/components/ui/form";
 
 const copilotApiMock = vi.hoisted(() => ({
@@ -196,5 +197,42 @@ describe("ClaudeFormFields", () => {
       "CLAUDE_CODE_SUBAGENT_MODEL",
       "shared-model[1M]",
     );
+  });
+});
+
+describe("ClaudeFormFields stack 变体：聚合默认分组模型映射区块", () => {
+  it("门控开启时渲染四档映射区块，未开启不渲染", () => {
+    // 不传 onStackModelRowsChange：模型列表区块跳过（避免 settings query 依赖），映射区块独立渲染。
+    const { unmount } = renderCopilotForm({
+      variant: "stack",
+      isCopilotPreset: false,
+      isCopilotAuthenticated: false,
+      stackModelRows: [
+        createClaudeStackModelRow({ model: "glm-5.2" }),
+        createClaudeStackModelRow({ model: "glm-flash" }),
+      ],
+      stackRoleMappingEnabled: true,
+      stackRoleMappingValues: {
+        sonnet: "",
+        opus: "",
+        fable: "",
+        haiku: "glm-flash",
+      },
+      onStackRoleMappingChange: vi.fn(),
+    });
+    expect(screen.getByText("模型映射")).toBeInTheDocument();
+    expect(screen.getByText("Haiku")).toBeInTheDocument();
+    unmount();
+
+    renderCopilotForm({
+      variant: "stack",
+      isCopilotPreset: false,
+      isCopilotAuthenticated: false,
+      stackModelRows: [createClaudeStackModelRow({ model: "glm-5.2" })],
+      stackRoleMappingEnabled: false,
+      stackRoleMappingValues: { sonnet: "", opus: "", fable: "", haiku: "" },
+      onStackRoleMappingChange: vi.fn(),
+    });
+    expect(screen.queryByText("模型映射")).not.toBeInTheDocument();
   });
 });
