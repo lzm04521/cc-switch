@@ -1,0 +1,12 @@
+{
+  "version": "4.0.12-2",
+  "items": [
+    {
+      "type": "new",
+      "zh": "本地代理新增「Body 重写规则」，按条件动态改写请求体",
+      "zh-TW": "本地代理新增「Body 重寫規則」，按條件動態改寫請求體",
+      "en": "Local proxy: new Body rewrite rules to conditionally transform request bodies per provider",
+      "ja": "ローカルプロキシに Body リライトルール追加（条件付きで本文を書き換え）"
+    }
+  ]
+}
