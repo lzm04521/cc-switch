@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use tokio::sync::OwnedMutexGuard;
 
 use crate::app_config::AppType;
+use crate::database::Database;
 use crate::error::AppError;
 use crate::live::engine::DeviceStore;
 use crate::live::project::claude::{
@@ -1295,6 +1296,37 @@ async fn set_stack_member_locked(
     }
 }
 
+/// fork: 把 keys 登记簿里指向已删除供应商的幽灵条目搬进墓碑（doc/20261015-bug报告-
+/// 聚合分组key被已删除供应商占用）。幽灵条目与墓碑功能同构（历史占用、当前无主）：
+/// 搬进墓碑后手动改名按墓碑口径放行、自动分配照旧避让（[`stack::key_taken`]），两个
+/// 不变量自然成立。「供应商还在库里、只是移出名单」的条目不动——那家有重新加入拿回
+/// 原 key 的契约（[`stack::allocate_key`]）。
+fn retire_dead_member_keys(
+    db: &Database,
+    app: &AppType,
+    stack: &StackState,
+) -> Result<StackState, String> {
+    let mut dead = Vec::new();
+    for (key, provider_id) in &stack.keys {
+        if db
+            .get_provider_by_id(provider_id, app.as_str())
+            .map_err(err)?
+            .is_none()
+        {
+            dead.push(key.to_string());
+        }
+    }
+    if dead.is_empty() {
+        return Ok(stack.clone());
+    }
+    let mut next = stack.clone();
+    for key in dead {
+        next.keys.remove(&key);
+        next.reserved_keys.insert(key);
+    }
+    Ok(next)
+}
+
 /// fork: 改成员的分组 key（doc/20261009-设计文档-会话路由改造为聚合模式 §6）。
 /// 旧 key 进墓簿（永不再分配，旧 id 解析按未登记报错），新 key 即时生效——
 /// 契约与客户端文件（Codex 目录等）随同一次操作重发布，与增删成员同一提交模式。
@@ -1338,7 +1370,9 @@ async fn set_stack_member_key_locked(
     provider_id: &str,
     key: &str,
 ) -> Result<(), String> {
-    let current = settled_stack(app)?;
+    // 幽灵条目（指向已删除供应商）先搬进墓碑再校验，收敛随本次改名提交落盘；改名无变化
+    // 提前返回时不落盘——磁盘幽灵条目挡自动分配、旧 id 解析按 Deleted 报错，等价墓碑。
+    let current = retire_dead_member_keys(&state.db, app, &settled_stack(app)?)?;
     if !current.is_member(provider_id) {
         return Err(format!(
             "只有聚合名单里的供应商才能改分组 key (Only aggregated members can rename their key): {provider_id}"
@@ -6860,6 +6894,56 @@ model_provider = "c"
         assert_eq!(stack.key_of("deepseek"), Some(old_key.as_str()));
         assert!(stack.reserved_keys.contains("CommandCode"));
         assert!(!stack.reserved_keys.contains(&old_key));
+    }
+
+    /// fork doc/20261015-bug报告：登记簿里指向已删除供应商的幽灵条目不挡手动改名
+    /// （与墓碑同口径，收敛随本次改名落盘）；「在库但移出名单」的条目仍挡
+    /// （重新加入拿回原 key 的契约）。
+    #[tokio::test]
+    #[serial]
+    async fn renaming_onto_a_dead_members_key_is_allowed() {
+        let _home = Home::new();
+        seed_settings(USER_SETTINGS);
+        let rows = [
+            claude("a", "https://a.example", json!({})),
+            claude("b", "https://b.example", json!({})),
+            claude("c", "https://c.example", json!({})),
+        ];
+        let state = state_with(AppType::Claude, &rows, "a").await;
+        enter(&state, &AppType::Claude, true).await.expect("enter");
+        set_stack_member(&state, &AppType::Claude, "b", true)
+            .await
+            .expect("stack b");
+        set_stack_member(&state, &AppType::Claude, "c", true)
+            .await
+            .expect("stack c");
+
+        // 幽灵条目：指向已删除供应商（库里没有这家）的登记 key
+        state::update(&DeviceStore::for_device(), |live| {
+            let stack = &mut live.apps.entry("claude".to_string()).or_default().stack;
+            stack
+                .keys
+                .insert("CommandCodeClaude".to_string(), "fffcef2d-deleted".to_string());
+        })
+        .expect("seed ghost key");
+
+        // 撞幽灵 key 的改名放行；幽灵条目随本次提交搬进墓碑，旧 key 也不在登记簿
+        set_stack_member_key(&state, &AppType::Claude, "b", "CommandCodeClaude")
+            .await
+            .expect("renaming onto a dead member's key is allowed");
+        let stack = settled_stack(&AppType::Claude).unwrap();
+        assert_eq!(stack.key_of("b"), Some("CommandCodeClaude"));
+        assert!(stack.reserved_keys.contains("b"));
+        assert!(!stack.keys.values().any(|id| id.as_str() == "fffcef2d-deleted"));
+
+        // c 移出名单但行还在：key 留登记簿挡复用（重新加入拿回原 key 的契约）
+        set_stack_member(&state, &AppType::Claude, "c", false)
+            .await
+            .expect("remove c");
+        let error = set_stack_member_key(&state, &AppType::Claude, "b", "c")
+            .await
+            .expect_err("renaming onto an in-stock member's key is still blocked");
+        assert!(error.message.contains("已被使用"), "{error:?}");
     }
 
     /// 提示上的「改用 CC Switch 的模型目录」：去掉路由那家行里的指针，契约带进 live 的那份
