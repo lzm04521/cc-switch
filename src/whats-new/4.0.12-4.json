@@ -1,0 +1,12 @@
+{
+  "version": "4.0.12-4",
+  "items": [
+    {
+      "type": "new",
+      "zh": "新增：聚合模式默认分组支持四档别名模型映射",
+      "zh-TW": "新增：聚合模式預設分組支援四檔別名模型映射",
+      "en": "New: Stack-mode default group can map Sonnet/Opus/Fable/Haiku aliases to its own models",
+      "ja": "新規：集約モードのデフォルトグループで4つの別名モデルマッピングに対応"
+    }
+  ]
+}
