@@ -1,0 +1,12 @@
+{
+  "version": "4.0.12-3",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "修复：改分组 key 被已删除供应商遗留的旧 key 误挡的问题",
+      "zh-TW": "修復：改分組 key 被已刪除供應商遺留的舊 key 誤擋的問題",
+      "en": "Fix: renaming a stack group key is no longer blocked by leftover keys of deleted providers",
+      "ja": "修正：削除済みプロバイダーの旧 key によるグループ key 変更の誤ブロックを解消"
+    }
+  ]
+}
