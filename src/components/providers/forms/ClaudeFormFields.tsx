@@ -171,6 +171,8 @@ interface ClaudeFormFieldsProps {
   onLocalProxyHeadersOverrideChange: (value: string) => void;
   localProxyBodyOverride: string;
   onLocalProxyBodyOverrideChange: (value: string) => void;
+  localProxyBodyRewrites: string;
+  onLocalProxyBodyRewritesChange: (value: string) => void;
 
   /**
    * 布局：`classic` 是直连 / 路由用的完整表单；`stack` 是 Stack 模式的简化面板（连接 +
@@ -253,6 +255,8 @@ export function ClaudeFormFields({
   onLocalProxyHeadersOverrideChange,
   localProxyBodyOverride,
   onLocalProxyBodyOverrideChange,
+  localProxyBodyRewrites,
+  onLocalProxyBodyRewritesChange,
   variant = "classic",
   directModeFormatNotice,
   stackModelRows = [],
@@ -262,7 +266,9 @@ export function ClaudeFormFields({
 }: ClaudeFormFieldsProps) {
   const { t } = useTranslation();
   const hasRequestOverrides = Boolean(
-    localProxyHeadersOverride.trim() || localProxyBodyOverride.trim(),
+    localProxyHeadersOverride.trim() ||
+      localProxyBodyOverride.trim() ||
+      localProxyBodyRewrites.trim(),
   );
   const hasAnyAdvancedValue = !!(
     claudeModel ||
@@ -991,6 +997,8 @@ export function ClaudeFormFields({
           bodyJson={localProxyBodyOverride}
           onHeadersJsonChange={onLocalProxyHeadersOverrideChange}
           onBodyJsonChange={onLocalProxyBodyOverrideChange}
+          rewritesJson={localProxyBodyRewrites}
+          onRewritesJsonChange={onLocalProxyBodyRewritesChange}
           help={t("providerForm.localProxyRequestOverridesHelp", {
             defaultValue: "作用于格式转换后发给上游的请求。",
           })}

@@ -452,6 +452,11 @@ function ProviderFormFull({
         initialData?.meta?.localProxyRequestOverrides?.body,
       ),
     );
+    setLocalProxyBodyRewrites(
+      formatRequestOverrideObject(
+        initialData?.meta?.localProxyRequestOverrides?.bodyRewrites,
+      ),
+    );
     setClaudeStackRows(initialClaudeStackRows(initialData?.meta?.stackModels));
   }, [appId, initialData, supportsFullUrl]);
 
@@ -665,6 +670,12 @@ function ProviderFormFull({
     () =>
       formatRequestOverrideObject(
         initialData?.meta?.localProxyRequestOverrides?.body,
+      ),
+  );
+  const [localProxyBodyRewrites, setLocalProxyBodyRewrites] = useState<string>(
+    () =>
+      formatRequestOverrideObject(
+        initialData?.meta?.localProxyRequestOverrides?.bodyRewrites,
       ),
   );
   // Stack 模式：Claude Code 的模型列表存在 meta.stackModels；Codex 复用模型目录。`null` 表示
@@ -1332,6 +1343,7 @@ function ProviderFormFull({
       ? buildLocalProxyRequestOverrides(
           localProxyHeadersOverride,
           localProxyBodyOverride,
+          localProxyBodyRewrites,
         )
       : {};
     if (overridesResult.error) {
@@ -2714,6 +2726,8 @@ function ProviderFormFull({
               onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
               localProxyBodyOverride={localProxyBodyOverride}
               onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
+              localProxyBodyRewrites={localProxyBodyRewrites}
+              onLocalProxyBodyRewritesChange={setLocalProxyBodyRewrites}
               variant={useStackLayout ? "stack" : "classic"}
               directModeFormatNotice={directModeFormatNotice}
               stackModelRows={shownClaudeStackRows}
@@ -2809,6 +2823,8 @@ function ProviderFormFull({
               onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
               localProxyBodyOverride={localProxyBodyOverride}
               onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
+              localProxyBodyRewrites={localProxyBodyRewrites}
+              onLocalProxyBodyRewritesChange={setLocalProxyBodyRewrites}
               variant={useStackLayout ? "stack" : "classic"}
               stackPreviewKey={stackKeyPreviewKey}
               directModeFormatNotice={directModeFormatNotice}

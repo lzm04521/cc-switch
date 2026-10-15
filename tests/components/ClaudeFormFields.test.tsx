@@ -100,6 +100,8 @@ const renderCopilotForm = (overrides: Partial<ClaudeFormFieldsProps> = {}) => {
     onLocalProxyHeadersOverrideChange: vi.fn(),
     localProxyBodyOverride: "",
     onLocalProxyBodyOverrideChange: vi.fn(),
+    localProxyBodyRewrites: "",
+    onLocalProxyBodyRewritesChange: vi.fn(),
     ...overrides,
   };
 

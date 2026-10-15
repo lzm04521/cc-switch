@@ -170,6 +170,8 @@ export type PromptCacheRoutingMode = "auto" | "enabled" | "disabled";
 export interface LocalProxyRequestOverrides {
   headers?: Record<string, string>;
   body?: Record<string, unknown>;
+  // 路径模式 -> 值映射表，如 { "messages[*].role": { system: "user" } }
+  bodyRewrites?: Record<string, Record<string, string>>;
 }
 
 // 供应商元数据（字段名与后端一致，保持 snake_case）

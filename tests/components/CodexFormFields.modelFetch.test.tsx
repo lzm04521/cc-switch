@@ -127,6 +127,8 @@ function makeProps(kind: ProviderKind): Props {
     onLocalProxyHeadersOverrideChange: vi.fn(),
     localProxyBodyOverride: "",
     onLocalProxyBodyOverrideChange: vi.fn(),
+    localProxyBodyRewrites: "",
+    onLocalProxyBodyRewritesChange: vi.fn(),
   };
 }
 

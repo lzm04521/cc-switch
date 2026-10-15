@@ -168,6 +168,11 @@ export function GrokBuildProviderForm({
       initialData?.meta?.localProxyRequestOverrides?.body,
     ),
   );
+  const [bodyRewrites, setBodyRewrites] = useState(
+    formatRequestOverrideObject(
+      initialData?.meta?.localProxyRequestOverrides?.bodyRewrites,
+    ),
+  );
   const [endpointAutoSelect, setEndpointAutoSelect] = useState(
     initialData?.meta?.endpointAutoSelect ?? true,
   );
@@ -392,6 +397,7 @@ export function GrokBuildProviderForm({
     const requestOverrides = buildLocalProxyRequestOverrides(
       headersOverride,
       bodyOverride,
+      bodyRewrites,
     );
     if (requestOverrides.error) {
       toast.error(requestOverrides.error);
@@ -518,6 +524,8 @@ export function GrokBuildProviderForm({
               onLocalProxyHeadersOverrideChange={setHeadersOverride}
               localProxyBodyOverride={bodyOverride}
               onLocalProxyBodyOverrideChange={setBodyOverride}
+              localProxyBodyRewrites={bodyRewrites}
+              onLocalProxyBodyRewritesChange={setBodyRewrites}
             />
 
             <FormItem>

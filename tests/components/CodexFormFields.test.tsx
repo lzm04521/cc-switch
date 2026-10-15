@@ -81,6 +81,8 @@ function renderCodexForm() {
     onLocalProxyHeadersOverrideChange: vi.fn(),
     localProxyBodyOverride: "",
     onLocalProxyBodyOverrideChange: vi.fn(),
+    localProxyBodyRewrites: "",
+    onLocalProxyBodyRewritesChange: vi.fn(),
     shouldShowSpeedTest: true,
   };
 

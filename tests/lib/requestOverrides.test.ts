@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildLocalProxyRequestOverrides,
   isProtectedLocalProxyHeaderName,
+  isValidBodyRewritePath,
   isValidHttpHeaderName,
   isValidHttpHeaderValue,
   parseBodyOverrideJson,
+  parseBodyRewritesJson,
   parseHeaderOverrideJson,
   parseRequestOverrideJson,
 } from "@/lib/requestOverrides";
@@ -71,5 +73,56 @@ describe("requestOverrides", () => {
     expect(
       buildLocalProxyRequestOverrides("", '{ "stream": false }').error,
     ).toBeTruthy();
+  });
+
+  it("parses body rewrite rules", () => {
+    expect(
+      parseBodyRewritesJson(
+        '{ "messages[*].role": { "system": "user" }, "thinking.type": { "adaptive": "enabled" } }',
+      ),
+    ).toEqual({
+      rewrites: {
+        "messages[*].role": { system: "user" },
+        "thinking.type": { adaptive: "enabled" },
+      },
+    });
+    expect(parseBodyRewritesJson("  ")).toEqual({});
+  });
+
+  it("validates body rewrite paths like the backend", () => {
+    expect(isValidBodyRewritePath("messages[*].content[*].type")).toBe(true);
+    expect(isValidBodyRewritePath("thinking.type")).toBe(true);
+    expect(isValidBodyRewritePath("a[0].b")).toBe(false);
+    expect(isValidBodyRewritePath("a..b")).toBe(false);
+    expect(isValidBodyRewritePath("messages[")).toBe(false);
+    expect(isValidBodyRewritePath("  ")).toBe(false);
+    expect(
+      parseBodyRewritesJson('{ "a[0].b": { "x": "y" } }').error,
+    ).toBeTruthy();
+  });
+
+  it("rejects malformed body rewrite rules", () => {
+    expect(parseBodyRewritesJson("[]").error).toBeTruthy();
+    expect(parseBodyRewritesJson('{ "a.b": "user" }').error).toBeTruthy();
+    expect(parseBodyRewritesJson('{ "a.b": ["x"] }').error).toBeTruthy();
+    expect(parseBodyRewritesJson('{ "a.b": { "x": 1 } }').error).toBeTruthy();
+    expect(
+      parseBodyRewritesJson('{ "stream": { "true": "false" } }').error,
+    ).toBeTruthy();
+  });
+
+  it("builds bodyRewrites into the overrides payload", () => {
+    expect(
+      buildLocalProxyRequestOverrides(
+        "",
+        "",
+        '{ "messages[*].role": { "system": "user" } }',
+      ),
+    ).toEqual({
+      overrides: { bodyRewrites: { "messages[*].role": { system: "user" } } },
+    });
+    expect(buildLocalProxyRequestOverrides("", "", "")).toEqual({});
+    expect(buildLocalProxyRequestOverrides("", "", "{}")).toEqual({});
+    expect(buildLocalProxyRequestOverrides("", "", "[]").error).toBeTruthy();
   });
 });

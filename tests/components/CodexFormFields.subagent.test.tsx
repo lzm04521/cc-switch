@@ -55,6 +55,8 @@ function renderCodexForm(overrides: Partial<CodexFormFieldsProps> = {}) {
     onLocalProxyHeadersOverrideChange: vi.fn(),
     localProxyBodyOverride: "",
     onLocalProxyBodyOverrideChange: vi.fn(),
+    localProxyBodyRewrites: "",
+    onLocalProxyBodyRewritesChange: vi.fn(),
     shouldShowSpeedTest: false,
     subagentModel: "",
     onSubagentModelChange: vi.fn(),

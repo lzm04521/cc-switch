@@ -149,6 +149,64 @@ export function parseHeaderOverrideJson(
   return { headers };
 }
 
+export interface BodyRewritesValidationResult {
+  rewrites?: Record<string, Record<string, string>>;
+  error?: string;
+}
+
+// Keep this aligned with Rust's parse_body_rewrite_path: segments are split on
+// ".", each segment is an object key optionally followed by "[*]" wildcards.
+export function isValidBodyRewritePath(path: string): boolean {
+  if (!path.trim()) return false;
+  for (const raw of path.split(".")) {
+    let rest = raw;
+    let wildcards = 0;
+    while (rest.endsWith("[*]")) {
+      rest = rest.slice(0, -3);
+      wildcards += 1;
+    }
+    if (rest.includes("[") || rest.includes("]")) return false;
+    if (!rest && wildcards === 0) return false;
+  }
+  return true;
+}
+
+export function parseBodyRewritesJson(
+  raw: string,
+): BodyRewritesValidationResult {
+  const parsed = parseRequestOverrideJson(raw);
+  if (parsed.error || !parsed.value) {
+    return parsed.error ? { error: parsed.error } : {};
+  }
+
+  const rewrites: Record<string, Record<string, string>> = {};
+  for (const [path, mapping] of Object.entries(parsed.value)) {
+    if (!isValidBodyRewritePath(path)) {
+      return { error: `Rewrite path "${path}" is not valid` };
+    }
+    if (path.split(".")[0].replace(/(\[\*\])+$/, "") === "stream") {
+      return {
+        error: 'Body rewrites must not target protocol field "stream"',
+      };
+    }
+    if (!isPlainObject(mapping)) {
+      return { error: `Rewrite "${path}" must map values using an object` };
+    }
+    const entries: Record<string, string> = {};
+    for (const [from, to] of Object.entries(mapping)) {
+      if (typeof to !== "string") {
+        return {
+          error: `Rewrite "${path}" value for "${from}" must be a string`,
+        };
+      }
+      entries[from] = to;
+    }
+    rewrites[path] = entries;
+  }
+
+  return { rewrites };
+}
+
 export function formatRequestOverrideObject(
   value: Record<string, unknown> | undefined,
 ): string {
@@ -159,6 +217,7 @@ export function formatRequestOverrideObject(
 export function buildLocalProxyRequestOverrides(
   headersJson: string,
   bodyJson: string,
+  rewritesJson = "",
 ): { overrides?: LocalProxyRequestOverrides; error?: string } {
   const headerResult = parseHeaderOverrideJson(headersJson);
   if (headerResult.error) {
@@ -170,12 +229,23 @@ export function buildLocalProxyRequestOverrides(
     return { error: bodyResult.error };
   }
 
+  const rewritesResult = parseBodyRewritesJson(rewritesJson);
+  if (rewritesResult.error) {
+    return { error: rewritesResult.error };
+  }
+
   const overrides: LocalProxyRequestOverrides = {};
   if (headerResult.headers && Object.keys(headerResult.headers).length > 0) {
     overrides.headers = headerResult.headers;
   }
   if (bodyResult.value && Object.keys(bodyResult.value).length > 0) {
     overrides.body = bodyResult.value;
+  }
+  if (
+    rewritesResult.rewrites &&
+    Object.keys(rewritesResult.rewrites).length > 0
+  ) {
+    overrides.bodyRewrites = rewritesResult.rewrites;
   }
 
   return Object.keys(overrides).length > 0 ? { overrides } : {};

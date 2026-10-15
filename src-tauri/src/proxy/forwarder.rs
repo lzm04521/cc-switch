@@ -2084,6 +2084,9 @@ impl RequestForwarder {
                 if apply_local_proxy_body_overrides(&mut filtered_body, overrides) {
                     filtered_body = prepare_upstream_request_body(filtered_body);
                 }
+                if apply_local_proxy_body_rewrites(&mut filtered_body, overrides) {
+                    filtered_body = prepare_upstream_request_body(filtered_body);
+                }
             }
         }
         // 出站 body 定稿后刷新真值（覆盖 Codex chat 上游模型覆写、转换层模型改写）
@@ -4342,6 +4345,119 @@ fn apply_local_proxy_body_overrides(
     merge_json_override(body, override_body)
 }
 
+/// Body 重写规则的路径段：对象键，或 `[*]` 数组通配。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BodyRewriteSegment {
+    Key(String),
+    Each,
+}
+
+/// 解析路径模式（如 `messages[*].content[*].type`）；语法不合法返回 `None`。
+fn parse_body_rewrite_path(path: &str) -> Option<Vec<BodyRewriteSegment>> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let mut segments = Vec::new();
+    for raw in path.split('.') {
+        let mut rest = raw;
+        let mut wildcards = 0usize;
+        while let Some(stripped) = rest.strip_suffix("[*]") {
+            rest = stripped;
+            wildcards += 1;
+        }
+        if rest.contains('[') || rest.contains(']') {
+            return None;
+        }
+        if rest.is_empty() && wildcards == 0 {
+            return None;
+        }
+        if !rest.is_empty() {
+            segments.push(BodyRewriteSegment::Key(rest.to_string()));
+        }
+        segments.extend(std::iter::repeat(BodyRewriteSegment::Each).take(wildcards));
+    }
+    Some(segments)
+}
+
+/// 沿路径下钻，对命中的字符串叶子按映射表替换，返回替换次数。
+fn rewrite_body_path(
+    node: &mut Value,
+    segments: &[BodyRewriteSegment],
+    mapping: &serde_json::Map<String, Value>,
+) -> usize {
+    let Some((head, tail)) = segments.split_first() else {
+        let Value::String(current) = node else {
+            return 0;
+        };
+        return match mapping.get(current.as_str()).and_then(Value::as_str) {
+            Some(replacement) if replacement != current.as_str() => {
+                *current = replacement.to_string();
+                1
+            }
+            _ => 0,
+        };
+    };
+
+    match head {
+        BodyRewriteSegment::Key(key) => node
+            .as_object_mut()
+            .and_then(|map| map.get_mut(key))
+            .map(|child| rewrite_body_path(child, tail, mapping))
+            .unwrap_or(0),
+        BodyRewriteSegment::Each => node
+            .as_array_mut()
+            .map(|items| {
+                items
+                    .iter_mut()
+                    .map(|item| rewrite_body_path(item, tail, mapping))
+                    .sum()
+            })
+            .unwrap_or(0),
+    }
+}
+
+/// 应用「Body 重写规则」：按路径对字符串叶子做条件值替换。
+/// 结构不合法的规则 warn 后忽略，不影响请求；返回是否发生改写。
+fn apply_local_proxy_body_rewrites(
+    body: &mut Value,
+    overrides: &LocalProxyRequestOverrides,
+) -> bool {
+    let Some(rules) = overrides.body_rewrites.as_ref() else {
+        return false;
+    };
+    let Some(rules) = rules.as_object() else {
+        log::warn!("[LocalProxyOverrides] Ignoring body rewrites because they are not an object");
+        return false;
+    };
+
+    let mut hits = 0usize;
+    for (path, mapping) in rules {
+        let Some(segments) = parse_body_rewrite_path(path) else {
+            log::warn!("[LocalProxyOverrides] Ignoring body rewrite with invalid path: {path}");
+            continue;
+        };
+        if matches!(segments.first(), Some(BodyRewriteSegment::Key(key)) if key == "stream") {
+            log::warn!("[LocalProxyOverrides] Ignoring body rewrite for protected field: stream");
+            continue;
+        }
+        let Some(mapping) = mapping
+            .as_object()
+            .filter(|map| map.values().all(Value::is_string))
+        else {
+            log::warn!(
+                "[LocalProxyOverrides] Ignoring body rewrite with invalid value map: {path}"
+            );
+            continue;
+        };
+        hits += rewrite_body_path(body, &segments, mapping);
+    }
+
+    if hits > 0 {
+        log::debug!("[LocalProxyOverrides] body rewrites applied, hits: {hits}");
+    }
+    hits > 0
+}
+
 fn merge_json_override(target: &mut Value, patch: &Value) -> bool {
     merge_json_override_inner(target, patch, true)
 }
@@ -4982,6 +5098,7 @@ mod tests {
                 },
                 "messages": []
             })),
+            body_rewrites: None,
         };
 
         assert!(apply_local_proxy_body_overrides(&mut body, &overrides));
@@ -4992,6 +5109,145 @@ mod tests {
         assert_eq!(body["metadata"]["temperature"], 0.2);
         assert_eq!(body["metadata"]["top_p"], 0.9);
         assert_eq!(body["messages"], json!([]));
+    }
+
+    fn rewrite_overrides(rules: Value) -> LocalProxyRequestOverrides {
+        LocalProxyRequestOverrides {
+            headers: HashMap::new(),
+            body: None,
+            body_rewrites: Some(rules),
+        }
+    }
+
+    #[test]
+    fn local_proxy_body_rewrites_map_system_role_to_user() {
+        // 形状取自 commandcode 400 日志：user + 带 output_config 的 system 消息
+        let mut body = json!({
+            "model": "claude-haiku-5-5",
+            "stream": true,
+            "system": [{ "type": "text", "text": "top-level system" }],
+            "messages": [
+                { "role": "user", "content": [{ "type": "text", "text": "hi" }] },
+                {
+                    "role": "system",
+                    "content": [{
+                        "type": "text",
+                        "text": "ctx",
+                        "cache_control": { "type": "ephemeral" }
+                    }],
+                    "output_config": { "effort": "medium" }
+                }
+            ]
+        });
+        let overrides = rewrite_overrides(json!({ "messages[*].role": { "system": "user" } }));
+
+        assert!(apply_local_proxy_body_rewrites(&mut body, &overrides));
+
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert_eq!(body["messages"][1]["content"][0]["text"], "ctx");
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(body["messages"][1]["output_config"]["effort"], "medium");
+        assert_eq!(body["system"][0]["text"], "top-level system");
+
+        // 幂等：重放不再改写
+        assert!(!apply_local_proxy_body_rewrites(&mut body, &overrides));
+    }
+
+    #[test]
+    fn local_proxy_body_rewrites_support_nested_wildcards_and_scalar_paths() {
+        let mut body = json!({
+            "thinking": { "type": "adaptive" },
+            "messages": [
+                { "role": "user", "content": [{ "type": "text" }, { "type": "image" }] },
+                { "role": "assistant", "content": "plain string" }
+            ]
+        });
+        let overrides = rewrite_overrides(json!({
+            "messages[*].content[*].type": { "image": "text" },
+            "thinking.type": { "adaptive": "enabled" }
+        }));
+
+        assert!(apply_local_proxy_body_rewrites(&mut body, &overrides));
+
+        assert_eq!(body["messages"][0]["content"][1]["type"], "text");
+        assert_eq!(body["thinking"]["type"], "enabled");
+        // content 为字符串时 [*] 不匹配，原样保留
+        assert_eq!(body["messages"][1]["content"], "plain string");
+    }
+
+    #[test]
+    fn local_proxy_body_rewrites_leave_non_matching_values_untouched() {
+        let original = json!({
+            "messages": [
+                { "role": "assistant" },
+                { "role": 7 },
+                { "role": { "nested": "system" } },
+                { "no_role": "system" }
+            ]
+        });
+        let mut body = original.clone();
+        let overrides = rewrite_overrides(json!({
+            "messages[*].role": { "system": "user" },
+            "missing.path[*].x": { "a": "b" }
+        }));
+
+        assert!(!apply_local_proxy_body_rewrites(&mut body, &overrides));
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn local_proxy_body_rewrites_ignore_stream_and_invalid_rules() {
+        let mut body = json!({
+            "stream": "system",
+            "messages": [{ "role": "system" }]
+        });
+        let overrides = rewrite_overrides(json!({
+            "stream": { "system": "user" },
+            "messages[*].role": "not-an-object",
+            "messages[*].role ": { "system": 1 },
+            "messages[": { "system": "user" },
+            "": { "system": "user" },
+            "messages..role": { "system": "user" }
+        }));
+
+        assert!(!apply_local_proxy_body_rewrites(&mut body, &overrides));
+        assert_eq!(body["stream"], "system");
+        assert_eq!(body["messages"][0]["role"], "system");
+
+        // 非对象的整体规则同样忽略
+        let overrides = rewrite_overrides(json!(["messages[*].role"]));
+        assert!(!apply_local_proxy_body_rewrites(&mut body, &overrides));
+
+        // 未配置规则时零改动
+        let overrides = LocalProxyRequestOverrides::default();
+        assert!(!apply_local_proxy_body_rewrites(&mut body, &overrides));
+    }
+
+    #[test]
+    fn parse_body_rewrite_path_handles_wildcards() {
+        use super::BodyRewriteSegment::{Each, Key};
+
+        assert_eq!(
+            super::parse_body_rewrite_path("messages[*].content[*].type"),
+            Some(vec![
+                Key("messages".into()),
+                Each,
+                Key("content".into()),
+                Each,
+                Key("type".into())
+            ])
+        );
+        assert_eq!(
+            super::parse_body_rewrite_path("thinking.type"),
+            Some(vec![Key("thinking".into()), Key("type".into())])
+        );
+        assert_eq!(super::parse_body_rewrite_path("a[0].b"), None);
+        assert_eq!(super::parse_body_rewrite_path("a..b"), None);
+        assert_eq!(super::parse_body_rewrite_path("   "), None);
     }
 
     #[test]
@@ -5019,6 +5275,7 @@ mod tests {
                 ("X-Bad".to_string(), "bad\nvalue".to_string()),
             ]),
             body: None,
+            body_rewrites: None,
         };
 
         apply_local_proxy_header_overrides(&mut headers, Some(&overrides), false);
@@ -5058,6 +5315,7 @@ mod tests {
         let overrides = LocalProxyRequestOverrides {
             headers: HashMap::from([("User-Agent".to_string(), "custom".to_string())]),
             body: None,
+            body_rewrites: None,
         };
 
         apply_local_proxy_header_overrides(&mut headers, Some(&overrides), true);

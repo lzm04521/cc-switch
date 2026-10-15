@@ -465,11 +465,19 @@ pub struct LocalProxyRequestOverrides {
     pub headers: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
+    /// Body 重写规则：路径模式 -> 值映射表（如 `{"messages[*].role": {"system": "user"}}`）。
+    /// 以 `Value` 存储，运行时逐条校验，结构不符的规则 warn 后忽略。
+    #[serde(
+        default,
+        rename = "bodyRewrites",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub body_rewrites: Option<serde_json::Value>,
 }
 
 impl LocalProxyRequestOverrides {
     pub fn is_empty(&self) -> bool {
-        self.headers.is_empty() && self.body.is_none()
+        self.headers.is_empty() && self.body.is_none() && self.body_rewrites.is_none()
     }
 }
 
@@ -1249,6 +1257,7 @@ mod tests {
             local_proxy_request_overrides: Some(LocalProxyRequestOverrides {
                 headers: HashMap::from([("X-Test".to_string(), "yes".to_string())]),
                 body: Some(json!({ "temperature": 0.2 })),
+                body_rewrites: Some(json!({ "messages[*].role": { "system": "user" } })),
             }),
             ..ProviderMeta::default()
         };
@@ -1262,12 +1271,38 @@ mod tests {
             value["localProxyRequestOverrides"]["body"]["temperature"],
             0.2
         );
+        assert_eq!(
+            value["localProxyRequestOverrides"]["bodyRewrites"]["messages[*].role"]["system"],
+            "user"
+        );
 
         let decoded: ProviderMeta =
             serde_json::from_value(value).expect("deserialize ProviderMeta");
         let overrides = decoded.local_proxy_request_overrides.unwrap();
         assert_eq!(overrides.headers.get("X-Test"), Some(&"yes".to_string()));
         assert_eq!(overrides.body.unwrap()["temperature"], 0.2);
+        assert_eq!(
+            overrides.body_rewrites.unwrap()["messages[*].role"]["system"],
+            "user"
+        );
+    }
+
+    #[test]
+    fn local_proxy_request_overrides_legacy_data_has_no_body_rewrites() {
+        let legacy = json!({ "headers": { "X-Test": "yes" }, "body": { "temperature": 0.2 } });
+        let decoded: LocalProxyRequestOverrides =
+            serde_json::from_value(legacy).expect("deserialize legacy overrides");
+        assert!(decoded.body_rewrites.is_none());
+
+        let value = serde_json::to_value(&decoded).expect("serialize overrides");
+        assert!(value.get("bodyRewrites").is_none());
+        assert!(!decoded.is_empty());
+
+        let only_rewrites = LocalProxyRequestOverrides {
+            body_rewrites: Some(json!({ "a": { "b": "c" } })),
+            ..LocalProxyRequestOverrides::default()
+        };
+        assert!(!only_rewrites.is_empty());
     }
 
     #[test]
