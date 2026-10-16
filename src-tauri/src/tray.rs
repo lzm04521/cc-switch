@@ -3897,7 +3897,8 @@ mod tests {
         );
         routed.current_id = Some("kimi".to_string());
         let menu = model(&[], &[routed]);
-        assert_eq!(text_of(&menu[2]), "Claude Desktop · 路由 · Kimi For Coding");
+        // fork：菜单多一行「显示悬浮球」，Desktop 标题在 menu[3]（上游是 menu[2]）
+        assert_eq!(text_of(&menu[3]), "Claude Desktop · 路由 · Kimi For Coding");
         let children = children_of(&menu, &AppType::ClaudeDesktop);
         assert!(
             matches!(&children[1], TrayEntry::Check { id, checked: true, .. } if id == "prov:claude-desktop:kimi")
@@ -3927,7 +3928,7 @@ mod tests {
         assert_eq!(text_of(&menu[1]), "---");
         assert_eq!(text_of(&menu[2]), "打开 CC Switch");
         assert_eq!(
-            text_of(&menu[4]),
+            text_of(&menu[5]),
             "Claude Desktop · 路由 · Kimi For Coding · 需要处理"
         );
         // 子菜单和其他路由应用一样以模式标题开头，服务没在跑由顶部问题区说。

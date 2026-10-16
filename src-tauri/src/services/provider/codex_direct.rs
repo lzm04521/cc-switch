@@ -842,7 +842,7 @@ pub(crate) fn stack_subagent_choices(
                 .and_then(Value::as_str)
                 .unwrap_or(model);
             choices.push(crate::mode::stack::StackSubagentModel {
-                id: crate::mode::stack::encode(&AppType::Codex, &member.key, model, false),
+                id: crate::mode::stack::encode(&crate::settings::get_route_prefix(), &AppType::Codex, &member.key, model, false),
                 provider_id: member.provider.id.clone(),
                 display_name: crate::mode::stack::display_name(display, &member.provider.name),
                 efforts: catalog_entry_efforts(entry).map(str::to_string).collect(),
@@ -949,12 +949,8 @@ fn stack_catalog(
     plan_codex_stack_catalog(
         route_row,
         &members,
-<<<<<<< HEAD
         crate::settings::get_route_models_mode(),
-        crate::settings::codex_stack_classic_subagents(),
-=======
         crate::settings::codex_stack_classic_tools(),
->>>>>>> local/main
     )
     .map(Some)
 }

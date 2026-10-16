@@ -302,6 +302,11 @@ pub async fn apply_session_routing(
         Decoded::Plain => sticky_follow(state, session, app_type, store)
             .await
             .map_err(|e| Box::new(e.into_response()) as Box<Response>),
+        // Claude Desktop 数字 id 不经会话路由（入口 gate 已排除该应用），
+        // 列出只为 match 穷尽性：万一到达，按普通模型回落粘性跟随
+        Decoded::Code(_) => sticky_follow(state, session, app_type, store)
+            .await
+            .map_err(|e| Box::new(e.into_response()) as Box<Response>),
         // 保留 key：解绑 + 本请求显式走默认成员的默认模型（设计 D8）
         Decoded::Short { key } if key.eq_ignore_ascii_case(RESERVED_ROUTE_KEY) => {
             state.route_bindings.unbind(&session.session_id);

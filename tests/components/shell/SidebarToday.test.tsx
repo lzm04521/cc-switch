@@ -46,7 +46,7 @@ const renderSidebar = (settings: Partial<Settings>) => {
       <Sidebar
         activeApp="claude"
         view="usage"
-        visibleApps={{} as VisibleApps}
+        sidebarApps={{} as VisibleApps}
         settingsSection="general"
         onSelectApp={vi.fn()}
         onSelectPage={vi.fn()}

@@ -2965,7 +2965,7 @@ fn build_simplified_catalog_from_texts(config_text: &str, catalog_text: &str) ->
     let mut overrides = models.iter().filter_map(|entry| {
         let slug = entry.get("slug").and_then(Value::as_str)?.trim();
         matches!(
-            crate::mode::stack::decode(&crate::app_config::AppType::Codex, slug),
+            crate::mode::stack::decode(&crate::settings::get_route_prefix(), &crate::app_config::AppType::Codex, slug),
             crate::mode::stack::Decoded::Plain
         )
         .then(|| {
@@ -5311,7 +5311,7 @@ wire_api = "responses"
         // 两家都有 GPT-6 Sol：各一条，内容都是官方的；首位是解绑条目。
         assert_eq!(models[0]["slug"], "ccs-default");
         assert_eq!(models[1]["slug"], "gpt-6-sol");
-        assert_eq!(models[2]["slug"], "ccs-relay.gpt-6-sol");
+        assert_eq!(models[2]["slug"], "ccs-relay/gpt-6-sol");
         for model in &models[1..3] {
             assert_eq!(
                 model["model_messages"]["instructions_template"],
@@ -5499,7 +5499,7 @@ wire_api = "responses"
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-5.5",
-                "ccs-ds.deepseek-v4-pro",
+                "ccs-ds/deepseek-v4-pro",
                 "ccs-ds"
             ]
         );
@@ -5594,7 +5594,7 @@ wire_api = "responses"
         let catalog = r#"{
             "models": [
                 { "slug": "deepseek/deepseek-v4" },
-                { "slug": "ccs-kimi.kimi-k3" }
+                { "slug": "ccs-kimi/kimi-k3" }
             ]
         }"#;
         let result = build_simplified_catalog_from_texts("", catalog).expect("entries");
@@ -5650,7 +5650,7 @@ wire_api = "responses"
         assert_eq!(models[0]["slug"], "ccs-default");
         assert_eq!(models[1]["slug"], "deepseek-v4-pro");
         assert_eq!(models[1]["comp_hash"], plain["models"][0]["comp_hash"]);
-        assert_eq!(models[2]["slug"], "ccs-ds.deepseek-v4-pro");
+        assert_eq!(models[2]["slug"], "ccs-ds/deepseek-v4-pro");
         assert_eq!(models[2]["comp_hash"], "cc-switch");
         // fork Task 7: 每成员一条短形式条目
         assert_eq!(models[3]["slug"], "ccs-ds");
@@ -5690,7 +5690,7 @@ wire_api = "responses"
         let models = catalog["models"].as_array().unwrap();
         assert_eq!(models.len(), 4);
         let stacked = &models[2];
-        assert_eq!(stacked["slug"], "ccs-anth.claude-opus-5");
+        assert_eq!(stacked["slug"], "ccs-anth/claude-opus-5");
         assert_eq!(stacked["display_name"], "claude-opus-5(Anth)");
         assert_eq!(stacked["description"], "claude-opus-5 · 400K");
         assert_eq!(stacked["shell_type"], "shell_command");
@@ -5760,7 +5760,7 @@ wire_api = "responses"
             slugs(build(RouteModelsMode::Models)),
             vec![
                 "route-model".to_string(),
-                "ccs-anth.claude-opus-5".to_string()
+                "ccs-anth/claude-opus-5".to_string()
             ]
         );
     }

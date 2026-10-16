@@ -4904,7 +4904,7 @@ mod stack_tests {
         let target = crate::mode::stack::StackTarget {
             provider: kimi,
             upstream_model: "kimi-k3".to_string(),
-            original_model: "ccs-kimi.kimi-k3".to_string(),
+            original_model: "ccs-claude-kimi--kimi-k3".to_string(),
         };
         let body = json!({ "model": "kimi-k3", "messages": [] });
 
@@ -4928,7 +4928,7 @@ mod stack_tests {
                 .collect::<Vec<_>>(),
             vec!["kimi"]
         );
-        assert_eq!(ctx.request_model, "ccs-kimi.kimi-k3");
+        assert_eq!(ctx.request_model, "ccs-claude-kimi--kimi-k3");
         assert!(!ctx.app_config.auto_failover_enabled);
         let streaming = ctx.streaming_timeout_config();
         assert_eq!(
@@ -5049,7 +5049,7 @@ mod stack_tests {
         let prefix = stack_configured_prefix();
         let ids = ids_of(&entries);
         assert!(
-            ids.contains(&format!("{prefix}zhipu.glm-5.2[1M]")),
+            ids.contains(&format!("{prefix}claude-zhipu--glm-5.2[1M]")),
             "{ids:?}"
         );
         // 有成员时置顶解绑条目（保留 key default 的短形式）
@@ -5124,7 +5124,7 @@ mod stack_tests {
         let ids = ids_of(&entries);
         // 完整条目（modelCatalog 的 deepseek-v4-pro）+ 每成员短形式
         assert!(
-            ids.contains(&format!("{prefix}ds.deepseek-v4-pro")),
+            ids.contains(&format!("{prefix}ds/deepseek-v4-pro")),
             "{ids:?}"
         );
         assert!(ids.contains(&format!("{prefix}ds")), "{ids:?}");
@@ -5151,7 +5151,7 @@ mod stack_tests {
         );
         assert!(claude_groups.contains(&format!("{prefix}kimi")));
         assert!(
-            !claude_groups.iter().any(|id| id.contains(".kimi-k3")),
+            !claude_groups.iter().any(|id| id.contains("kimi-k3")),
             "no full entries in Groups mode, {claude_groups:?}"
         );
 
@@ -5161,7 +5161,7 @@ mod stack_tests {
             RouteModelsMode::Models,
         ));
         assert!(
-            claude_models.contains(&format!("{prefix}kimi.kimi-k3")),
+            claude_models.contains(&format!("{prefix}claude-kimi--kimi-k3")),
             "{claude_models:?}"
         );
         assert!(
@@ -5188,7 +5188,7 @@ mod stack_tests {
         ));
         assert_eq!(
             codex_models,
-            vec![format!("{prefix}ds.deepseek-v4-pro")],
+            vec![format!("{prefix}ds/deepseek-v4-pro")],
             "{codex_models:?}"
         );
     }

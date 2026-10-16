@@ -206,8 +206,6 @@ pub async fn switch_provider(
             log::error!("发射 provider-switched 事件失败: {e}");
         }
     }
-=======
->>>>>>> local/main
     Ok(result)
 }
 

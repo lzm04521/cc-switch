@@ -136,7 +136,6 @@ import {
   APP_IDS,
   DEFAULT_VISIBLE_APPS,
   isModeAppId,
-  isProxyAppId,
   resolveSidebarApps,
 } from "@/config/appConfig";
 
