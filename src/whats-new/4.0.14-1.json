@@ -1,0 +1,33 @@
+{
+  "version": "4.0.14-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "Claude Desktop 支持聚合模式，可多家一起用",
+      "zh-TW": "Claude Desktop 支援聚合模式，可多家一起用",
+      "en": "Claude Desktop joins aggregation (stack) mode",
+      "ja": "Claude Desktop がアグリゲーション（スタック）モードに対応"
+    },
+    {
+      "type": "new",
+      "zh": "用量统计可换币种、自选侧栏「今日」与日志列",
+      "zh-TW": "用量統計可換幣別、自選側欄「今日」與日誌欄",
+      "en": "Usage stats: display currency, sidebar \"Today\" label, and log columns",
+      "ja": "利用統計で通貨換算・サイドバー「今日」・ログ列を選択可能に"
+    },
+    {
+      "type": "new",
+      "zh": "Codex 聚合可配子代理模型与自动审批模型",
+      "zh-TW": "Codex 聚合可配子代理模型與自動審批模型",
+      "en": "Codex aggregation gains sub-agent and auto-review model picks",
+      "ja": "Codex アグリゲーションでサブエージェントと自動レビューのモデルを選択"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 Codex 经路由连 Gemini 400、大仓库 Skills 装不上",
+      "zh-TW": "修正 Codex 經路由連 Gemini 400、大倉庫 Skills 裝不上",
+      "en": "Fixed Codex→Gemini 400 through routing; large Skills repos install",
+      "ja": "ルーティング経由 Codex→Gemini の 400 など多数修正"
+    }
+  ]
+}
