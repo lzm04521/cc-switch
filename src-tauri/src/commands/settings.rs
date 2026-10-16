@@ -83,8 +83,14 @@ pub async fn save_settings(
     let ball_panel_size_changed = merged.floating_ball.panel_width
         != existing.floating_ball.panel_width
         || merged.floating_ball.panel_height != existing.floating_ball.panel_height;
-    let classic_subagents_changed =
-        merged.codex_stack_classic_subagents != existing.codex_stack_classic_subagents;
+    // 经典工具开关、聚合子 agent 模型/强度和聚合自动审批模型都只影响 Stack 模式下
+    // 写给 Codex 的内容。
+    let stack_settings_changed = merged.codex_stack_classic_tools
+        != existing.codex_stack_classic_tools
+        || merged.codex_stack_subagent_model != existing.codex_stack_subagent_model
+        || merged.codex_stack_subagent_reasoning_effort
+            != existing.codex_stack_subagent_reasoning_effort
+        || merged.codex_stack_auto_review_model != existing.codex_stack_auto_review_model;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
 
     // 悬浮球开关联动：立即显示/隐藏悬浮球窗口 + 刷新托盘菜单勾选态
@@ -104,18 +110,21 @@ pub async fn save_settings(
         crate::floating_ball::refresh_panel_if_visible(&app_handle);
     }
 
-    // 经典子 agent 开关只影响 Stack 模式下的合并目录：立即重写，失败时回滚设置，
-    // 免得界面显示已打开、客户端还是旧目录。
-    if classic_subagents_changed {
+    // 立即重写，失败时回滚设置，免得界面显示已改好、客户端还是旧的。
+    if stack_settings_changed {
         if let Err(err) = crate::mode::controller::resync_codex_stack_catalog(state.inner()).await {
-            log::warn!("经典子 agent 开关变更后重写 Codex 模型目录失败，回滚设置: {err}");
+            log::warn!("Codex 聚合设置变更后重写客户端配置失败，回滚设置: {err}");
             let mut rollback = crate::settings::get_settings();
-            rollback.codex_stack_classic_subagents = existing.codex_stack_classic_subagents;
+            rollback.codex_stack_classic_tools = existing.codex_stack_classic_tools;
+            rollback.codex_stack_subagent_model = existing.codex_stack_subagent_model.clone();
+            rollback.codex_stack_subagent_reasoning_effort =
+                existing.codex_stack_subagent_reasoning_effort.clone();
+            rollback.codex_stack_auto_review_model = existing.codex_stack_auto_review_model.clone();
             if let Err(rollback_err) = crate::settings::update_settings(rollback) {
-                log::error!("回滚经典子 agent 开关失败: {rollback_err}");
+                log::error!("回滚 Codex 聚合设置失败: {rollback_err}");
             }
             return Err(format!(
-                "子 agent 开关未生效（Codex 模型目录重写失败） (The sub-agent setting did not take effect: rewriting the Codex model catalog failed): {err}"
+                "聚合设置未生效（Codex 配置重写失败） (The aggregation setting did not take effect: rewriting the Codex config failed): {err}"
             ));
         }
     }

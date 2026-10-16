@@ -84,6 +84,7 @@ import {
 } from "@/components/providers/forms/helpers/opencodeFormUtils";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { OpenTerminalDialog } from "@/components/providers/OpenTerminalDialog";
 import { discardUnsavedChanges, hasUnsavedChanges } from "@/lib/unsavedChanges";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
@@ -95,7 +96,6 @@ import {
 import { UsagePage } from "@/components/usage/UsagePage";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { SwitchModePanel } from "@/components/providers/mode/SwitchModePanel";
-import { DesktopAccessBar } from "@/components/providers/mode/DesktopAccessBar";
 import { proxyApi } from "@/lib/api/proxy";
 import type { AppMode, StartupAttachFailure } from "@/types/proxy";
 import UsageScriptModal from "@/components/UsageScriptModal";
@@ -135,6 +135,7 @@ import HermesMemoryPanel, {
 import {
   APP_IDS,
   DEFAULT_VISIBLE_APPS,
+  isModeAppId,
   isProxyAppId,
   resolveSidebarApps,
 } from "@/config/appConfig";
@@ -316,6 +317,9 @@ function App() {
     provider: Provider;
     action: "remove" | "delete";
   } | null>(null);
+  const [terminalProvider, setTerminalProvider] = useState<Provider | null>(
+    null,
+  );
   const [envConflicts, setEnvConflicts] = useState<EnvConflict[]>([]);
   const [showEnvBanner, setShowEnvBanner] = useState(false);
 
@@ -341,7 +345,7 @@ function App() {
   }, [activeApp, currentView]);
 
   const { isRunning: isProxyRunning, takeoverStatus } = useProxyStatus();
-  const proxyAppId = isProxyAppId(activeApp) ? activeApp : null;
+  const modeAppId = isModeAppId(activeApp) ? activeApp : null;
   // 换了应用、新面板还没报上来时为 undefined：表单按应用实际生效的模式
   const currentModeView =
     providerModeView?.app === activeApp ? providerModeView.view : undefined;
@@ -349,10 +353,9 @@ function App() {
     setFormModeView(modeView);
     setIsAddOpen(true);
   };
-  const currentAppUsesProxy =
-    proxyAppId !== null || activeApp === "claude-desktop";
-  const isCurrentAppTakeoverActive = proxyAppId
-    ? takeoverStatus?.[proxyAppId] || false
+  const currentAppUsesProxy = modeAppId !== null;
+  const isCurrentAppTakeoverActive = modeAppId
+    ? takeoverStatus?.[modeAppId] || false
     : false;
 
   const { data, isLoading, refetch } = useProvidersQuery(activeApp, {
@@ -1077,32 +1080,6 @@ function App() {
       : message;
   }, [activeApp, confirmAction, piCurrentState?.defaultProviderId, t]);
 
-  const handleOpenTerminal = async (provider: Provider) => {
-    try {
-      const selectedDir = await settingsApi.pickDirectory();
-      if (!selectedDir) {
-        return;
-      }
-
-      await providersApi.openTerminal(provider.id, activeApp, {
-        cwd: selectedDir,
-      });
-      toast.success(
-        t("provider.terminalOpened", {
-          defaultValue: "终端已打开",
-        }),
-      );
-    } catch (error) {
-      console.error("[App] Failed to open terminal", error);
-      const errorMessage = extractErrorMessage(error);
-      toast.error(
-        t("provider.terminalOpenFailed", {
-          defaultValue: "打开终端失败",
-        }) + (errorMessage ? `: ${errorMessage}` : ""),
-      );
-    }
-  };
-
   const handleImportSuccess = async () => {
     try {
       await queryClient.invalidateQueries({
@@ -1324,7 +1301,7 @@ function App() {
     onDuplicate: handleDuplicateProvider,
     onConfigureUsage: setUsageProvider,
     onOpenWebsite: handleOpenWebsite,
-    onOpenTerminal: activeApp === "claude" ? handleOpenTerminal : undefined,
+    onOpenTerminal: activeApp === "claude" ? setTerminalProvider : undefined,
     onCreate: () => openAddProvider(currentModeView),
     searchOpen: providerSearchOpen,
     onSearchOpenChange: setProviderSearchOpen,
@@ -1350,14 +1327,14 @@ function App() {
         </div>
       );
     }
-    if (proxyAppId) {
+    if (modeAppId) {
       const startupFailure = startupFailures.find(
-        (failure) => failure.appType === proxyAppId,
+        (failure) => failure.appType === modeAppId,
       );
       return (
         <SwitchModePanel
-          key={proxyAppId}
-          app={proxyAppId}
+          key={modeAppId}
+          app={modeAppId}
           providers={providers}
           currentProviderId={currentProviderId}
           isLoading={isLoading}
@@ -1365,14 +1342,14 @@ function App() {
           onSwitch={switchProvider}
           onOpenRoutingSettings={() => openSettings("routing")}
           needsRouteRequest={
-            trayNeedsRoute?.app === proxyAppId ? trayNeedsRoute : undefined
+            trayNeedsRoute?.app === modeAppId ? trayNeedsRoute : undefined
           }
           onNeedsRouteHandled={() => setTrayNeedsRoute(null)}
           onViewChange={handleProviderModeViewChange}
           startupFailure={startupFailure}
           onDismissStartupFailure={() =>
             setStartupFailures((list) =>
-              list.filter((failure) => failure.appType !== proxyAppId),
+              list.filter((failure) => failure.appType !== modeAppId),
             )
           }
           {...listCallbacks}
@@ -1387,12 +1364,6 @@ function App() {
         className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-12 pt-4"
       >
         <div className="space-y-4">
-          {activeApp === "claude-desktop" && (
-            <DesktopAccessBar
-              current={providers[currentProviderId]}
-              onOpenRoutingSettings={() => openSettings("routing")}
-            />
-          )}
           <ProviderList
             {...listCallbacks}
             providers={providers}
@@ -1705,6 +1676,12 @@ function App() {
           }}
         />
       )}
+
+      <OpenTerminalDialog
+        provider={terminalProvider}
+        appId={activeApp}
+        onClose={() => setTerminalProvider(null)}
+      />
 
       <ConfirmDialog
         isOpen={Boolean(confirmAction)}

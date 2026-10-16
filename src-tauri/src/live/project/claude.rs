@@ -379,20 +379,16 @@ fn proxy_model_fields(env: &Map<String, Value>) -> Vec<(&'static str, String)> {
 }
 
 /// Stack 模式的四档：每档写自己指向的 Stack id 和显示名（未配映射的档都是默认模型，
-/// 见 [`StackRoles`]）。haiku 档不带 1M 标记（和路由契约一样，haiku 别名不写 1M；
-/// 去掉标记的 id 解析到同一个模型）。不写 `CLAUDE_CODE_SUBAGENT_MODEL`：子代理跟随主模型，
-/// 也就是用户在 `/model` 里选的。
+/// 见 [`StackRoles`]）。haiku 档也带 `[1M]` 标记（上游 v4.0.13 起的口径：Stack id 不是
+/// `claude-` 开头，不带标记 Claude Code 会按 200K 算这一档的窗口；路由契约的 haiku 别名
+/// 是 `claude-haiku-5-5`，Claude Code 本身就按 1M 算，所以那边不用）。
+/// 不写 `CLAUDE_CODE_SUBAGENT_MODEL`：子代理跟随主模型，也就是用户在 `/model` 里选的。
 fn stack_model_fields(models: StackRoles<'_>) -> Vec<(&'static str, String)> {
-    let haiku = models
-        .haiku
-        .id
-        .strip_suffix(ONE_M_MARKER_FOR_CLIENT)
-        .unwrap_or(models.haiku.id);
     let roles = [
         (
             "ANTHROPIC_DEFAULT_HAIKU_MODEL",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
-            haiku,
+            models.haiku.id,
             models.haiku.name,
         ),
         (
@@ -755,16 +751,13 @@ mod tests {
             }),
         );
         let env = |key: &str| stacked.env.get(key).and_then(Value::as_str);
-        for role in ["SONNET", "OPUS", "FABLE"] {
+        // haiku 档也带 1M 标记：Stack id 不是 claude- 开头，不带标记会按 200K 算。
+        for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env(&format!("ANTHROPIC_DEFAULT_{role}_MODEL")),
                 Some("ccs-z.glm-5.2[1M]")
             );
         }
-        assert_eq!(
-            env("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-            Some("ccs-z.glm-5.2")
-        );
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env(&format!("ANTHROPIC_DEFAULT_{role}_MODEL_NAME")),

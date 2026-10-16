@@ -22,8 +22,11 @@ import {
   useUpdateGlobalProxyConfig,
 } from "@/lib/query/proxy";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
-import { PROXY_APP_IDS, type ProxyAppId } from "@/config/appConfig";
-import { providerNeedsRouting } from "@/utils/providerCapabilities";
+import {
+  MODE_APP_IDS,
+  PROXY_APP_IDS,
+  type ProxyAppId,
+} from "@/config/appConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HelpTip, DisabledReason } from "@/components/ui/help-tip";
@@ -183,7 +186,7 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   }, [savedClientHost]);
 
   const modeQueries = useQueries({
-    queries: PROXY_APP_IDS.map((app) => ({
+    queries: MODE_APP_IDS.map((app) => ({
       queryKey: ["providers", app, "mode"],
       queryFn: () => proxyApi.getAppMode(app),
     })),
@@ -193,14 +196,10 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
     codex: useProvidersQuery("codex").data,
     gemini: useProvidersQuery("gemini").data,
     grokbuild: useProvidersQuery("grokbuild").data,
+    "claude-desktop": useProvidersQuery("claude-desktop").data,
   };
-  const { data: desktop } = useProvidersQuery("claude-desktop");
-  const desktopCurrent = desktop?.providers[desktop.currentProviderId];
-  const desktopMapping = desktopCurrent
-    ? providerNeedsRouting("claude-desktop", desktopCurrent)
-    : false;
 
-  const usingApps = PROXY_APP_IDS.flatMap((app, index) => {
+  const usingApps = MODE_APP_IDS.flatMap((app, index) => {
     const view = modeQueries[index]?.data;
     if (!view || view.mode === "direct") return [];
     const routeName =
@@ -209,7 +208,7 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
       "—";
     return [{ app, mode: view.mode as AppMode, routeName }];
   });
-  const usingCount = usingApps.length + (desktopMapping ? 1 : 0);
+  const usingCount = usingApps.length;
 
   const saveListen = async () => {
     if (!config) return;
@@ -475,17 +474,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
                 onOpen={() => onOpenApp(app)}
               />
             ))}
-            {desktopMapping && desktopCurrent && (
-              <UsingAppRow
-                app="claude-desktop"
-                modeLabel={t("routingSettings.desktopMode")}
-                dotClass="bg-route"
-                detail={t("routingSettings.desktopDetail", {
-                  name: desktopCurrent.name,
-                })}
-                onOpen={() => onOpenApp("claude-desktop")}
-              />
-            )}
           </SettingsCard>
         )}
         {usingApps.length > 0 && (

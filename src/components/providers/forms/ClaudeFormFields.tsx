@@ -661,7 +661,6 @@ export function ClaudeFormFields({
     modelField: ClaudeModelEnvField;
     displayNameField?: ClaudeModelEnvField;
     inputId: string;
-    supportsOneM: boolean;
   };
 
   const modelRoleRows: ModelRoleRow[] = [
@@ -673,7 +672,6 @@ export function ClaudeFormFields({
       modelField: "ANTHROPIC_DEFAULT_SONNET_MODEL",
       displayNameField: "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
       inputId: "claudeDefaultSonnetModel",
-      supportsOneM: true,
     },
     {
       role: "opus",
@@ -683,7 +681,6 @@ export function ClaudeFormFields({
       modelField: "ANTHROPIC_DEFAULT_OPUS_MODEL",
       displayNameField: "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
       inputId: "claudeDefaultOpusModel",
-      supportsOneM: true,
     },
     {
       role: "fable",
@@ -693,7 +690,6 @@ export function ClaudeFormFields({
       modelField: "ANTHROPIC_DEFAULT_FABLE_MODEL",
       displayNameField: "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
       inputId: "claudeDefaultFableModel",
-      supportsOneM: true,
     },
     {
       role: "haiku",
@@ -703,7 +699,6 @@ export function ClaudeFormFields({
       modelField: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
       displayNameField: "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
       inputId: "claudeDefaultHaikuModel",
-      supportsOneM: false,
     },
     {
       role: "subagent",
@@ -713,26 +708,21 @@ export function ClaudeFormFields({
       model: subagentModel,
       modelField: "CLAUDE_CODE_SUBAGENT_MODEL",
       inputId: "claudeCodeSubagentModel",
-      supportsOneM: true,
     },
   ];
 
   const handleRoleModelChange = (row: ModelRoleRow, value: string) => {
     const oldModelBase = stripClaudeOneMMarker(row.model).trim();
-    const normalizedValue = row.supportsOneM
-      ? value
-      : stripClaudeOneMMarker(value);
-    const nextModelBase = stripClaudeOneMMarker(normalizedValue).trim();
+    const nextModelBase = stripClaudeOneMMarker(value).trim();
     const displayName = row.displayName?.trim() ?? "";
     const shouldSyncDisplayName = !displayName || displayName === oldModelBase;
-    onModelChange(row.modelField, normalizedValue);
+    onModelChange(row.modelField, value);
     if (row.displayNameField && shouldSyncDisplayName) {
       onModelChange(row.displayNameField, nextModelBase);
     }
   };
 
   const handleRoleOneMChange = (row: ModelRoleRow, enabled: boolean) => {
-    if (!row.supportsOneM) return;
     handleRoleModelChange(row, setClaudeOneMMarker(row.model, enabled));
   };
 
@@ -1185,14 +1175,11 @@ export function ClaudeFormFields({
                         claudeModel;
                       if (value) {
                         for (const row of modelRoleRows) {
-                          const roleValue = row.supportsOneM
-                            ? value
-                            : stripClaudeOneMMarker(value);
-                          onModelChange(row.modelField, roleValue);
+                          onModelChange(row.modelField, value);
                           if (row.displayNameField) {
                             onModelChange(
                               row.displayNameField,
-                              stripClaudeOneMMarker(roleValue),
+                              stripClaudeOneMMarker(value),
                             );
                           }
                         }
@@ -1263,8 +1250,7 @@ export function ClaudeFormFields({
 
               {modelRoleRows.map((row) => {
                 const modelBase = stripClaudeOneMMarker(row.model);
-                const usesOneM =
-                  row.supportsOneM && hasClaudeOneMMarker(row.model);
+                const usesOneM = hasClaudeOneMMarker(row.model);
 
                 return (
                   <div
@@ -1306,24 +1292,20 @@ export function ClaudeFormFields({
                       (value) =>
                         handleRoleModelChange(
                           row,
-                          row.supportsOneM
-                            ? setClaudeOneMMarker(value, usesOneM)
-                            : stripClaudeOneMMarker(value),
+                          setClaudeOneMMarker(value, usesOneM),
                         ),
                     )}
-                    {row.supportsOneM && (
-                      <label className="flex h-9 items-center gap-2 text-sm text-fg-2">
-                        <Checkbox
-                          checked={usesOneM}
-                          onCheckedChange={(checked) =>
-                            handleRoleOneMChange(row, checked === true)
-                          }
-                        />
-                        {t("providerForm.modelOneMLabel", {
-                          defaultValue: "1M",
-                        })}
-                      </label>
-                    )}
+                    <label className="flex h-9 items-center gap-2 text-sm text-fg-2">
+                      <Checkbox
+                        checked={usesOneM}
+                        onCheckedChange={(checked) =>
+                          handleRoleOneMChange(row, checked === true)
+                        }
+                      />
+                      {t("providerForm.modelOneMLabel", {
+                        defaultValue: "1M",
+                      })}
+                    </label>
                   </div>
                 );
               })}

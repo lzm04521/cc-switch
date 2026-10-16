@@ -169,11 +169,6 @@ pub async fn switch_provider(
     id: String,
 ) -> Result<SwitchResult, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    let is_desktop = matches!(app_type, AppType::ClaudeDesktop);
-    let desktop_was_mapping = is_desktop
-        && app_handle.try_state::<AppState>().is_some_and(|state| {
-            crate::claude_desktop_config::current_provider_uses_proxy(&state.db)
-        });
     // 闭包 move 走 handle/app_type，emit 阶段在闭包外，需提前 clone
     let emit_handle = app_handle.clone();
     let emit_app_type = app_type.clone();
@@ -186,16 +181,6 @@ pub async fn switch_provider(
     })
     .await
     .map_err(|e| format!("供应商切换任务执行失败: {e}"))??;
-
-    if is_desktop {
-        if let Some(state) = app_handle.try_state::<AppState>() {
-            crate::mode::controller::sync_desktop_mapping_service(
-                state.inner(),
-                desktop_was_mapping,
-            )
-            .await;
-        }
-    }
 
     // 切换成功后发射 provider-switched：panel 窗口是独立 WebView，只靠该
     // 事件刷新悬浮球面板分组数据（托盘/快照/故障转移入口均已发射，主命令
@@ -221,6 +206,8 @@ pub async fn switch_provider(
             log::error!("发射 provider-switched 事件失败: {e}");
         }
     }
+=======
+>>>>>>> local/main
     Ok(result)
 }
 
