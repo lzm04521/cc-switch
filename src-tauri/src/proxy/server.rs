@@ -1503,7 +1503,7 @@ mod tests {
         // 同 session 发默认成员的全 id（带客户端 session 头建立粘性绑定）：
         // 显式全 id 必须优先于绑定（选中谁走谁）——这是「钩子先于 Stack 解析」
         // 顺序契约的判别性场景（顺序反了会被粘性锁定覆盖）
-        let full_id = format!("{prefix}default/default-model");
+        let full_id = format!("{prefix}default.default-model");
         let response = client
             .post(format!(
                 "http://127.0.0.1:{}/codex/v1/chat/completions",

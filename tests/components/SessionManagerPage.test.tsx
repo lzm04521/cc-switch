@@ -94,7 +94,9 @@ describe("SessionManagerPage", () => {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
 
-    const now = Date.now();
+    // 锚定到当天 14:00：凌晨跑测试时 now-N 小时会跨天落到「昨天」，
+    // 「今天」分组变空导致断言失败（时间敏感，勿改回 Date.now()）
+    const now = new Date().setHours(14, 0, 0, 0);
     const sessions: SessionMeta[] = [
       {
         providerId: "codex",

@@ -736,7 +736,7 @@ mod tests {
         }});
         let route = ClaudeProjection::of(&row);
         let tier = StackRoleModel {
-            id: "ccs-claude-z--glm-5.2[1M]",
+            id: "ccs-z.glm-5.2[1M]",
             name: "GLM 5.2",
         };
         let stacked = proxy_projection(
@@ -755,7 +755,7 @@ mod tests {
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env(&format!("ANTHROPIC_DEFAULT_{role}_MODEL")),
-                Some("ccs-claude-z--glm-5.2[1M]")
+                Some("ccs-z.glm-5.2[1M]")
             );
         }
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
@@ -788,23 +788,23 @@ mod tests {
             "http://127.0.0.1:15721",
             ProxyAuth::FollowRow,
             Some(StackRoles {
-                haiku: tier("ccs-claude-z--glm-4.7-air[1M]", "GLM 4.7 Air"),
-                sonnet: tier("ccs-claude-z--glm-5.2[1M]", "GLM 5.2"),
-                opus: tier("ccs-claude-z--glm-5.2", "GLM 5.2 200K"),
-                fable: tier("ccs-claude-z--glm-5.2", "GLM 5.2 200K"),
+                haiku: tier("ccs-z.glm-4.7-air[1M]", "GLM 4.7 Air"),
+                sonnet: tier("ccs-z.glm-5.2[1M]", "GLM 5.2"),
+                opus: tier("ccs-z.glm-5.2", "GLM 5.2 200K"),
+                fable: tier("ccs-z.glm-5.2", "GLM 5.2 200K"),
             }),
         );
         let env = |key: &str| stacked.env.get(key).and_then(Value::as_str);
         assert_eq!(
             env("ANTHROPIC_DEFAULT_SONNET_MODEL"),
-            Some("ccs-claude-z--glm-5.2[1M]")
+            Some("ccs-z.glm-5.2[1M]")
         );
         // haiku 档也保留 1M 标记（上游 v4.0.13 起的口径，见 stack_model_fields 注释）。
         assert_eq!(
             env("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-            Some("ccs-claude-z--glm-4.7-air[1M]")
+            Some("ccs-z.glm-4.7-air[1M]")
         );
-        assert_eq!(env("ANTHROPIC_DEFAULT_OPUS_MODEL"), Some("ccs-claude-z--glm-5.2"));
+        assert_eq!(env("ANTHROPIC_DEFAULT_OPUS_MODEL"), Some("ccs-z.glm-5.2"));
         // 各档的显示名取各自 StackRoleModel。
         assert_eq!(
             env("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"),

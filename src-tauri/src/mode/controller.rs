@@ -5617,7 +5617,7 @@ model_provider = "c"
         assert_eq!(stack_state().members, vec!["a"]);
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude-a--claude-sonnet-4-6".to_string()])
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
         );
         let options = &settings()[CLAUDE_MODEL_PICKER]["options"][0];
         assert_eq!(options["label"], "claude-sonnet-4-6(A)");
@@ -5627,7 +5627,7 @@ model_provider = "c"
         for role in ["HAIKU", "SONNET", "OPUS", "FABLE"] {
             assert_eq!(
                 env[format!("ANTHROPIC_DEFAULT_{role}_MODEL")],
-                "ccs-claude-a--claude-sonnet-4-6",
+                "ccs-a.claude-sonnet-4-6",
                 "{role}"
             );
             assert_eq!(
@@ -5639,21 +5639,21 @@ model_provider = "c"
         let views = set_member(&state, "kimi", true).await;
         assert_eq!(views.len(), 2);
         assert!(views[0].route);
-        assert_eq!(views[0].model_ids, vec!["ccs-claude-a--claude-sonnet-4-6"]);
+        assert_eq!(views[0].model_ids, vec!["ccs-a.claude-sonnet-4-6"]);
         assert_eq!(stack_state().key_of("kimi"), Some("kimi"));
-        assert_eq!(views[1].model_ids, vec!["ccs-claude-kimi--kimi-k3"]);
+        assert_eq!(views[1].model_ids, vec!["ccs-kimi.kimi-k3"]);
         assert_eq!(
             picker(),
             Some(vec![
-                "ccs-claude-a--claude-sonnet-4-6".to_string(),
-                "ccs-claude-kimi--kimi-k3".to_string(),
+                "ccs-a.claude-sonnet-4-6".to_string(),
+                "ccs-kimi.kimi-k3".to_string(),
             ])
         );
         let env = settings()["env"].clone();
         assert_eq!(env[CLAUDE_MAX_CONTEXT_ENV], "128000");
         assert_eq!(
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-            "ccs-claude-a--claude-sonnet-4-6"
+            "ccs-a.claude-sonnet-4-6"
         );
         assert_eq!(
             mode(&AppType::Claude).contract.unwrap().exclusive[CLAUDE_MAX_CONTEXT_ENV],
@@ -5667,8 +5667,8 @@ model_provider = "c"
         assert_eq!(
             picker(),
             Some(vec![
-                "ccs-claude-a--claude-sonnet-4-6".to_string(),
-                "ccs-claude-zhipu--glm-5.2[1M]".to_string(),
+                "ccs-a.claude-sonnet-4-6".to_string(),
+                "ccs-zhipu.glm-5.2[1M]".to_string(),
             ])
         );
         let env = settings()["env"].clone();
@@ -5721,7 +5721,7 @@ model_provider = "c"
         enter(&state, &AppType::Claude, true).await.expect("enter");
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude-a--claude-sonnet-4-6".to_string()])
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
         );
 
         exit(&state, &AppType::Claude).await.expect("exit");
@@ -5780,7 +5780,7 @@ model_provider = "c"
         assert_eq!(env[CLAUDE_MAX_CONTEXT_ENV], "128000");
         assert_eq!(
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
-            "ccs-claude-kimi--kimi-k3"
+            "ccs-kimi.kimi-k3"
         );
         assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"], "kimi-k3");
         let views = stack_views(&state, &AppType::Claude).unwrap().members;
@@ -5941,18 +5941,18 @@ model_provider = "c"
         let env = settings()["env"].clone();
         assert_eq!(
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-            "ccs-claude-zhipu--glm-5.2[1M]"
+            "ccs-zhipu.glm-5.2[1M]"
         );
         assert_eq!(
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
-            "ccs-claude-zhipu--glm-5.2[1M]"
+            "ccs-zhipu.glm-5.2[1M]"
         );
         let with_a = settings();
         set_member(&state, "a", false).await;
         assert_eq!(stack_state().members, vec!["zhipu"]);
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude-zhipu--glm-5.2[1M]".to_string()])
+            Some(vec!["ccs-zhipu.glm-5.2[1M]".to_string()])
         );
         let env = settings()["env"].clone();
         assert_eq!(env, with_a["env"], "a is not the default any more");
@@ -6529,7 +6529,7 @@ model_provider = "c"
         let env = settings()["env"].clone();
         assert_eq!(
             picker(),
-            Some(vec!["ccs-claude-a--claude-sonnet-4-6".to_string()]),
+            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()]),
             "a still publishes"
         );
         assert!(env.get(CLAUDE_MAX_CONTEXT_ENV).is_none(), "{env}");
@@ -6552,7 +6552,7 @@ model_provider = "c"
         enter(&state, &AppType::Claude, true).await.expect("enter");
         let mapped_contract = mode(&AppType::Claude).contract.unwrap();
         let sonnet = || settings()["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"].clone();
-        assert_eq!(sonnet(), "ccs-claude-a--claude-sonnet-4-6");
+        assert_eq!(sonnet(), "ccs-a.claude-sonnet-4-6");
 
         // 配了列表：整张照常发布，第一个占四档。
         let mut a = state.db.get_provider_by_id("a", "claude").unwrap().unwrap();
@@ -6565,9 +6565,9 @@ model_provider = "c"
         assert!(views[0].route);
         assert_eq!(
             views[0].model_ids,
-            vec!["ccs-claude-a--a-vision", "ccs-claude-a--claude-sonnet-4-6"]
+            vec!["ccs-a.a-vision", "ccs-a.claude-sonnet-4-6"]
         );
-        assert_eq!(sonnet(), "ccs-claude-a--a-vision");
+        assert_eq!(sonnet(), "ccs-a.a-vision");
         assert_eq!(
             settings()["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"],
             "A Vision"
@@ -6582,7 +6582,7 @@ model_provider = "c"
             .unwrap()
             .reverse();
         ProviderService::update(&state, AppType::Claude, None, a.clone()).expect("reorder a");
-        assert_eq!(sonnet(), "ccs-claude-a--claude-sonnet-4-6");
+        assert_eq!(sonnet(), "ccs-a.claude-sonnet-4-6");
 
         // 用户清空了列表：什么都不发布，四档回到路由契约的写法。
         a.meta.as_mut().unwrap().stack_models = Some(Vec::new());
@@ -6620,9 +6620,9 @@ model_provider = "c"
         let env = settings()["env"].clone();
         assert_eq!(
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-            "ccs-claude-a--claude-sonnet-4-6"
+            "ccs-a.claude-sonnet-4-6"
         );
-        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "ccs-claude-a--a-vision");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "ccs-a.a-vision");
         assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"], "A Vision");
 
         // 档位值不在列表里：静默回落第一模型。
@@ -6634,7 +6634,7 @@ model_provider = "c"
         ProviderService::update(&state, AppType::Claude, None, a).expect("remap a");
         assert_eq!(
             settings()["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
-            "ccs-claude-a--claude-sonnet-4-6"
+            "ccs-a.claude-sonnet-4-6"
         );
     }
 
@@ -6848,7 +6848,7 @@ model_provider = "c"
         // 默认那家（a）在名单最前面，不发布。
         let views = set_codex_member(&state, "deepseek", true).await;
         assert!(views[0].route);
-        assert_eq!(views[1].model_ids, vec!["ccs-deepseek/deepseek-v4-pro"]);
+        assert_eq!(views[1].model_ids, vec!["ccs-deepseek.deepseek-v4-pro"]);
         let doc = codex_doc();
         assert_eq!(
             doc["model"].as_str(),
@@ -6875,7 +6875,7 @@ model_provider = "c"
             vec![
                 "ccs-default",
                 "gpt-a",
-                "ccs-deepseek/deepseek-v4-pro",
+                "ccs-deepseek.deepseek-v4-pro",
                 "ccs-deepseek"
             ]
         );
@@ -6897,7 +6897,7 @@ model_provider = "c"
 
         // 没有配置模型目录的行只发布它的 `model`。
         let views = set_codex_member(&state, "zhipu", true).await;
-        assert_eq!(views[2].model_ids, vec!["ccs-zhipu/gpt-zhipu"]);
+        assert_eq!(views[2].model_ids, vec!["ccs-zhipu.gpt-zhipu"]);
         let slugs: Vec<String> = codex_catalog()["models"]
             .as_array()
             .unwrap()
@@ -6909,8 +6909,8 @@ model_provider = "c"
             vec![
                 "ccs-default",
                 "gpt-a",
-                "ccs-deepseek/deepseek-v4-pro",
-                "ccs-zhipu/gpt-zhipu",
+                "ccs-deepseek.deepseek-v4-pro",
+                "ccs-zhipu.gpt-zhipu",
                 "ccs-deepseek",
                 "ccs-zhipu"
             ]
@@ -7011,7 +7011,7 @@ model_provider = "c"
         );
 
         // 还没进 Stack：设置只存着，不碰客户端文件。
-        set_stack_subagent(Some("ccs-deepseek/deepseek-v4-pro"), None);
+        set_stack_subagent(Some("ccs-deepseek.deepseek-v4-pro"), None);
         let before = codex_text();
         resync_codex_stack_catalog(&state).await.expect("no-op");
         assert_eq!(codex_text(), before);
@@ -7031,15 +7031,15 @@ model_provider = "c"
         assert_eq!(
             ids,
             vec![
-                "ccs-a/gpt-a",
-                "ccs-deepseek/deepseek-v4-pro",
-                "ccs-zhipu/gpt-zhipu"
+                "ccs-a.gpt-a",
+                "ccs-deepseek.deepseek-v4-pro",
+                "ccs-zhipu.gpt-zhipu"
             ]
         );
         assert_eq!(all[0].provider_id, "a");
         let choices: Vec<_> = all.into_iter().filter(|c| c.provider_id != "a").collect();
         // 默认那家的 `ccs-*` 不在合并目录里：选了也不写，跟随主模型。
-        set_stack_subagent(Some("ccs-a/gpt-a"), None);
+        set_stack_subagent(Some("ccs-a.gpt-a"), None);
         resync_codex_stack_catalog(&state)
             .await
             .expect("route model");
@@ -7132,7 +7132,7 @@ model_provider = "c"
         let state = state_with(AppType::Codex, &[route, deepseek, zhipu], "a").await;
 
         // 还没进 Stack：设置只存着，不碰客户端文件。
-        set_stack_auto_review(Some("ccs-deepseek/deepseek-v4-pro"));
+        set_stack_auto_review(Some("ccs-deepseek.deepseek-v4-pro"));
         let before = codex_text();
         resync_codex_stack_catalog(&state).await.expect("no-op");
         assert_eq!(codex_text(), before);
@@ -7150,13 +7150,13 @@ model_provider = "c"
         // fork：目录含解绑/短形式条目，行数与上游不同；语义是「一行都不写」
         assert!(catalog_auto_review().iter().all(Option::is_none));
 
-        let id = "ccs-deepseek/deepseek-v4-pro";
+        let id = "ccs-deepseek.deepseek-v4-pro";
         set_stack_auto_review(Some(id));
         resync_codex_stack_catalog(&state).await.expect("set");
         assert!(catalog_auto_review().iter().all(|v| v.as_deref() == Some(id)));
 
         // 默认那家的 `ccs-*` 不在合并目录里：不写。
-        set_stack_auto_review(Some("ccs-a/gpt-a"));
+        set_stack_auto_review(Some("ccs-a.gpt-a"));
         resync_codex_stack_catalog(&state).await.expect("route id");
         assert!(catalog_auto_review().iter().all(Option::is_none));
 
@@ -7626,7 +7626,7 @@ model_provider = "c"
             .collect();
         assert!(
             ids.iter()
-                .any(|id| id.starts_with(&format!("{prefix}CommandCode/"))),
+                .any(|id| id.starts_with(&format!("{prefix}CommandCode."))),
             "{ids:?}"
         );
         assert!(
@@ -7737,7 +7737,7 @@ model_provider = "c"
             .map(|m| m["slug"].as_str().unwrap().to_string())
             .collect();
         assert!(
-            slugs.contains(&"ccs-deepseek/deepseek-v4-pro".to_string()),
+            slugs.contains(&"ccs-deepseek.deepseek-v4-pro".to_string()),
             "{slugs:?}"
         );
         assert_eq!(stack_views(&state, &AppType::Codex).unwrap().notice, None);
@@ -7865,7 +7865,7 @@ model_provider = "c"
             vec![
                 "ccs-default",
                 "gpt-a",
-                "ccs-deepseek/deepseek-v5",
+                "ccs-deepseek.deepseek-v5",
                 "ccs-deepseek"
             ]
         );
@@ -7899,8 +7899,8 @@ model_provider = "c"
             vec![
                 "ccs-default",
                 "gpt-a",
-                "ccs-deepseek/deepseek-v4-pro",
-                "ccs-zhipu/gpt-zhipu",
+                "ccs-deepseek.deepseek-v4-pro",
+                "ccs-zhipu.gpt-zhipu",
                 "ccs-deepseek",
                 "ccs-zhipu"
             ]
@@ -7918,7 +7918,7 @@ model_provider = "c"
             vec![
                 "ccs-default",
                 "gpt-a",
-                "ccs-deepseek/deepseek-v4-pro",
+                "ccs-deepseek.deepseek-v4-pro",
                 "ccs-deepseek"
             ]
         );
@@ -8130,7 +8130,7 @@ model_provider = "c"
                 "ccs-default",
                 "gpt-6-sol",
                 "gpt-5.5",
-                "ccs-deepseek/deepseek-v4-pro",
+                "ccs-deepseek.deepseek-v4-pro",
                 "ccs-deepseek"
             ]
         );

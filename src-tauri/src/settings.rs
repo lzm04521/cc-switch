@@ -578,7 +578,7 @@ pub struct AppSettings {
     /// 每次保存都会写下 `false`，分不清是不是用户关的：换了键名，旧键不再读，升级后一律按开。
     #[serde(default = "default_true")]
     pub codex_stack_classic_tools: bool,
-    /// Codex 聚合模式下子 agent 默认用的模型（合并目录里的 slug，`ccs-<key>/<model>`）。
+    /// Codex 聚合模式下子 agent 默认用的模型（合并目录里的 slug，`ccs-<key>.<model>`）。
     /// 不设时跟随主模型。只在这个 slug 还在合并目录里时写进 `[agents]`，否则照样跟随主模型
     /// （成员移除后保留设置，加回来自动恢复）。
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,0 +1,12 @@
+{
+  "version": "4.0.14-2",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "聚合模型 id 恢复 <前缀><分组>.<模型> 形态（fork 定制）",
+      "zh-TW": "聚合模型 id 恢復 <前綴><分組>.<模型> 形態（fork 定製）",
+      "en": "Aggregation model ids restored to <prefix><group>.<model> (e.g. G.ZhiPuMax.glm-5.3)",
+      "ja": "アグリゲーションのモデル id を <prefix><group>.<model> 形式に戻した"
+    }
+  ]
+}
