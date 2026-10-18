@@ -1,0 +1,33 @@
+{
+  "version": "4.0.15-1",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "同步上游：修复设置被重置、DeepSeek 400、Codex 误卸载",
+      "zh-TW": "同步上游：修正設定被重設、DeepSeek 400、Codex 誤解除安裝",
+      "en": "Upstream sync: fixes for settings resets, DeepSeek 400s, and Codex uninstall",
+      "ja": "アップストリーム同期：設定リセット・DeepSeek 400・Codex 誤アンインストール修正"
+    },
+    {
+      "type": "new",
+      "zh": "用量趋势图可选柱形图或曲线面积图，Hermes 可声明模型支持图片",
+      "zh-TW": "使用趨勢圖可選長條圖或曲線面積圖，Hermes 可宣告模型支援圖片",
+      "en": "Usage trend chart gains bar/area toggle; Hermes models can declare image input",
+      "ja": "利用推移グラフを棒/面グラフで切替、Hermes で画像入力を宣言可能に"
+    },
+    {
+      "type": "new",
+      "zh": "新增 AllTokens、EveryAPI 预设供应商",
+      "zh-TW": "新增 AllTokens、EveryAPI 預設供應商",
+      "en": "New sponsor presets: AllTokens and EveryAPI",
+      "ja": "AllTokens・EveryAPI プリセットを追加"
+    },
+    {
+      "type": "fix",
+      "zh": "WebDAV/S3 慢传输不再被 300 秒硬截断",
+      "zh-TW": "WebDAV/S3 慢傳輸不再被 300 秒硬截斷",
+      "en": "Slow WebDAV/S3 transfers are no longer cut off at 300 seconds",
+      "ja": "WebDAV/S3 の遅い転送が 300 秒で切断されなくなりました"
+    }
+  ]
+}
