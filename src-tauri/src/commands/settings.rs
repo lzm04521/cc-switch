@@ -63,7 +63,7 @@ pub async fn get_settings() -> Result<crate::settings::AppSettings, String> {
 /// 保存设置
 #[tauri::command]
 pub async fn save_settings(
-    app_handle: tauri::AppHandle,
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppState>,
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
@@ -91,13 +91,14 @@ pub async fn save_settings(
         || merged.codex_stack_subagent_reasoning_effort
             != existing.codex_stack_subagent_reasoning_effort
         || merged.codex_stack_auto_review_model != existing.codex_stack_auto_review_model;
+    let tray_style_changed = merged.native_tray_menu != existing.native_tray_menu;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
 
     // 悬浮球开关联动：立即显示/隐藏悬浮球窗口 + 刷新托盘菜单勾选态
     if floating_ball_enabled_changed {
-        crate::floating_ball::ensure_ball_window(&app_handle);
+        crate::floating_ball::ensure_ball_window(&app);
         // 与托盘 toggle_floating_ball 分支同款写法：异步刷新托盘菜单勾选态
-        let app_handle = app_handle.clone();
+        let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = crate::update_tray_menu(app_handle.clone(), app_handle.state()).await {
                 log::error!("刷新托盘菜单失败: {e}");
@@ -107,7 +108,12 @@ pub async fn save_settings(
 
     // 弹窗尺寸变更：面板可见期间立即重摆，无需关掉重开
     if ball_panel_size_changed {
-        crate::floating_ball::refresh_panel_if_visible(&app_handle);
+        crate::floating_ball::refresh_panel_if_visible(&app);
+    }
+
+    // 原生托盘菜单 / 托盘面板当场切换，不用重启。
+    if tray_style_changed {
+        crate::tray::apply_tray_style(&app);
     }
 
     // 立即重写，失败时回滚设置，免得界面显示已改好、客户端还是旧的。

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { floatingBallApi } from "@/lib/api/floatingBall";
 import { isClickGesture, type Point } from "./utils";
-import appIcon from "@/assets/icons/app-icon.png";
+import ccswitchLogo from "@/assets/icons/logo.svg";
 
 /** 位移达到该值（逻辑像素）即判定进入拖动；略小于点击判定阈值 5px，保证"按下即拖" */
 const DRAG_THRESHOLD_PX = 4;
@@ -138,7 +138,7 @@ export function BallIcon() {
       onMouseLeave={handleMouseLeave}
     >
       <img
-        src={appIcon}
+        src={ccswitchLogo}
         alt=""
         draggable={false}
         className="floating-ball-icon"
