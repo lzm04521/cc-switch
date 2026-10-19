@@ -1,0 +1,12 @@
+{
+  "version": "4.0.15-2",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "修复 v4.0.15-1 升级通道指向错误的问题，请升级到本版",
+      "zh-TW": "修正 v4.0.15-1 升級通道指向錯誤的問題，請升級到本版",
+      "en": "v4.0.15-1 shipped a broken updater channel; please update to this version",
+      "ja": "v4.0.15-1 のアップデーター接続先誤りを修正、本版へ更新してください"
+    }
+  ]
+}
