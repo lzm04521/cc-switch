@@ -1,0 +1,27 @@
+{
+  "version": "4.0.16-3",
+  "channel": "beta",
+  "items": [
+    {
+      "type": "new",
+      "zh": "悬浮球面板改用托盘面板：应用行切换、额度、用量页签，底部保留今日统计",
+      "zh-TW": "懸浮球面板改用系統匣面板：應用行切換、額度、用量頁籤，底部保留今日統計",
+      "en": "Floating ball panel now mirrors the tray panel: switch, quotas, usage tab + today stats at bottom",
+      "ja": "フローティングボールのパネルがトレイパネルと同じ内容に（切替・残量・用量タブ）下部は本日統計を維持"
+    },
+    {
+      "type": "improve",
+      "zh": "设置页新增悬浮球开关（原仅托盘菜单）",
+      "zh-TW": "設定頁新增懸浮球開關（原僅系統匣選單）",
+      "en": "Floating ball toggle added to Settings (previously tray menu only)",
+      "ja": "設定ページにフローティングボール切替を追加（従来はトレイメニューのみ）"
+    },
+    {
+      "type": "improve",
+      "zh": "本地路由页：聚合模式设置移至正在使用的应用之后",
+      "zh-TW": "本機路由頁：聚合模式設定移至正在使用的應用之後",
+      "en": "Routing settings: stack mode options moved right below the apps in use",
+      "ja": "ローカルルーティング設定：スタックモード設定を利用中アプリの直下に移動"
+    }
+  ]
+}
