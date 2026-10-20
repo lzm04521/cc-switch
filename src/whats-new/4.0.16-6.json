@@ -1,0 +1,33 @@
+{
+  "version": "4.0.16-6",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "悬浮球面板改用托盘面板内容，可切供应商配置与用量页签",
+      "zh-TW": "懸浮球面板改用系統匣面板內容，可切供應商設定與用量頁籤",
+      "en": "Floating ball panel now uses the tray panel content, with provider and usage tabs",
+      "ja": "フローティングボール面板をトレイ面板と同じ内容に統一、プロバイダーと使用量タブを切替可能"
+    },
+    {
+      "type": "improve",
+      "zh": "设置页新增悬浮球开关",
+      "zh-TW": "設定頁新增懸浮球開關",
+      "en": "New floating ball toggle in Settings",
+      "ja": "設定ページにフローティングボール切替スイッチを追加"
+    },
+    {
+      "type": "improve",
+      "zh": "供应商子面板侧边弹出，屏幕空间不足自动换边",
+      "zh-TW": "供應商子面板側邊彈出，螢幕空間不足自動換邊",
+      "en": "Provider sub-panel pops out to the side, flipping when space runs out",
+      "ja": "プロバイダー子パネルを横に展開、スペース不足時は反対側に切替"
+    },
+    {
+      "type": "fix",
+      "zh": "修复轻量模式下点「打开主界面」整个应用卡死",
+      "zh-TW": "修復輕量模式下點「打開主介面」整個應用卡死",
+      "en": "Fix: app froze entirely when opening the main window from the panel in lightweight mode",
+      "ja": "軽量モードで「メイン画面を開く」を押すとアプリ全体が固まる問題を修正"
+    }
+  ]
+}
