@@ -81,9 +81,11 @@ pub async fn get_floating_ball_sections(app: AppHandle) -> Result<Vec<BallSectio
     .map_err(|e| format!("构建悬浮球分组任务失败: {e}"))?
 }
 
-/// 打开主窗口（面板 footer 调用；复用托盘逻辑，含退出轻量模式）
+/// 打开主窗口（面板 footer 调用；复用托盘逻辑，含退出轻量模式）。
+/// 必须是 async 命令：轻量模式下主窗口已销毁，重建走 `WebviewWindowBuilder::build()`，
+/// Windows 上在同步命令里调用会死锁（WebView2 限制），与 `tray_panel_action` 同理。
 #[tauri::command]
-pub fn show_main_window(app: AppHandle) -> Result<bool, String> {
+pub async fn show_main_window(app: AppHandle) -> Result<bool, String> {
     crate::tray::open_main_window(&app);
     Ok(true)
 }
