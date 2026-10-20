@@ -526,6 +526,29 @@ struct Frame {
     height: f64,
 }
 
+/// 供悬浮球面板固定画布复用：按卡片矩形裁剪窗口的可见/命中区域，透明画布
+/// 不拦截鼠标。仅 Windows 有效，其他平台为 no-op（透明区挡鼠标为已知限制）。
+/// 与托盘 `apply` 相同的约束：SetWindowRgn 在主线程执行。
+pub(crate) fn set_window_card_region(window: &WebviewWindow, scale: f64, cards: &[CardRect]) {
+    #[cfg(target_os = "windows")]
+    {
+        let target = window.clone();
+        let cards = cards.to_vec();
+        let _ = window.run_on_main_thread(move || {
+            let Ok(hwnd) = target.hwnd() else {
+                return;
+            };
+            if !platform::set_card_region(hwnd.0 as _, scale, &cards) {
+                log::warn!("[FloatingBall] 裁剪悬浮球面板窗口区域失败");
+            }
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, scale, cards);
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::cell::RefCell;
@@ -781,7 +804,7 @@ mod platform {
 
     /// 裁掉固定画布中没有卡片的部分，避免不可见的区域拦截鼠标。
     /// 展开子面板只改 region，不改变 HWND / WebView 尺寸，避免 DWM 重用旧尺寸的画面造成闪烁。
-    fn set_card_region(hwnd: HWND, scale: f64, cards: &[CardRect]) -> bool {
+    pub(super) fn set_card_region(hwnd: HWND, scale: f64, cards: &[CardRect]) -> bool {
         let Some(bounds) = card_bounds(cards) else {
             return false;
         };

@@ -16,6 +16,16 @@ export interface BallSection {
   providers: BallProviderInfo[];
 }
 
+/** 面板画布布局（get_ball_panel_layout 返回）：split=Windows 固定画布双栏，overlay=覆盖层（其他平台） */
+export interface BallPanelLayout {
+  layout: "split" | "overlay";
+  /** 子面板在主卡哪侧（split 模式有效） */
+  side: "left" | "right";
+  mainWidth: number;
+  subWidth: number;
+  gap: number;
+}
+
 /** 后端 UsageCache 全量快照条目（get_provider_usage_cache 返回） */
 export interface UsageCacheSnapshot {
   appType: AppId;
@@ -39,6 +49,10 @@ export const floatingBallApi = {
     invoke<boolean>("set_floating_ball_enabled", { enabled }),
   getSections: () => invoke<BallSection[]>("get_floating_ball_sections"),
   getUsageCache: () => invoke<UsageCacheSnapshot[]>("get_provider_usage_cache"),
+  getPanelLayout: () => invoke<BallPanelLayout | null>("get_ball_panel_layout"),
+  /** hover 展开/收起子面板：扩/缩窗口命中区域（split 模式） */
+  setSubPanelVisible: (visible: boolean) =>
+    invoke<boolean>("set_ball_panel_sub", { visible }),
   showMainWindow: () => invoke<boolean>("show_main_window"),
 };
 

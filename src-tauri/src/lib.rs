@@ -1672,6 +1672,8 @@ pub fn run() {
             commands::toggle_ball_panel,
             commands::hide_ball_panel,
             commands::on_ball_panel_blur,
+            commands::get_ball_panel_layout,
+            commands::set_ball_panel_sub,
             commands::save_ball_position,
             commands::start_ball_drag,
             commands::on_ball_hover,

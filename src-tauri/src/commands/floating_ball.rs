@@ -28,6 +28,18 @@ pub fn on_ball_panel_blur(app: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// 面板画布布局（前端排版主卡/子面板卡用）；面板从未摆过返回 null，前端回退覆盖层
+#[tauri::command]
+pub fn get_ball_panel_layout() -> Option<crate::floating_ball::BallPanelLayout> {
+    crate::floating_ball::panel_layout_payload()
+}
+
+/// hover 展开/收起子面板：扩/缩窗口命中区域（Windows 生效）
+#[tauri::command]
+pub fn set_ball_panel_sub(app: AppHandle, visible: bool) -> Result<bool, String> {
+    crate::floating_ball::set_panel_sub_visible(&app, visible)
+}
+
 /// 拖拽结束后持久化悬浮球位置
 #[tauri::command]
 pub fn save_ball_position(app: AppHandle) -> Result<bool, String> {

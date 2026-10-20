@@ -8,7 +8,8 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use tauri::{AppHandle, Manager, PhysicalPosition};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 pub const BALL_LABEL: &str = "ball";
@@ -18,6 +19,10 @@ pub const PANEL_WIDTH: f64 = 300.0;
 pub const PANEL_HEIGHT: f64 = 480.0;
 /// 面板与球之间的间距（逻辑像素）
 pub const PANEL_GAP: f64 = 8.0;
+/// 子面板（供应商列表卡）固定宽度（逻辑像素，与托盘 SUB_WIDTH 一致）
+const SUB_PANEL_WIDTH: f64 = 300.0;
+/// 主卡与子面板卡之间的间隙（逻辑像素）
+const SUB_PANEL_GAP: f64 = 8.0;
 /// 面板高度设置之上为底部保留区（今日用量统计 + 打开主界面按钮）额外
 /// 预留的高度（逻辑像素）；`panelHeight` 设置只约束托盘内容区
 pub const PANEL_RESERVED_BOTTOM: f64 = 132.0;
@@ -52,6 +57,98 @@ pub fn clamp_panel_height(value: f64) -> f64 {
 pub fn panel_window_height(panel_height: f64) -> f64 {
     clamp_panel_height(panel_height) + PANEL_RESERVED_BOTTOM
 }
+
+// ===== 固定画布双栏（fork：子面板侧边弹出）=====
+// Windows 上面板窗口一次弹出期间固定为"主卡 + 间隙 + 子面板卡"的画布，
+// hover 展开子面板只扩裁剪区域、不改窗口尺寸（机制与托盘面板一致）；
+// 其他平台窗口保持主卡宽度，子面板沿用窗口内覆盖层。
+
+/// 画布总宽（逻辑像素）= 主卡宽 + 间隙 + 子面板宽
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn panel_total_width(main_width: f64) -> f64 {
+    main_width + SUB_PANEL_GAP + SUB_PANEL_WIDTH
+}
+
+/// 面板画布布局：一次弹出内不变，side 由画布与球的相对位置推导
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PanelCanvas {
+    /// 子面板在主卡左侧（画布整体翻到球左侧时为 true）
+    pub sub_left: bool,
+    /// 主卡宽（= clamp 后的面板宽度设置）
+    pub main_width: f64,
+    /// 画布总宽（逻辑像素）
+    pub canvas_width: f64,
+    /// 画布高（= panel_window_height）
+    pub canvas_height: f64,
+}
+
+/// 由画布与球的水平位置推导子面板方向：画布在球右侧（未翻转，含贴缘
+/// 钳制的相等情形）→ 子面板放主卡右边；翻到球左侧 → 子面板在左边。
+/// 与面板整体的左右翻转让天然一致，子面板不会单独超出屏幕。
+fn sub_on_left(canvas_x: f64, ball_x: f64) -> bool {
+    canvas_x < ball_x
+}
+
+/// 画布内两块卡片的矩形（逻辑像素，等高）；`sub_visible` 控制是否包含
+/// 子面板卡（Windows 据此裁剪窗口命中区域）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn panel_cards(canvas: &PanelCanvas, sub_visible: bool) -> Vec<crate::tray_panel::CardRect> {
+    let (main_x, sub_x) = if canvas.sub_left {
+        (SUB_PANEL_WIDTH + SUB_PANEL_GAP, 0.0)
+    } else {
+        (0.0, canvas.main_width + SUB_PANEL_GAP)
+    };
+    let mut cards = vec![crate::tray_panel::CardRect {
+        x: main_x,
+        y: 0.0,
+        width: canvas.main_width,
+        height: canvas.canvas_height,
+    }];
+    if sub_visible {
+        cards.push(crate::tray_panel::CardRect {
+            x: sub_x,
+            y: 0.0,
+            width: SUB_PANEL_WIDTH,
+            height: canvas.canvas_height,
+        });
+    }
+    cards
+}
+
+/// 当前面板画布布局（size_and_position_panel 写入；子面板区域扩缩/前端拉取用）
+static PANEL_CANVAS: Mutex<Option<PanelCanvas>> = Mutex::new(None);
+
+/// 前端拉取的面板布局：Windows 返回双栏画布参数（split），其他平台 overlay
+/// （覆盖层，保留旧行为）。面板从未摆过（理论上不会：显示前必经定位）返回 None。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BallPanelLayout {
+    /// "split"：固定画布双栏；"overlay"：窗口内覆盖层
+    pub layout: &'static str,
+    /// 子面板在主卡哪侧："left" / "right"
+    pub side: &'static str,
+    pub main_width: f64,
+    pub sub_width: f64,
+    pub gap: f64,
+}
+
+pub fn panel_layout_payload() -> Option<BallPanelLayout> {
+    let canvas = (*PANEL_CANVAS.lock().unwrap_or_else(|e| e.into_inner()))?;
+    Some(BallPanelLayout {
+        layout: if cfg!(target_os = "windows") {
+            "split"
+        } else {
+            "overlay"
+        },
+        side: if canvas.sub_left { "left" } else { "right" },
+        main_width: canvas.main_width,
+        sub_width: SUB_PANEL_WIDTH,
+        gap: SUB_PANEL_GAP,
+    })
+}
+
+/// 面板重摆事件（设置尺寸变化触发）：前端收起子面板并重拉画布布局
+pub const BALL_PANEL_RELAYOUT_EVENT: &str = "ball-panel-relayout";
 
 /// 面板当前是否可见（状态机单一事实源，所有显隐操作经 toggle/hide 修改）
 static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -791,6 +888,12 @@ fn size_and_position_panel(
     let fb = crate::settings::get_settings().floating_ball;
     let width = clamp_panel_width(fb.panel_width);
     let height = panel_window_height(fb.panel_height);
+    // Windows 固定画布按总宽定位/定尺寸（左右翻转按总宽判定，子面板不会
+    // 单独超出屏幕）；其他平台窗口保持主卡宽度，子面板走覆盖层。
+    #[cfg(target_os = "windows")]
+    let canvas_width = panel_total_width(width);
+    #[cfg(not(target_os = "windows"))]
+    let canvas_width = width;
 
     let monitor = ball
         .current_monitor()
@@ -819,17 +922,29 @@ fn size_and_position_panel(
             width: work.size.width as f64,
             height: work.size.height as f64,
         },
-        width * scale,
+        canvas_width * scale,
         height * scale,
         PANEL_GAP * scale,
     );
 
+    let canvas = PanelCanvas {
+        sub_left: sub_on_left(px, ball_pos.x as f64),
+        main_width: width,
+        canvas_width,
+        canvas_height: height,
+    };
+    *PANEL_CANVAS.lock().unwrap_or_else(|e| e.into_inner()) = Some(canvas);
+
     panel
-        .set_size(tauri::LogicalSize::new(width, height))
+        .set_size(tauri::LogicalSize::new(canvas_width, height))
         .map_err(|e| format!("设置面板尺寸失败: {e}"))?;
     panel
         .set_position(PhysicalPosition::new(px.round() as i32, py.round() as i32))
         .map_err(|e| format!("设置面板位置失败: {e}"))?;
+    // 画布中子面板预留区透明且点击穿透（Windows 裁剪到主卡；非 Windows
+    // no-op）。每次显示/重摆前必经此处，region 总是先收敛到主卡。失败仅
+    // 告警不阻断显示——整窗命中（透明区挡鼠标）好过面板打不开。
+    crate::tray_panel::set_window_card_region(panel, scale, &panel_cards(&canvas, false));
     Ok(())
 }
 
@@ -847,7 +962,26 @@ pub fn refresh_panel_if_visible(app: &AppHandle) {
     };
     if let Err(e) = size_and_position_panel(&panel, &ball) {
         log::warn!("按新设置刷新面板尺寸/位置失败: {e}");
+        return;
     }
+    // 重摆后命中区域已收敛到主卡、side 可能翻转：通知前端收起子面板并重拉布局
+    let _ = app.emit_to(PANEL_LABEL, BALL_PANEL_RELAYOUT_EVENT, ());
+}
+
+/// hover 展开/收起子面板：扩/缩窗口命中区域（Windows 生效；画布尺寸不变）。
+/// 面板从未摆过或窗口不存在时无害返回。
+pub fn set_panel_sub_visible(app: &AppHandle, visible: bool) -> Result<bool, String> {
+    let Some(canvas) = *PANEL_CANVAS.lock().unwrap_or_else(|e| e.into_inner()) else {
+        return Ok(false);
+    };
+    let Some(panel) = app.get_webview_window(PANEL_LABEL) else {
+        return Ok(false);
+    };
+    let scale = panel
+        .scale_factor()
+        .map_err(|e| format!("获取面板缩放失败: {e}"))?;
+    crate::tray_panel::set_window_card_region(&panel, scale, &panel_cards(&canvas, visible));
+    Ok(true)
 }
 
 /// 面板失焦回调（前端 onFocusChanged(false) 触发）：
@@ -1099,6 +1233,64 @@ mod tests {
         let (x, y) = compute_panel_position(&ball, &work, 450.0, 720.0, 12.0);
         assert!(x >= 2880.0 && x + 450.0 <= 2880.0 + 1920.0);
         assert!(y >= 0.0 && y + 720.0 <= 1040.0);
+    }
+
+    // ===== 固定画布双栏 =====
+
+    #[test]
+    fn canvas_width_matches_formula() {
+        // 主卡宽 240（下限）~ 480（上限）：画布 = 主卡 + 8 + 300
+        assert_eq!(panel_total_width(300.0), 608.0);
+        assert_eq!(panel_total_width(240.0), 548.0);
+        assert_eq!(panel_total_width(480.0), 788.0);
+    }
+
+    #[test]
+    fn sub_side_follows_canvas_flip() {
+        // 未翻转：画布在球右缘 + gap → 子面板在主卡右边
+        assert!(!sub_on_left(400.0 + 56.0 + PANEL_GAP, 400.0));
+        // 翻转：画布在球左侧 → 子面板在主卡左边
+        assert!(sub_on_left(1850.0 - PANEL_GAP - 608.0, 1850.0));
+        // 贴缘钳制（球与画布同贴左缘，坐标相等）→ 按右边弹，主卡贴缘、子面板向屏内延伸
+        assert!(!sub_on_left(0.0, 0.0));
+    }
+
+    #[test]
+    fn panel_position_flips_by_total_canvas_width() {
+        // 球靠右：按画布总宽 608 翻转到球左侧，side 随之翻转到 left
+        let ball = rect(1400.0, 300.0, 56.0, 56.0);
+        let work = rect(0.0, 0.0, 1600.0, 900.0);
+        let (x, _) = compute_panel_position(&ball, &work, 608.0, 612.0, PANEL_GAP);
+        assert_eq!(x, 1400.0 - PANEL_GAP - 608.0);
+        assert!(sub_on_left(x, 1400.0));
+    }
+
+    #[test]
+    fn panel_cards_place_sub_beside_main() {
+        let canvas = PanelCanvas {
+            sub_left: false,
+            main_width: 300.0,
+            canvas_width: 608.0,
+            canvas_height: 612.0,
+        };
+        // 子面板在右：主卡贴画布左缘，子卡在主卡右侧，两卡等高
+        let cards = panel_cards(&canvas, true);
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].x, 0.0);
+        assert_eq!(cards[1].x, 300.0 + SUB_PANEL_GAP);
+        assert_eq!(cards[0].height, 612.0);
+        assert_eq!(cards[1].height, 612.0);
+        // 未展开：只裁主卡（预留区透明穿透）
+        assert_eq!(panel_cards(&canvas, false).len(), 1);
+
+        // 子面板在左：主卡让到画布右侧，子卡贴左缘
+        let flipped = PanelCanvas {
+            sub_left: true,
+            ..canvas
+        };
+        let cards = panel_cards(&flipped, true);
+        assert_eq!(cards[0].x, 300.0 + SUB_PANEL_GAP);
+        assert_eq!(cards[1].x, 0.0);
     }
 
     #[test]

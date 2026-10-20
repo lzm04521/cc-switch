@@ -627,6 +627,13 @@ input[type="password"]::-ms-clear {
   pointer-events: none;
 }
 /* ===== 悬浮球面板 ===== */
+/* 固定画布双栏（Windows）：窗口 = 主卡 + 间隙 + 子面板卡的总画布，
+   两块卡片绝对定位；透明预留区由后端 SetWindowRgn 裁剪（点击穿透） */
+.floating-ball-canvas {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
 .floating-ball-panel {
   display: flex;
   flex-direction: column;

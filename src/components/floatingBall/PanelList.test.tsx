@@ -89,11 +89,21 @@ vi.mock("@/tray-panel/UsageTab", () => ({
 }));
 
 const hidePanel = vi.fn().mockResolvedValue(true);
+const setSubPanelVisible = vi.fn().mockResolvedValue(true);
 vi.mock("@/lib/api/floatingBall", () => ({
   floatingBallApi: {
     hidePanel: () => hidePanel(),
     onPanelBlur: vi.fn().mockResolvedValue(true),
     showMainWindow: vi.fn().mockResolvedValue(true),
+    // 测试走 overlay（覆盖层）路径：split 双栏依赖后端画布布局与窗口裁剪
+    getPanelLayout: vi.fn().mockResolvedValue({
+      layout: "overlay",
+      side: "right",
+      mainWidth: 300,
+      subWidth: 300,
+      gap: 8,
+    }),
+    setSubPanelVisible: (visible: boolean) => setSubPanelVisible(visible),
   },
 }));
 

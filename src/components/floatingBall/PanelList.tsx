@@ -23,7 +23,7 @@ import { UsageTab } from "@/tray-panel/UsageTab";
 import { CHANGED_EVENT, trayPanelApi } from "@/tray-panel/api";
 import { formatTokensShort, getResolvedLang } from "@/components/usage/format";
 import { providersApi } from "@/lib/api";
-import { floatingBallApi } from "@/lib/api/floatingBall";
+import { floatingBallApi, type BallPanelLayout } from "@/lib/api/floatingBall";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { useUsageSummary, usageKeys } from "@/lib/query/usage";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,16 @@ const BALL_TRAY_STATE_KEY = ["ball-tray-panel-state"] as const;
 /** 悬停展开 / 移出收起覆盖层的节奏，沿用托盘面板 */
 const HOVER_OPEN_MS = 50;
 const HOVER_CLOSE_MS = 160;
+/** 设置尺寸变化触发的面板重摆事件（后端 BALL_PANEL_RELAYOUT_EVENT） */
+const BALL_PANEL_RELAYOUT_EVENT = "ball-panel-relayout";
+/** 布局拉取失败/为空时的兜底：覆盖层模式（忽略尺寸字段，非 split 均走旧结构） */
+const FALLBACK_OVERLAY_LAYOUT: BallPanelLayout = {
+  layout: "overlay",
+  side: "right",
+  mainWidth: 300,
+  subWidth: 300,
+  gap: 8,
+};
 
 function readTab(): Tab {
   try {
@@ -88,12 +98,14 @@ function TodayUsageBlock() {
  * - 主体 = 托盘面板主卡片：头部（CC Switch + 设置入口）、配置 / 用量页签、
  *   问题提醒区、应用行（当前供应商 / 模式 / 额度）、footer 轻量模式行；
  *   「打开主界面 / 退出」按钮不搬（前者在底部保留区、后者按用户要求不提供）
- * - hover 应用行 → 窗口内覆盖层子面板（复用 SubPanel，锚到行下方限高滚动），
- *   点击行可切换展开态；原「供应商拖拽排序」已随分组列表退役
+ * - hover 应用行 → 子面板：Windows 固定画布双栏（split），子卡从主卡左/右侧
+ *   弹出（side 跟随球位置翻转），透明预留区由后端裁剪穿透；其他平台沿用
+ *   窗口内覆盖层（overlay，锚到行下方限高滚动）。点击行可切换展开态；
+ *   原「供应商拖拽排序」已随分组列表退役
  * - 底部保留区 = 今日用量统计 +「打开主界面」（原面板下半部分）
  * - 数据与文案复用 tray_panel_state / tray_panel_action（与托盘面板同源）；
  *   刷新时机：面板 focus（每次打开）、provider 切换事件、tray-panel-changed
- * - Esc：覆盖层开着先收覆盖层，否则收起面板；失焦由后端判断收起
+ * - Esc：子面板开着先收子面板，否则收起面板；失焦由后端判断收起
  */
 export function PanelList() {
   const { t } = useTranslation();
@@ -109,6 +121,9 @@ export function PanelList() {
   const [query, setQuery] = useState("");
   /** 面板每次打开递增：UsageTab 的 refreshKey */
   const [shownCount, setShownCount] = useState(0);
+  /** 面板画布布局（面板打开时拉取）：split=Windows 固定画布双栏，overlay=覆盖层 */
+  const [panelLayout, setPanelLayout] = useState<BallPanelLayout | null>(null);
+  const split = panelLayout?.layout === "split";
 
   const rootRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -119,6 +134,15 @@ export function PanelList() {
   // 托盘状态变化（切换、额度、问题区）后端会一并通知本窗口；面板打开期间实时同步
   useTauriEvent(CHANGED_EVENT, () => {
     void queryClient.invalidateQueries({ queryKey: BALL_TRAY_STATE_KEY });
+  });
+
+  // 设置尺寸变化 → 后端已重摆（子面板区域收敛回主卡）：重拉布局并收起子卡
+  useTauriEvent(BALL_PANEL_RELAYOUT_EVENT, () => {
+    void floatingBallApi
+      .getPanelLayout()
+      .then((layout) => setPanelLayout(layout ?? FALLBACK_OVERLAY_LAYOUT))
+      .catch(() => setPanelLayout(FALLBACK_OVERLAY_LAYOUT));
+    setOpenApp(null);
   });
 
   // provider 切换事件 → 刷新面板数据（与主窗口同事件源；切换后覆盖层勾选移动）
@@ -141,19 +165,52 @@ export function PanelList() {
     };
   }, [queryClient]);
 
+  /** 子面板显隐统一出口：split 模式下同步扩/缩窗口命中区域（所有收起路径
+   *  必经此处，防透明预留区漏缩回挡鼠标） */
+  const applySub = useCallback(
+    (appId: string | null) => {
+      setOpenApp(appId);
+      if (!split) return;
+      if (appId) {
+        // 先绘制子卡，双 rAF 后再扩原生命中区域，防透明底色一帧闪现（对齐托盘）
+        requestAnimationFrame(() =>
+          requestAnimationFrame(
+            () => void floatingBallApi.setSubPanelVisible(true),
+          ),
+        );
+      } else {
+        void floatingBallApi.setSubPanelVisible(false);
+      }
+    },
+    [split],
+  );
+
+  // 挂载时预拉一次布局（面板窗口常驻；真机此时面板未摆过多为 null，
+  // 待首次打开 focus 再拉；测试环境无 focus 事件，靠这里拿到布局）
+  useEffect(() => {
+    void floatingBallApi
+      .getPanelLayout()
+      .then((layout) => {
+        if (layout) setPanelLayout(layout);
+      })
+      .catch(() => {
+        // 拉取失败不落地，等 focus 重拉
+      });
+  }, []);
+
   // Esc：覆盖层开着先收覆盖层，否则收起面板
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (openApp) {
-        setOpenApp(null);
+        applySub(null);
         return;
       }
       void floatingBallApi.hidePanel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openApp]);
+  }, [openApp, applySub]);
 
   // 获得焦点（每次打开面板）刷新数据并重置覆盖层；失焦收起（后端判断新焦点
   // 是否落在球上，点球关面板不重复处理）
@@ -169,7 +226,12 @@ export function PanelList() {
           });
           // 今日用量随面板每次打开刷新（另有默认 30s 轮询兜底）
           void queryClient.invalidateQueries({ queryKey: usageKeys.all });
-          setOpenApp(null);
+          // 画布布局随打开拉取（side 跟随球位置翻转）
+          void floatingBallApi
+            .getPanelLayout()
+            .then((layout) => setPanelLayout(layout ?? FALLBACK_OVERLAY_LAYOUT))
+            .catch(() => setPanelLayout(FALLBACK_OVERLAY_LAYOUT));
+          applySub(null);
           setShownCount((count) => count + 1);
         } else {
           void floatingBallApi.onPanelBlur();
@@ -183,7 +245,7 @@ export function PanelList() {
       disposed = true;
       cleanup?.();
     };
-  }, [queryClient]);
+  }, [queryClient, applySub]);
 
   const clearTimers = useCallback(() => {
     window.clearTimeout(hoverTimer.current);
@@ -194,26 +256,26 @@ export function PanelList() {
     (appId: string) => {
       clearTimers();
       hoverTimer.current = window.setTimeout(() => {
-        setOpenApp((prev) => (prev === appId ? prev : appId));
+        applySub(appId);
       }, HOVER_OPEN_MS);
     },
-    [clearTimers],
+    [clearTimers, applySub],
   );
 
   /** 移出应用行：稍等片刻再收（给鼠标滑进覆盖层留时间） */
   const scheduleHide = useCallback(() => {
     window.clearTimeout(hideTimer.current);
     hideTimer.current = window.setTimeout(() => {
-      setOpenApp(null);
+      applySub(null);
     }, HOVER_CLOSE_MS);
-  }, []);
+  }, [applySub]);
 
   const openSub = useCallback(
     (appId: string | null) => {
       clearTimers();
-      setOpenApp(appId);
+      applySub(appId);
     },
-    [clearTimers],
+    [clearTimers, applySub],
   );
 
   // 覆盖层锚到展开行的下方：内容或页签变化后重算位置，放不下时整体上移
@@ -236,7 +298,7 @@ export function PanelList() {
 
   const changeTab = (next: Tab) => {
     setTab(next);
-    setOpenApp(null);
+    applySub(null);
     setQuery("");
     try {
       window.localStorage.setItem(TAB_KEY, next);
@@ -256,7 +318,9 @@ export function PanelList() {
       ? apps.find((app) => app.app === openApp && !app.addId)
       : undefined;
 
-  if (!state || !texts) {
+  if (!state || !texts || !panelLayout) {
+    // 布局未就绪的短暂空壳：面板显示前必经后端定位（布局随之写入），
+    // focus 拉取几 ms 内返回；拉取失败回落 overlay 不会停留在此
     return (
       <div
         className="floating-ball-panel"
@@ -265,12 +329,9 @@ export function PanelList() {
     );
   }
 
-  return (
-    <div
-      ref={rootRef}
-      className="floating-ball-panel relative"
-      onContextMenu={(e) => e.preventDefault()}
-    >
+  // 主卡内容（头部/页签/列表/footer/底部保留区），split 与 overlay 两种外壳共用
+  const mainCard = (
+    <>
       {/* 头部：标题 + 设置入口 */}
       <div className="flex shrink-0 items-center px-4 pb-2 pt-3">
         <span className="text-[15px] font-semibold">CC Switch</span>
@@ -409,6 +470,66 @@ export function PanelList() {
           {t("floatingBall.openMainWindow", { defaultValue: "打开主界面" })}
         </button>
       </div>
+    </>
+  );
+
+  /** 子面板内容：split 模式放旁边子卡，overlay 模式放窗口内覆盖层 */
+  const subPanel = openEntry ? (
+    <SubPanel
+      key={openEntry.app}
+      app={openEntry}
+      texts={texts}
+      query={query}
+      onQuery={setQuery}
+      onAction={action}
+      searchRef={searchRef}
+    />
+  ) : null;
+
+  // 固定画布双栏（Windows）：主卡与子卡绝对定位，画布透明预留区由后端
+  // SetWindowRgn 裁剪（点击穿透）；子卡随 side 从主卡左/右侧弹出
+  if (split) {
+    const mainX =
+      panelLayout.side === "right" ? 0 : panelLayout.subWidth + panelLayout.gap;
+    const subX =
+      panelLayout.side === "right"
+        ? panelLayout.mainWidth + panelLayout.gap
+        : 0;
+    return (
+      <div
+        className="floating-ball-canvas"
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <div
+          ref={rootRef}
+          className="floating-ball-panel absolute"
+          style={{ left: mainX, top: 0, width: panelLayout.mainWidth }}
+        >
+          {mainCard}
+        </div>
+        {openEntry && (
+          <div
+            role="dialog"
+            aria-label={openEntry.name}
+            className="floating-ball-panel absolute"
+            style={{ left: subX, top: 0, width: panelLayout.subWidth }}
+            onMouseEnter={clearTimers}
+            onMouseLeave={scheduleHide}
+          >
+            {subPanel}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      className="floating-ball-panel relative"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {mainCard}
 
       {/* hover 覆盖层子面板：复用托盘 SubPanel，窗口内浮动、锚到展开行 */}
       {openEntry && (
@@ -420,15 +541,7 @@ export function PanelList() {
           onMouseEnter={clearTimers}
           onMouseLeave={scheduleHide}
         >
-          <SubPanel
-            key={openEntry.app}
-            app={openEntry}
-            texts={texts}
-            query={query}
-            onQuery={setQuery}
-            onAction={action}
-            searchRef={searchRef}
-          />
+          {subPanel}
         </div>
       )}
     </div>
