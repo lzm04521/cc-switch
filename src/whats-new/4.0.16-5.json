@@ -1,0 +1,13 @@
+{
+  "version": "4.0.16-5",
+  "channel": "beta",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "悬浮球面板：供应商子面板改为侧边弹出，屏幕空间不足自动换边",
+      "zh-TW": "懸浮球面板：供應商子面板改為側邊彈出，螢幕空間不足自動換邊",
+      "en": "Floating ball panel: provider sub-panel now pops out to the side, flipping sides when space runs out",
+      "ja": "フローティングボール：プロバイダー子パネルを横に展開、スペース不足時は反対側に切替"
+    }
+  ]
+}
