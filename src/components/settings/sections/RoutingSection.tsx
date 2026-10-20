@@ -95,7 +95,7 @@ function formatUptime(seconds: number, t: TFunction) {
 
 /**
  * 设置 → 本地路由（v7）：服务（状态、统计、启停、监听地址、请求日志）→ 正在使用路由的应用
- * → 全部回到直连 → 故障转移参数 → 整流与优化。进出路由在各应用页的模式 tab 里。
+ * → 聚合模式设置 → 故障转移参数 → 整流与优化 → API 报文记录。进出路由在各应用页的模式 tab 里。
  */
 export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   const { data: settings } = useSettingsQuery();
@@ -487,6 +487,29 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
         )}
       </SettingsBlock>
 
+      {/* fork 定制：聚合模式设置（前缀 + /v1/models 路由模型列表 + 粘性会话） */}
+      <SettingsBlock
+        title={t("settings.advanced.aggregateMode.title", {
+          defaultValue: "聚合模式设置",
+        })}
+        help={{
+          title: t("settings.advanced.aggregateMode.title", {
+            defaultValue: "聚合模式设置",
+          }),
+          body: t("settings.advanced.aggregateMode.help", {
+            defaultValue:
+              '聚合模式下模型 id 形如 "<前缀>claude.<分组>.<模型>"（Codex 为 "<前缀><分组>.<模型>"）；短形式 "<前缀>claude.<分组>" 走该分组默认模型，"<前缀>claude.default" 解绑会话。粘性会话关闭后，不带聚合 id 的请求一律走默认成员。',
+          }),
+        }}
+      >
+        <RoutePrefixSettings
+          routePrefix={settings?.routePrefix}
+          routeModelsMode={settings?.routeModelsEndpoint?.mode}
+          routeStickySession={settings?.routeStickySession}
+          onAutoSave={saveRouteSettings}
+        />
+      </SettingsBlock>
+
       <SettingsBlock
         title={t("settings.advanced.failover.title")}
         help={{
@@ -554,29 +577,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
           }
           checked={apiLogConfig.enabled}
           onCheckedChange={(value) => void handleApiLogChange(value)}
-        />
-      </SettingsBlock>
-
-      {/* fork 定制：聚合模式设置（前缀 + /v1/models 路由模型列表 + 粘性会话） */}
-      <SettingsBlock
-        title={t("settings.advanced.aggregateMode.title", {
-          defaultValue: "聚合模式设置",
-        })}
-        help={{
-          title: t("settings.advanced.aggregateMode.title", {
-            defaultValue: "聚合模式设置",
-          }),
-          body: t("settings.advanced.aggregateMode.help", {
-            defaultValue:
-              '聚合模式下模型 id 形如 "<前缀>claude.<分组>.<模型>"（Codex 为 "<前缀><分组>.<模型>"）；短形式 "<前缀>claude.<分组>" 走该分组默认模型，"<前缀>claude.default" 解绑会话。粘性会话关闭后，不带聚合 id 的请求一律走默认成员。',
-          }),
-        }}
-      >
-        <RoutePrefixSettings
-          routePrefix={settings?.routePrefix}
-          routeModelsMode={settings?.routeModelsEndpoint?.mode}
-          routeStickySession={settings?.routeStickySession}
-          onAutoSave={saveRouteSettings}
         />
       </SettingsBlock>
 

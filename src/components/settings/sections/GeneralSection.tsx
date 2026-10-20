@@ -217,35 +217,54 @@ export function GeneralSection({
               void onAutoSave({ minimizeToTrayOnClose: value })
             }
           />
-          {/* Linux（AppIndicator）只能出原生菜单，没得选 */}
+          {/* Linux（AppIndicator）只能出原生菜单，没得选；悬浮球窗口仅在
+              Windows 配置（tauri.windows.conf.json），开关与托盘样式同条件 */}
           {!isLinux() && (
-            <SettingsRow
-              label={t("settings.general.trayStyle")}
-              help={{
-                title: t("settings.general.trayStyle"),
-                body: t("settings.general.trayStyleHelp"),
-              }}
-              control={
-                <SegmentedControl
-                  size="sm"
-                  aria-label={t("settings.general.trayStyle")}
-                  value={settings.nativeTrayMenu ? "menu" : "panel"}
-                  onValueChange={(value) =>
-                    void onAutoSave({ nativeTrayMenu: value === "menu" })
-                  }
-                  items={[
-                    {
-                      value: "panel",
-                      label: t("settings.general.trayStylePanel"),
+            <>
+              <SettingsSwitchRow
+                label={t("settings.floatingBall")}
+                help={{
+                  title: t("settings.floatingBall"),
+                  body: t("settings.floatingBallDescription"),
+                }}
+                checked={settings.floatingBall?.enabled ?? true}
+                onCheckedChange={(value) =>
+                  void onAutoSave({
+                    floatingBall: {
+                      ...settings.floatingBall,
+                      enabled: value,
                     },
-                    {
-                      value: "menu",
-                      label: t("settings.general.trayStyleMenu"),
-                    },
-                  ]}
-                />
-              }
-            />
+                  })
+                }
+              />
+              <SettingsRow
+                label={t("settings.general.trayStyle")}
+                help={{
+                  title: t("settings.general.trayStyle"),
+                  body: t("settings.general.trayStyleHelp"),
+                }}
+                control={
+                  <SegmentedControl
+                    size="sm"
+                    aria-label={t("settings.general.trayStyle")}
+                    value={settings.nativeTrayMenu ? "menu" : "panel"}
+                    onValueChange={(value) =>
+                      void onAutoSave({ nativeTrayMenu: value === "menu" })
+                    }
+                    items={[
+                      {
+                        value: "panel",
+                        label: t("settings.general.trayStylePanel"),
+                      },
+                      {
+                        value: "menu",
+                        label: t("settings.general.trayStyleMenu"),
+                      },
+                    ]}
+                  />
+                }
+              />
+            </>
           )}
           {isLinux() && (
             <SettingsSwitchRow
@@ -261,7 +280,7 @@ export function GeneralSection({
             />
           )}
           {/* fork 定制：悬浮球弹窗尺寸（面板可见时后端即时重摆） */}
-          {settings.floatingBall?.enabled && (
+          {(settings.floatingBall?.enabled ?? true) && (
             <BallPanelSizeRow
               floatingBall={settings.floatingBall}
               onApply={(value) => void onAutoSave({ floatingBall: value })}

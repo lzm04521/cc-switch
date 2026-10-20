@@ -1116,7 +1116,7 @@
     "floatingBallPanelSize": "弹窗尺寸",
     "floatingBallPanelWidth": "弹窗宽度",
     "floatingBallPanelHeight": "弹窗高度",
-    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px；高度为内容区，实际窗口另加底部保留区约 130px",
     "dshConfigDir": "Deepseek 配置目录",
     "dshConfigDirDescription": "覆盖 Deepseek 主目录（MCP 配置与 skills 部署目录所在位置）。",
     "browsePlaceholderDsh": "例如：/home/<你的用户名>/.dsh",

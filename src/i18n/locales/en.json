@@ -1116,7 +1116,7 @@
     "floatingBallPanelSize": "Panel Size",
     "floatingBallPanelWidth": "Panel width",
     "floatingBallPanelHeight": "Panel height",
-    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px; height is the content area, the window adds a ~130px bottom section",
     "dshConfigDir": "Deepseek Configuration Directory",
     "dshConfigDirDescription": "Override the Deepseek home directory (where MCP config and deployed skills live).",
     "browsePlaceholderDsh": "e.g., /home/<your-username>/.dsh",

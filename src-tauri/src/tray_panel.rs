@@ -454,8 +454,11 @@ static CHANGED_STATE: Mutex<(Option<Instant>, bool)> = Mutex::new((None, false))
 
 /// 托盘状态变了：开着的面板重新取数据。隔得够久就立即通知（点了切换要马上看到勾），
 /// 否则约在窗口结束时补发一次，一串额度结果只让面板重取一两次。
+///
+/// 悬浮球面板（`panel` 窗口）复用同一份数据，可见时一并通知；托盘面板没建、
+/// 悬浮球面板也没开时不必发。
 pub fn notify_changed(app: &AppHandle) {
-    if panel_window(app).is_none() {
+    if panel_window(app).is_none() && !ball_panel_visible(app) {
         return;
     }
     let wait = {
@@ -476,15 +479,28 @@ pub fn notify_changed(app: &AppHandle) {
         }
     };
     if wait.is_zero() {
-        let _ = app.emit_to(PANEL_LABEL, CHANGED_EVENT, ());
+        emit_changed(app);
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(wait).await;
         *lock(&CHANGED_STATE) = (Some(Instant::now()), false);
-        let _ = app.emit_to(PANEL_LABEL, CHANGED_EVENT, ());
+        emit_changed(&app);
     });
+}
+
+/// 悬浮球面板窗口当前是否可见（窗口不存在 / 隐藏都算不可见）。
+fn ball_panel_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(crate::floating_ball::PANEL_LABEL)
+        .is_some_and(|window| window.is_visible().unwrap_or(false))
+}
+
+fn emit_changed(app: &AppHandle) {
+    let _ = app.emit_to(PANEL_LABEL, CHANGED_EVENT, ());
+    if ball_panel_visible(app) {
+        let _ = app.emit_to(crate::floating_ball::PANEL_LABEL, CHANGED_EVENT, ());
+    }
 }
 
 // ─── 平台：玻璃和摆放 ─────────────────────────────────────────────────────────

@@ -59,8 +59,9 @@ const AIM_RECHECK_MS = 120;
 /** 鼠标停在主面板里不是应用行的项上（`hovered` 的取值） */
 const OTHER_ITEM = "";
 
-const ROW_HOVER = "hover:bg-black/[0.06] dark:hover:bg-white/[0.08]";
-const FOCUS_RING =
+// 行悬停与焦点环：悬浮球面板（floatingBall/PanelList）复用同一组样式
+export const ROW_HOVER = "hover:bg-black/[0.06] dark:hover:bg-white/[0.08]";
+export const FOCUS_RING =
   "outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60";
 
 function readTab(): Tab {
@@ -107,7 +108,7 @@ function formatResetTime(iso: string, now: Date): string | null {
     : `${at.getMonth() + 1}/${at.getDate()} ${time}`;
 }
 
-function QuotaBlock({
+export function QuotaBlock({
   quota,
   texts,
   compact = false,
@@ -179,7 +180,7 @@ const MODE_TEXT: Record<AppMode, string> = {
   stack: "text-stack-text",
 };
 
-function AppRow({
+export function AppRow({
   app,
   texts,
   active,
@@ -335,7 +336,7 @@ function SubRow({
   );
 }
 
-function SubPanel({
+export function SubPanel({
   app,
   texts,
   query,

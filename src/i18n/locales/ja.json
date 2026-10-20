@@ -1116,7 +1116,7 @@
     "floatingBallPanelSize": "パネルサイズ",
     "floatingBallPanelWidth": "パネル幅",
     "floatingBallPanelHeight": "パネル高さ",
-    "floatingBallPanelSizeHint": "240–480 × 320–800 px",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 px。高さはコンテンツ領域で、実際のウィンドウには下部保留区として約 130px が加算されます",
     "dshConfigDir": "Deepseek 設定ディレクトリ",
     "dshConfigDirDescription": "Deepseek のホームディレクトリ（MCP 設定と skills の配置場所）を上書きします。",
     "browsePlaceholderDsh": "例: /home/<your-username>/.dsh",

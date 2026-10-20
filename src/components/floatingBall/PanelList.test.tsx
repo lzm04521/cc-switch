@@ -1,62 +1,111 @@
-import { render, fireEvent, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { TrayPanelState } from "@/tray-panel/api";
 
-const sectionsFixture = [
-  {
-    appType: "claude",
-    currentProviderId: "p1",
-    providers: [
-      { id: "p1", name: "DeepSeek", icon: "deepseek", iconColor: null },
-      { id: "p2", name: "Anthropic", icon: null, iconColor: null },
-    ],
+const stateFixture: TrayPanelState = {
+  texts: {
+    switchProvider: "切换供应商",
+    searchPlaceholder: "搜索供应商",
+    inUse: "当前",
+    noMatch: "无匹配",
+    openMain: "打开主界面",
+    quit: "退出",
+    settings: "设置",
+    lightweightMode: "轻量模式",
+    openPanel: "打开快捷面板",
+    configTab: "配置",
+    usageTab: "用量",
+    resetsAt: "{when} 重置",
+    resetCredits: "可重置 {count} 次",
   },
-  {
-    appType: "codex",
-    currentProviderId: null,
-    providers: [{ id: "c1", name: "OpenAI", icon: null, iconColor: null }],
+  problems: [
+    { id: "fix:gemini", text: "Gemini：live 配置被外部修改，需要重新同步" },
+  ],
+  feedback: null,
+  apps: [
+    {
+      app: "claude",
+      name: "Claude Code",
+      current: "BigModel",
+      mode: "聚合",
+      modeKind: "stack",
+      header: null,
+      attention: null,
+      quota: null,
+      addId: null,
+      addText: "添加供应商",
+      rows: [
+        {
+          kind: "provider",
+          id: "prov:p1",
+          text: "BigModel",
+          enabled: true,
+          checked: true,
+          provider: {
+            name: "BigModel",
+            hint: "聚合 · 已用 32%",
+            icon: null,
+            iconColor: null,
+            quota: null,
+          },
+        },
+        {
+          kind: "provider",
+          id: "prov:p2",
+          text: "DeepSeek 官方",
+          enabled: true,
+          checked: false,
+          provider: {
+            name: "DeepSeek 官方",
+            hint: "余额 ¥96.20",
+            icon: null,
+            iconColor: null,
+            quota: null,
+          },
+        },
+      ],
+    },
+  ],
+  lightweight: false,
+  quitHint: null,
+};
+
+vi.mock("@/tray-panel/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/tray-panel/api")>()),
+  trayPanelApi: {
+    state: vi.fn(),
+    action: vi.fn().mockResolvedValue(undefined),
+    placement: vi.fn(),
+    layout: vi.fn(),
+    hide: vi.fn(),
   },
-];
+}));
+
+vi.mock("@/tray-panel/UsageTab", () => ({
+  UsageTab: ({ visible }: { visible: boolean }) => (
+    <div data-testid="usage-tab" data-visible={String(visible)} />
+  ),
+}));
 
 const hidePanel = vi.fn().mockResolvedValue(true);
-// 可变注入：各用例按需填充用量缓存快照（undefined = 无缓存）
-let usageSnapshots:
-  | Array<{
-      appType: string;
-      providerId: string;
-      result: {
-        success: boolean;
-        data?: Array<{
-          planName?: string;
-          remaining?: number;
-          total?: number;
-          used?: number;
-          unit?: string;
-          extra?: string;
-        }>;
-        error?: string;
-      };
-      queriedAt: number;
-    }>
-  | undefined;
 vi.mock("@/lib/api/floatingBall", () => ({
   floatingBallApi: {
     hidePanel: () => hidePanel(),
     onPanelBlur: vi.fn().mockResolvedValue(true),
     showMainWindow: vi.fn().mockResolvedValue(true),
   },
-  useFloatingBallSections: () => ({ data: sectionsFixture }),
-  useProviderUsageCache: () => ({ data: usageSnapshots }),
-  FLOATING_BALL_SECTIONS_KEY: ["floating-ball-sections"],
-  PROVIDER_USAGE_CACHE_KEY: ["provider-usage-cache"],
 }));
 
-const switchFn = vi.fn().mockResolvedValue({ warnings: [] });
 vi.mock("@/lib/api", () => ({
   providersApi: {
-    switch: (id: string, appId: string) => switchFn(id, appId),
     onSwitched: vi.fn().mockResolvedValue(() => {}),
   },
+}));
+
+vi.mock("@/lib/query/usage", () => ({
+  useUsageSummary: () => ({ data: null }),
+  usageKeys: { all: ["usage"] },
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -66,169 +115,101 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
-vi.mock("@/components/ProviderIcon", () => ({
-  ProviderIcon: ({ name }: { name: string }) => <span data-name={name} />,
-}));
-
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
-
-const applyProviderSwitchSideEffects = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/hooks/providerSwitchSideEffects", () => ({
-  applyProviderSwitchSideEffects: (...args: unknown[]) =>
-    applyProviderSwitchSideEffects(...args),
-}));
-
+import { trayPanelApi } from "@/tray-panel/api";
 import { PanelList } from "./PanelList";
 
 const renderPanel = () =>
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
       <PanelList />
     </QueryClientProvider>,
   );
 
-describe("PanelList", () => {
+async function renderReady() {
+  vi.mocked(trayPanelApi.state).mockResolvedValue(stateFixture);
+  const view = renderPanel();
+  // 等待 query 完成渲染出应用行
+  await screen.findByRole("button", { name: "Claude Code BigModel · 聚合" });
+  return view;
+}
+
+describe("PanelList（悬浮球面板 = 托盘面板内容 + 底部保留区）", () => {
   beforeEach(() => {
+    vi.mocked(trayPanelApi.state).mockReset();
+    vi.mocked(trayPanelApi.action).mockClear();
     hidePanel.mockClear();
-    switchFn.mockClear();
-    switchFn.mockResolvedValue({ warnings: [] });
-    applyProviderSwitchSideEffects.mockClear();
-    applyProviderSwitchSideEffects.mockResolvedValue(undefined);
-    usageSnapshots = undefined;
+    // 页签记忆写 localStorage（jsdom 跨用例共享），逐用例复位到配置页
+    window.localStorage.removeItem("cc-switch-tray-tab");
   });
 
-  it("渲染 app 分组与 provider 行，当前项带 is-current 标记", () => {
-    const { container } = renderPanel();
-    expect(screen.getByText("Claude Code")).toBeTruthy();
-    expect(screen.getByText("DeepSeek")).toBeTruthy();
-    expect(screen.getByText("Anthropic")).toBeTruthy();
-    expect(screen.getByText("Codex")).toBeTruthy();
-    const currentRow = container.querySelector(".is-current");
-    expect(currentRow).toBeTruthy();
-    expect(currentRow?.textContent).toContain("DeepSeek");
+  it("渲染头部、配置/用量页签、问题提醒、应用行与轻量模式", async () => {
+    await renderReady();
+    expect(screen.getByText("CC Switch")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "配置" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "用量" })).toBeTruthy();
+    expect(
+      screen.getByText("Gemini：live 配置被外部修改，需要重新同步"),
+    ).toBeTruthy();
+    // 轻量模式开关（footer 只保留它；退出按钮不提供）
+    expect(screen.getByRole("switch", { name: "轻量模式" })).toBeTruthy();
+    expect(screen.queryByText("退出")).toBeNull();
   });
 
-  it("点击 provider 行调用 switch 并收起面板", async () => {
-    renderPanel();
-    fireEvent.click(screen.getByText("Anthropic"));
-    expect(switchFn).toHaveBeenCalledWith("p2", "claude");
-    // 等待异步完成
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(applyProviderSwitchSideEffects).toHaveBeenCalledWith(
-      "claude",
-      "p2",
-      expect.objectContaining({ switchResult: { warnings: [] } }),
+  it("底部保留区渲染今日统计与打开主界面按钮", async () => {
+    await renderReady();
+    expect(screen.getByText("今日总Token")).toBeTruthy();
+    const openMain = screen.getByRole("button", { name: "打开主界面" });
+    expect(openMain).toBeTruthy();
+  });
+
+  it("点击应用行展开覆盖层子面板，点供应商行走 tray_panel_action", async () => {
+    await renderReady();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Claude Code BigModel · 聚合" }),
     );
+    const overlay = screen.getByRole("dialog", { name: "Claude Code" });
+    expect(overlay).toBeTruthy();
+    expect(screen.getByText("切换供应商")).toBeTruthy();
+    expect(screen.getByText("DeepSeek 官方")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("DeepSeek 官方"));
+    expect(trayPanelApi.action).toHaveBeenCalledWith("prov:p2");
+  });
+
+  it("Esc 先收覆盖层、再收面板", async () => {
+    await renderReady();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Claude Code BigModel · 聚合" }),
+    );
+    expect(screen.getByRole("dialog", { name: "Claude Code" })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Claude Code" })).toBeNull();
+    expect(hidePanel).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: "Escape" });
     expect(hidePanel).toHaveBeenCalled();
   });
 
-  it("切换失败不收起面板", async () => {
-    switchFn.mockRejectedValueOnce(new Error("switch failed"));
-    renderPanel();
-    fireEvent.click(screen.getByText("OpenAI"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(hidePanel).not.toHaveBeenCalled();
+  it("切到用量页签渲染 UsageTab（visible=true）", async () => {
+    await renderReady();
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
+    const usage = screen.getByTestId("usage-tab");
+    expect(usage.dataset.visible).toBe("true");
   });
 
-  it("渲染打开主界面 footer 按钮", () => {
-    renderPanel();
-    expect(screen.getByText("打开主界面")).toBeTruthy();
-  });
+  it("问题行与轻量模式点击走 tray_panel_action", async () => {
+    await renderReady();
+    fireEvent.click(
+      screen.getByText("Gemini：live 配置被外部修改，需要重新同步"),
+    );
+    expect(trayPanelApi.action).toHaveBeenCalledWith("fix:gemini");
 
-  it("无用量缓存时行下不渲染用量子行", () => {
-    const { container } = renderPanel();
-    expect(container.querySelector(".floating-ball-row-usage")).toBeNull();
-    expect(container.querySelector(".has-usage")).toBeNull();
-  });
-
-  it("缓存命中时行下渲染余额子行（剩余值 + 单位 + 相对时间）", () => {
-    usageSnapshots = [
-      {
-        appType: "claude",
-        providerId: "p1",
-        result: {
-          success: true,
-          data: [
-            {
-              planName: "标准套餐",
-              remaining: 9.85,
-              total: 20,
-              used: 10.15,
-              unit: "$",
-            },
-          ],
-        },
-        queriedAt: Date.now() - 5 * 60 * 1000,
-      },
-    ];
-    const { container } = renderPanel();
-    const subRow = container.querySelector(".floating-ball-row-usage");
-    expect(subRow).toBeTruthy();
-    expect(subRow?.textContent).toContain("9.85");
-    expect(subRow?.textContent).toContain("$");
-    // 行卡片带 has-usage（wrap 布局开关）
-    expect(container.querySelector(".has-usage")).toBeTruthy();
-    // 未命中的 provider（p2/c1）不渲染子行
-    const subRows = container.querySelectorAll(".floating-ball-row-usage");
-    expect(subRows.length).toBe(1);
-  });
-
-  it("Token Plan 窗口按百分比渲染（多窗口全部显示，带重置倒计时）", () => {
-    usageSnapshots = [
-      {
-        appType: "claude",
-        providerId: "p1",
-        result: {
-          success: true,
-          data: [
-            {
-              planName: "5h",
-              remaining: 22,
-              total: 100,
-              used: 78,
-              unit: "%",
-              extra: JSON.stringify({
-                resetsAt: new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
-              }),
-            },
-            { planName: "7d", remaining: 64, total: 100, used: 36, unit: "%" },
-          ],
-        },
-        queriedAt: Date.now() - 60 * 1000,
-      },
-    ];
-    const { container } = renderPanel();
-    const subRow = container.querySelector(".floating-ball-row-usage");
-    expect(subRow?.textContent).toContain("5h");
-    expect(subRow?.textContent).toContain("7d");
-    // resetsAt 解析为倒计时纯文本（如 "3h59m"；floor 取整，不锚定具体数值）
-    expect(subRow?.textContent).toMatch(/\d+h\d*m/);
-  });
-
-  it("失败缓存显示错误信息（不吞错）", () => {
-    usageSnapshots = [
-      {
-        appType: "codex",
-        providerId: "c1",
-        result: { success: false, data: undefined, error: "API key is empty" },
-        queriedAt: Date.now() - 10 * 60 * 1000,
-      },
-    ];
-    const { container } = renderPanel();
-    const subRow = container.querySelector(".floating-ball-row-usage");
-    expect(subRow?.textContent).toContain("API key is empty");
-    expect(subRow?.className).toContain("floating-ball-row-usage");
-  });
-
-  it("成功但无数据时不渲染子行（与主界面 UsageFooter 一致）", () => {
-    usageSnapshots = [
-      {
-        appType: "claude",
-        providerId: "p1",
-        result: { success: true, data: [], queriedAt: Date.now() },
-      } as never,
-    ];
-    const { container } = renderPanel();
-    expect(container.querySelector(".floating-ball-row-usage")).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "轻量模式" }));
+    expect(trayPanelApi.action).toHaveBeenCalledWith("lightweight_mode");
   });
 });

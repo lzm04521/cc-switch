@@ -1055,7 +1055,13 @@
     },
     "data": {
       "location": "Konum"
-    }
+    },
+    "floatingBall": "Yüzen top",
+    "floatingBallDescription": "Sağlayıcıları hızlıca değiştirmek için ekran kenarında yüzen bir top gösterir",
+    "floatingBallPanelSize": "Panel boyutu",
+    "floatingBallPanelWidth": "Panel genişliği",
+    "floatingBallPanelHeight": "Panel yüksekliği",
+    "floatingBallPanelSizeHint": "240–480 × 320–800 piksel; yükseklik içerik alanıdır, alt bölüm için yaklaşık 130 piksel eklenir"
   },
   "apps": {
     "claude": "Claude",

@@ -18,6 +18,9 @@ pub const PANEL_WIDTH: f64 = 300.0;
 pub const PANEL_HEIGHT: f64 = 480.0;
 /// 面板与球之间的间距（逻辑像素）
 pub const PANEL_GAP: f64 = 8.0;
+/// 面板高度设置之上为底部保留区（今日用量统计 + 打开主界面按钮）额外
+/// 预留的高度（逻辑像素）；`panelHeight` 设置只约束托盘内容区
+pub const PANEL_RESERVED_BOTTOM: f64 = 132.0;
 
 // ===== 弹窗面板尺寸设置（逻辑像素）=====
 /// 面板宽/高下限：过窄挤压 provider 行、过矮放不下分组与 footer
@@ -43,6 +46,11 @@ pub fn clamp_panel_height(value: f64) -> f64 {
     } else {
         PANEL_HEIGHT
     }
+}
+
+/// 面板窗口实际高度：内容区（设置高度，clamp 兜底）+ 底部保留区。
+pub fn panel_window_height(panel_height: f64) -> f64 {
+    clamp_panel_height(panel_height) + PANEL_RESERVED_BOTTOM
 }
 
 /// 面板当前是否可见（状态机单一事实源，所有显隐操作经 toggle/hide 修改）
@@ -768,8 +776,8 @@ fn show_panel(app: &AppHandle) -> Result<(), String> {
 }
 
 /// 按设置调整面板尺寸并贴球定位（打开面板 / 面板可见期间设置变更共用）。
-/// 尺寸取设置（clamp 兜底），定位基于球窗口位置，钳制在当前显示器 work area 内
-/// （多显示器安全）。
+/// 宽取设置（clamp 兜底），高 = 内容区（设置高度）+ 底部保留区，
+/// 定位基于球窗口位置，钳制在当前显示器 work area 内（多显示器安全）。
 ///
 /// 定位全程用物理像素（全局虚拟桌面坐标）计算，再用 PhysicalPosition 设置——
 /// 若改用 LogicalPosition，set_position 会按 panel 窗口所在显示器的缩放
@@ -782,7 +790,7 @@ fn size_and_position_panel(
 ) -> Result<(), String> {
     let fb = crate::settings::get_settings().floating_ball;
     let width = clamp_panel_width(fb.panel_width);
-    let height = clamp_panel_height(fb.panel_height);
+    let height = panel_window_height(fb.panel_height);
 
     let monitor = ball
         .current_monitor()
@@ -1387,6 +1395,18 @@ mod tests {
         assert!(
             sections.iter().any(|s| s.app_type == "gemini"),
             "gemini (both on) should remain in ball sections"
+        );
+    }
+
+    #[test]
+    fn panel_window_height_adds_reserved_bottom() {
+        // 设置高度只约束内容区；窗口实际高度另加底部保留区
+        assert_eq!(panel_window_height(480.0), 480.0 + PANEL_RESERVED_BOTTOM);
+        // 超上限 clamp 到 800 后再叠加；非法值经 clamp 回落默认后叠加
+        assert_eq!(panel_window_height(900.0), 800.0 + PANEL_RESERVED_BOTTOM);
+        assert_eq!(
+            panel_window_height(f64::NAN),
+            PANEL_HEIGHT + PANEL_RESERVED_BOTTOM
         );
     }
 }

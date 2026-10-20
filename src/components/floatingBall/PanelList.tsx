@@ -1,215 +1,55 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { Check, ExternalLink, Gauge, Zap } from "lucide-react";
-import { toast } from "sonner";
+  AlertTriangle,
+  ExternalLink,
+  Feather,
+  Gauge,
+  Settings,
+  Zap,
+} from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ProviderIcon } from "@/components/ProviderIcon";
+// tp-scroll 滚动条样式（其 body.tray-panel 作用域选择器对本窗口无副作用）
+import "@/tray-panel/tray-panel.css";
+// 悬浮球面板复用官方托盘面板的行 / 子面板组件与样式常量（fork：托盘内容托管）
 import {
-  TierBadge,
-  formatRelativeTime,
-} from "@/components/SubscriptionQuotaFooter";
-import { toQuotaTier } from "@/components/UsageFooter";
+  AppRow,
+  FOCUS_RING,
+  ROW_HOVER,
+  SubPanel,
+} from "@/tray-panel/TrayPanel";
+import { UsageTab } from "@/tray-panel/UsageTab";
+import { CHANGED_EVENT, trayPanelApi } from "@/tray-panel/api";
 import { formatTokensShort, getResolvedLang } from "@/components/usage/format";
-import type { UsageData } from "@/types";
 import { providersApi } from "@/lib/api";
-import type { AppId } from "@/lib/api";
+import { floatingBallApi } from "@/lib/api/floatingBall";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
-import {
-  FLOATING_BALL_SECTIONS_KEY,
-  PROVIDER_USAGE_CACHE_KEY,
-  floatingBallApi,
-  useFloatingBallSections,
-  useProviderUsageCache,
-  type BallProviderInfo,
-  type BallSection,
-  type UsageCacheSnapshot,
-} from "@/lib/api/floatingBall";
 import { useUsageSummary, usageKeys } from "@/lib/query/usage";
 import { cn } from "@/lib/utils";
-import { applyProviderSwitchSideEffects } from "@/hooks/providerSwitchSideEffects";
 
-/** 面板分组显示名（与 AppSwitcher 保持一致） */
-export const APP_DISPLAY_NAME: Record<AppId, string> = {
-  claude: "Claude Code",
-  "claude-desktop": "Claude Desktop",
-  codex: "Codex",
-  gemini: "Gemini",
-  grokbuild: "Grok Build",
-  opencode: "OpenCode",
-  openclaw: "OpenClaw",
-  hermes: "Hermes",
-  dsh: "Deepseek",
-  pi: "Pi",
-  mcode: "MiniMax Code",
-  zcode: "ZCode",
-  workbuddy: "WorkBuddy",
-};
+type Tab = "config" | "usage";
+/** 与托盘面板共享页签记忆（WebView2 同源 localStorage） */
+const TAB_KEY = "cc-switch-tray-tab";
+const BALL_TRAY_STATE_KEY = ["ball-tray-panel-state"] as const;
+/** 悬停展开 / 移出收起覆盖层的节奏，沿用托盘面板 */
+const HOVER_OPEN_MS = 50;
+const HOVER_CLOSE_MS = 160;
 
-/** 余额/次数类单条展示：剩余值 + 单位（不足 10% 变橙、失效变红，梯度同主界面） */
-function BalanceItem({ data }: { data: UsageData }) {
-  const { t } = useTranslation();
-  const isExpired = data.isValid === false;
-  const low =
-    data.remaining !== undefined &&
-    data.remaining < (data.total ?? data.remaining) * 0.1;
-  return (
-    <span className="floating-ball-usage-item">
-      💰 {t("usage.remaining")}
-      <span
-        className={cn(
-          "font-semibold tabular-nums",
-          isExpired
-            ? "text-red-500 dark:text-red-400"
-            : low
-              ? "text-orange-500 dark:text-orange-400"
-              : "text-green-600 dark:text-green-400",
-        )}
-      >
-        {data.remaining !== undefined ? data.remaining.toFixed(2) : "—"}
-      </span>
-      {data.unit && <span>{data.unit}</span>}
-      {isExpired && (
-        <span className="text-red-500 dark:text-red-400">
-          {data.invalidMessage || t("usage.invalid")}
-        </span>
-      )}
-    </span>
-  );
+function readTab(): Tab {
+  try {
+    return window.localStorage.getItem(TAB_KEY) === "usage"
+      ? "usage"
+      : "config";
+  } catch {
+    return "config";
+  }
 }
 
 /**
- * 行下用量子行（横向单行，flex-wrap 兜底）：仅在缓存命中时渲染。
- * 数据取自后端 UsageCache（主窗口 / 托盘 / 后台刷新任务触发的查询写穿），
- * 面板不发网络请求：
- * - Token Plan / 订阅类（unit === "%"）：TierBadge（与主界面 inline 展示一致）
- * - 余额类：BalanceItem
- * - 失败：红字查询失败（不吞错；不显示时间戳——失败查询也会写缓存刷新
- *   queriedAt，显示"刚刚"会与主界面 keep-last-good 锚定上次成功时刻分叉）
- * 最右为查询相对时间（数据新鲜度），30s tick 随真实时间走表（与主界面
- * UsageFooter 一致）。
- */
-function UsageSubRow({ snapshot }: { snapshot: UsageCacheSnapshot }) {
-  const { t } = useTranslation();
-  const { result, queriedAt } = snapshot;
-
-  // 相对时间走表 tick：仅成功态需要（失败态不渲染时间）
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!result.success) return;
-    const id = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(id);
-  }, [result.success]);
-
-  const list = result.data ?? [];
-  // 成功但无数据：与主界面 UsageFooter 一致，整体不渲染
-  if (result.success && list.length === 0) return null;
-
-  return (
-    <span className="floating-ball-row-usage">
-      {!result.success ? (
-        <span className="floating-ball-usage-fail">
-          ⚠ {result.error || t("usage.queryFailed")}
-        </span>
-      ) : (
-        list.map((d, i) =>
-          d.unit === "%" ? (
-            <TierBadge key={i} tier={toQuotaTier(d)} t={t} />
-          ) : (
-            <BalanceItem key={i} data={d} />
-          ),
-        )
-      )}
-      {result.success && (
-        <span className="floating-ball-usage-time">
-          {formatRelativeTime(queriedAt, now, t)}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
- * 可拖拽排序的 provider 行（作为拖拽触发源）：
- * - 按下移动超过 8px → 进入拖拽，原行隐藏（opacity 0 占位），
- *   内容由 DragOverlay 渲染（脱离 scroll 容器，跟手零裁剪）
- * - 按下后未移动即松开 → 点击切换（与原有交互一致）
- */
-function SortableProviderRow({
-  provider,
-  isCurrent,
-  usage,
-  onClick,
-}: {
-  provider: BallProviderInfo;
-  isCurrent: boolean;
-  /** 后端用量缓存命中项；未开启用量查询 / 从未查过的 provider 为 undefined */
-  usage?: UsageCacheSnapshot;
-  onClick: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: provider.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      style={style}
-      {...attributes}
-      {...listeners}
-      className={cn(
-        "floating-ball-row",
-        isCurrent && "is-current",
-        usage && "has-usage",
-        // 拖拽中的原行：占位隐藏（内容在 DragOverlay 中显示）
-        isDragging && "floating-ball-row-dragging",
-      )}
-      onClick={onClick}
-    >
-      <ProviderIcon
-        icon={provider.icon ?? undefined}
-        name={provider.name}
-        size={18}
-      />
-      <span className="floating-ball-row-name">{provider.name}</span>
-      {isCurrent && <Check className="floating-ball-check" size={14} />}
-      {usage && <UsageSubRow snapshot={usage} />}
-    </button>
-  );
-}
-
-/**
- * 今日总Token小块（footer 内、「打开主界面」上方）：当天全部 app 的真实总消耗
+ * 今日总Token小块（底部保留区内、「打开主界面」上方）：当天全部 app 的真实总消耗
  * token，口径与主窗口用量页 Hero 一致（input + output + cache_creation +
- * cache_read）；主色浅底卡片 + 大号数值突出显示，与按钮之间由
- * floating-ball-footer-divider 横线分隔。
- * 今日有可计算的代理直录流式请求时，第二行追加今日加权平均输出速度
+ * cache_read）；今日有可计算的代理直录流式请求时，第二行追加今日加权平均输出速度
  * （avgTokensPerSecond 为 null = 无路由数据 / 数据未加载，均不渲染该行）。
  */
 function TodayUsageBlock() {
@@ -244,42 +84,51 @@ function TodayUsageBlock() {
 }
 
 /**
- * 悬浮球弹出面板（panel 窗口内渲染）：
- * - 按 app 分组的 provider 列表，当前项勾选高亮
- * - 点击行 → switch_provider，成功后收起面板，失败内联提示可重试
- * - 分组内拖拽调整顺序（DragOverlay 跟随，原行占位隐藏）→
- *   复用 updateSortOrder 写入 sort_index（全局同步）
- * - Esc / 失焦（后端判断焦点）收起；footer 提供「打开主界面」
+ * 悬浮球弹出面板（panel 窗口内渲染，fork：内容托管官方托盘面板）：
+ * - 主体 = 托盘面板主卡片：头部（CC Switch + 设置入口）、配置 / 用量页签、
+ *   问题提醒区、应用行（当前供应商 / 模式 / 额度）、footer 轻量模式行；
+ *   「打开主界面 / 退出」按钮不搬（前者在底部保留区、后者按用户要求不提供）
+ * - hover 应用行 → 窗口内覆盖层子面板（复用 SubPanel，锚到行下方限高滚动），
+ *   点击行可切换展开态；原「供应商拖拽排序」已随分组列表退役
+ * - 底部保留区 = 今日用量统计 +「打开主界面」（原面板下半部分）
+ * - 数据与文案复用 tray_panel_state / tray_panel_action（与托盘面板同源）；
+ *   刷新时机：面板 focus（每次打开）、provider 切换事件、tray-panel-changed
+ * - Esc：覆盖层开着先收覆盖层，否则收起面板；失焦由后端判断收起
  */
 export function PanelList() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data: sections } = useFloatingBallSections();
-  const { data: usageSnapshots } = useProviderUsageCache();
-  const [activeId, setActiveId] = useState<string | null>(null);
-  // 拖放后的短暂落位窗口：禁用行过渡，避免"让位归位 + 数据重排滑动"叠加成摆动
-  const [isSettling, setIsSettling] = useState(false);
-
-  // 用量缓存快照按 app:provider 建索引，行渲染 O(1) 匹配
-  const usageByProvider = useMemo(() => {
-    const map = new Map<string, UsageCacheSnapshot>();
-    usageSnapshots?.forEach((s) => map.set(`${s.appType}:${s.providerId}`, s));
-    return map;
-  }, [usageSnapshots]);
-
-  // 主窗口 / 托盘触发的用量查询写穿缓存后会广播该事件；面板打开期间实时同步
-  useTauriEvent("usage-cache-updated", () => {
-    void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_CACHE_KEY });
+  const { data: state } = useQuery({
+    queryKey: BALL_TRAY_STATE_KEY,
+    queryFn: () => trayPanelApi.state(),
   });
 
-  // provider 切换事件 → 刷新分组（与主窗口同事件源）
+  const [tab, setTab] = useState<Tab>(readTab);
+  /** 覆盖层当前展开的应用 id（行数据每次从最新 state 取，切换后勾选会移动） */
+  const [openApp, setOpenApp] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  /** 面板每次打开递增：UsageTab 的 refreshKey */
+  const [shownCount, setShownCount] = useState(0);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const hideTimer = useRef<number | undefined>(undefined);
+
+  // 托盘状态变化（切换、额度、问题区）后端会一并通知本窗口；面板打开期间实时同步
+  useTauriEvent(CHANGED_EVENT, () => {
+    void queryClient.invalidateQueries({ queryKey: BALL_TRAY_STATE_KEY });
+  });
+
+  // provider 切换事件 → 刷新面板数据（与主窗口同事件源；切换后覆盖层勾选移动）
   useEffect(() => {
     let disposed = false;
     let cleanup: (() => void) | undefined;
     void providersApi
       .onSwitched(() => {
         void queryClient.invalidateQueries({
-          queryKey: FLOATING_BALL_SECTIONS_KEY,
+          queryKey: BALL_TRAY_STATE_KEY,
         });
       })
       .then((off) => {
@@ -292,20 +141,22 @@ export function PanelList() {
     };
   }, [queryClient]);
 
-  // Esc 收起面板
+  // Esc：覆盖层开着先收覆盖层，否则收起面板
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        void floatingBallApi.hidePanel();
+      if (e.key !== "Escape") return;
+      if (openApp) {
+        setOpenApp(null);
+        return;
       }
+      void floatingBallApi.hidePanel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openApp]);
 
-  // 获得焦点（每次打开面板）刷新分组；失焦收起（后端判断新焦点是否落在
-  // 球上，点球关面板不重复处理）。focus 刷新兜底事件时序竞态：主窗口切换
-  // 供应商时面板窗口若错过 provider-switched 事件，下次打开仍能拿到新数据。
+  // 获得焦点（每次打开面板）刷新数据并重置覆盖层；失焦收起（后端判断新焦点
+  // 是否落在球上，点球关面板不重复处理）
   useEffect(() => {
     let disposed = false;
     let cleanup: (() => void) | undefined;
@@ -314,14 +165,12 @@ export function PanelList() {
       .onFocusChanged(({ payload: focused }) => {
         if (focused) {
           void queryClient.invalidateQueries({
-            queryKey: FLOATING_BALL_SECTIONS_KEY,
+            queryKey: BALL_TRAY_STATE_KEY,
           });
           // 今日用量随面板每次打开刷新（另有默认 30s 轮询兜底）
           void queryClient.invalidateQueries({ queryKey: usageKeys.all });
-          // 用量缓存快照随面板打开重取（主窗口在此期间的查询也会经事件同步）
-          void queryClient.invalidateQueries({
-            queryKey: PROVIDER_USAGE_CACHE_KEY,
-          });
+          setOpenApp(null);
+          setShownCount((count) => count + 1);
         } else {
           void floatingBallApi.onPanelBlur();
         }
@@ -336,179 +185,218 @@ export function PanelList() {
     };
   }, [queryClient]);
 
-  const handleSwitch = async (appType: AppId, providerId: string) => {
-    try {
-      const result = await providersApi.switch(providerId, appType);
-      // 补齐主窗口 switchProvider 的副作用链（插件联动/重启提示/代理警告）
-      await applyProviderSwitchSideEffects(appType, providerId, {
-        t,
-        switchResult: result,
-      });
-      await floatingBallApi.hidePanel();
-    } catch {
-      toast.error(
-        t("floatingBall.switchFailed", { defaultValue: "切换失败，请重试" }),
-      );
-    }
-  };
+  const clearTimers = useCallback(() => {
+    window.clearTimeout(hoverTimer.current);
+    window.clearTimeout(hideTimer.current);
+  }, []);
 
-  // 拖拽排序：同一分组内重排 → 写入 sort_index（与主界面 useDragSort 一致）
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id || !sections) return;
-
-    // 定位 active / over 所属分组；跨分组拖拽直接忽略
-    const activeSection = sections.find((s) =>
-      s.providers.some((p) => p.id === active.id),
-    );
-    const overSection = sections.find((s) =>
-      s.providers.some((p) => p.id === over.id),
-    );
-    if (!activeSection || activeSection !== overSection) return;
-
-    const oldIndex = activeSection.providers.findIndex(
-      (p) => p.id === active.id,
-    );
-    const newIndex = activeSection.providers.findIndex((p) => p.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(activeSection.providers, oldIndex, newIndex);
-    const updates = reordered.map((provider, index) => ({
-      id: provider.id,
-      sortIndex: index,
-    }));
-
-    try {
-      await providersApi.updateSortOrder(updates, activeSection.appType);
-      await queryClient.invalidateQueries({
-        queryKey: FLOATING_BALL_SECTIONS_KEY,
-      });
-      // 同步托盘菜单排序（失败不影响主操作）
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (trayError) {
-        console.error("Failed to update tray menu after sort", trayError);
-      }
-    } catch (error) {
-      console.error("Failed to update provider sort order", error);
-      toast.error(
-        t("provider.sortUpdateFailed", { defaultValue: "排序更新失败" }),
-      );
-    }
-  };
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
-  };
-
-  const handleDragEndEvent = (event: DragEndEvent) => {
-    setActiveId(null);
-    // 落位窗口内禁行过渡，让行直接归位（数据刷新后再开启）
-    setIsSettling(true);
-    window.setTimeout(() => setIsSettling(false), 350);
-    void handleDragEnd(event);
-  };
-
-  const handleDragCancel = () => {
-    setActiveId(null);
-    setIsSettling(true);
-    window.setTimeout(() => setIsSettling(false), 350);
-  };
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
+  const hoverApp = useCallback(
+    (appId: string) => {
+      clearTimers();
+      hoverTimer.current = window.setTimeout(() => {
+        setOpenApp((prev) => (prev === appId ? prev : appId));
+      }, HOVER_OPEN_MS);
+    },
+    [clearTimers],
   );
 
-  // 每个分组独立 DndContext：verticalListSortingStrategy 只对该分组内的
-  // 行计算让位偏移，拖拽 claude 组时 codex 等其他分组的行完全不受影响
-  const renderSection = (section: BallSection) => {
-    const sectionActiveProvider = section.providers.find(
-      (p) => p.id === activeId,
-    );
-    const activeUsage = sectionActiveProvider
-      ? usageByProvider.get(`${section.appType}:${sectionActiveProvider.id}`)
-      : undefined;
-    return (
-      <div key={section.appType} className="floating-ball-section">
-        <div className="floating-ball-section-header">
-          {APP_DISPLAY_NAME[section.appType]}
-        </div>
-        {section.providers.length === 0 ? (
-          <div className="floating-ball-empty">
-            {t("floatingBall.empty", { defaultValue: "（无供应商）" })}
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEndEvent}
-            onDragCancel={handleDragCancel}
-          >
-            <SortableContext
-              items={section.providers.map((p) => p.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {section.providers.map((provider) => (
-                <SortableProviderRow
-                  key={provider.id}
-                  provider={provider}
-                  isCurrent={provider.id === section.currentProviderId}
-                  usage={usageByProvider.get(
-                    `${section.appType}:${provider.id}`,
-                  )}
-                  onClick={() =>
-                    void handleSwitch(section.appType, provider.id)
-                  }
-                />
-              ))}
-            </SortableContext>
-            <DragOverlay dropAnimation={null}>
-              {sectionActiveProvider ? (
-                <div
-                  className={cn(
-                    "floating-ball-row",
-                    "floating-ball-row-overlay",
-                    sectionActiveProvider.id === section.currentProviderId &&
-                      "is-current",
-                    activeUsage && "has-usage",
-                  )}
-                >
-                  <ProviderIcon
-                    icon={sectionActiveProvider.icon ?? undefined}
-                    name={sectionActiveProvider.name}
-                    size={18}
-                  />
-                  <span className="floating-ball-row-name">
-                    {sectionActiveProvider.name}
-                  </span>
-                  {sectionActiveProvider.id === section.currentProviderId && (
-                    <Check className="floating-ball-check" size={14} />
-                  )}
-                  {activeUsage && <UsageSubRow snapshot={activeUsage} />}
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        )}
-      </div>
-    );
+  /** 移出应用行：稍等片刻再收（给鼠标滑进覆盖层留时间） */
+  const scheduleHide = useCallback(() => {
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => {
+      setOpenApp(null);
+    }, HOVER_CLOSE_MS);
+  }, []);
+
+  const openSub = useCallback(
+    (appId: string | null) => {
+      clearTimers();
+      setOpenApp(appId);
+    },
+    [clearTimers],
+  );
+
+  // 覆盖层锚到展开行的下方：内容或页签变化后重算位置，放不下时整体上移
+  useEffect(() => {
+    const root = rootRef.current;
+    const overlay = overlayRef.current;
+    if (!openApp || !root || !overlay) return;
+    overlay.style.top = "0px";
+    const rootTop = root.getBoundingClientRect().top;
+    const row = root.querySelector<HTMLElement>(`[data-app-row="${openApp}"]`);
+    const rowBottom = row
+      ? row.getBoundingClientRect().bottom
+      : rootTop + root.clientHeight / 2;
+    const height = overlay.offsetHeight;
+    let top = rowBottom - rootTop + 4;
+    const maxTop = root.clientHeight - height - 8;
+    if (top > maxTop) top = Math.max(8, maxTop);
+    overlay.style.top = `${top}px`;
+  }, [openApp, tab, state]);
+
+  const changeTab = (next: Tab) => {
+    setTab(next);
+    setOpenApp(null);
+    setQuery("");
+    try {
+      window.localStorage.setItem(TAB_KEY, next);
+    } catch {
+      // 记不住也不影响使用
+    }
   };
+
+  const action = useCallback((id: string) => {
+    void trayPanelApi.action(id);
+  }, []);
+
+  const texts = state?.texts;
+  const apps = state?.apps ?? [];
+  const openEntry =
+    tab === "config"
+      ? apps.find((app) => app.app === openApp && !app.addId)
+      : undefined;
+
+  if (!state || !texts) {
+    return (
+      <div
+        className="floating-ball-panel"
+        onContextMenu={(e) => e.preventDefault()}
+      />
+    );
+  }
 
   return (
     <div
-      className={cn(
-        "floating-ball-panel",
-        activeId != null && "is-dragging",
-        isSettling && "is-settling",
-      )}
+      ref={rootRef}
+      className="floating-ball-panel relative"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="floating-ball-panel-scroll">
-        {sections?.map(renderSection)}
+      {/* 头部：标题 + 设置入口 */}
+      <div className="flex shrink-0 items-center px-4 pb-2 pt-3">
+        <span className="text-[15px] font-semibold">CC Switch</span>
+        <button
+          type="button"
+          title={texts.settings}
+          aria-label={texts.settings}
+          onClick={() => action("nav:settings:general")}
+          className={cn(
+            "ms-auto flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground",
+            FOCUS_RING,
+            ROW_HOVER,
+          )}
+        >
+          <Settings className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* 配置 / 用量页签（与托盘面板共享记忆） */}
+      <div className="shrink-0 px-3 pb-2">
+        <div
+          role="tablist"
+          className="flex rounded-lg bg-black/[0.06] p-0.5 dark:bg-white/[0.08]"
+        >
+          {(["config", "usage"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={tab === value}
+              onClick={() => changeTab(value)}
+              className={cn(
+                "flex-1 rounded-md py-1 text-xs font-medium transition-colors",
+                FOCUS_RING,
+                tab === value
+                  ? "bg-white text-foreground shadow-sm dark:bg-white/[0.16]"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {value === "config" ? texts.configTab : texts.usageTab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="tp-scroll min-h-0 flex-1">
+        {tab === "config" ? (
+          <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
+            {state.problems.map((problem) => (
+              <button
+                key={problem.id}
+                type="button"
+                onClick={() => action(problem.id)}
+                className={cn(
+                  "flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-amber-600 dark:text-amber-400",
+                  FOCUS_RING,
+                  ROW_HOVER,
+                )}
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{problem.text}</span>
+              </button>
+            ))}
+            {state.feedback && (
+              <div className="px-2.5 py-1 text-[11.5px] text-muted-foreground">
+                {state.feedback}
+              </div>
+            )}
+            {apps.map((app) => (
+              <AppRow
+                key={app.app}
+                app={app}
+                texts={texts}
+                active={openEntry?.app === app.app}
+                side="right"
+                onHover={() => hoverApp(app.app)}
+                onLeave={scheduleHide}
+                onOpen={() =>
+                  app.addId
+                    ? action(app.addId)
+                    : openSub(openApp === app.app ? null : app.app)
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          <UsageTab refreshKey={shownCount} visible={tab === "usage"} />
+        )}
+      </div>
+
+      {/* footer：只保留轻量模式（打开主界面在底部保留区；退出按钮不提供） */}
+      <div className="shrink-0 border-t border-black/[0.08] px-1.5 py-1.5 dark:border-white/[0.08]">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={state.lightweight}
+          onClick={() => action("lightweight_mode")}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]",
+            FOCUS_RING,
+            ROW_HOVER,
+          )}
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
+            <Feather className="h-4 w-4" />
+          </span>
+          <span className="flex-1">{texts.lightweightMode}</span>
+          <span
+            className={cn(
+              "relative h-[18px] w-8 shrink-0 rounded-full transition-colors",
+              state.lightweight
+                ? "bg-blue-500"
+                : "bg-black/15 dark:bg-white/20",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow transition-[left]",
+                state.lightweight ? "left-[16px]" : "left-[2px]",
+              )}
+            />
+          </span>
+        </button>
+      </div>
+
+      {/* 底部保留区（原面板下半部分） */}
       <div className="floating-ball-footer">
         <TodayUsageBlock />
         <div className="floating-ball-footer-divider" />
@@ -521,6 +409,28 @@ export function PanelList() {
           {t("floatingBall.openMainWindow", { defaultValue: "打开主界面" })}
         </button>
       </div>
+
+      {/* hover 覆盖层子面板：复用托盘 SubPanel，窗口内浮动、锚到展开行 */}
+      {openEntry && (
+        <div
+          ref={overlayRef}
+          role="dialog"
+          aria-label={openEntry.name}
+          className="absolute inset-x-2 z-20 flex max-h-[70%] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl"
+          onMouseEnter={clearTimers}
+          onMouseLeave={scheduleHide}
+        >
+          <SubPanel
+            key={openEntry.app}
+            app={openEntry}
+            texts={texts}
+            query={query}
+            onQuery={setQuery}
+            onAction={action}
+            searchRef={searchRef}
+          />
+        </div>
+      )}
     </div>
   );
 }
