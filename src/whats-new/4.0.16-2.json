@@ -1,0 +1,12 @@
+{
+  "version": "4.0.16-2",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "悬浮球与托盘的应用清单跟随侧栏显示开关",
+      "zh-TW": "懸浮球與系統匣的應用清單跟隨側欄顯示開關",
+      "en": "The floating ball and tray now list the same apps you show in the sidebar",
+      "ja": "フローティングボールとトレイのアプリ一覧がサイドバー表示に連動"
+    }
+  ]
+}
