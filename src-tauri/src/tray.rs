@@ -1983,7 +1983,6 @@ fn collect_snapshots(
     texts: &TrayTexts,
 ) -> Result<(Vec<AppSnapshot>, Vec<TrayProblem>), AppError> {
     let settings = crate::settings::get_settings();
-    let visible_apps = settings.visible_apps.clone().unwrap_or_default();
     let running = service_running(app_state);
     let profiles = if settings.show_profile_switcher {
         app_state.db.get_all_profiles()?
@@ -1992,7 +1991,11 @@ fn collect_snapshots(
     };
 
     let mut snapshots = Vec::new();
-    for app in TRAY_APPS.iter().filter(|app| visible_apps.is_visible(app)) {
+    // 与侧栏同轴：按「侧栏显示」（sidebar_apps 回落 visible_apps）过滤
+    for app in TRAY_APPS
+        .iter()
+        .filter(|app| settings.is_sidebar_visible(app))
+    {
         snapshots.push(collect_app_snapshot(
             app_state, texts, &settings, app, running, &profiles,
         )?);
@@ -3171,16 +3174,14 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         return;
     };
 
-    // 与 `create_tray_menu` 保持一致：用户隐藏的 app 不参与外部 API 查询，
+    // 与 `create_tray_menu` 保持一致（侧栏同轴）：用户隐藏的 app 不参与外部 API 查询，
     // 避免在未使用的 app 上浪费请求、撞 rate limit 或反复触发鉴权失败日志。
-    let visible_apps = crate::settings::get_settings()
-        .visible_apps
-        .unwrap_or_default();
+    let sidebar_settings = crate::settings::get_settings();
 
     let mut usage_futures = Vec::new();
 
     for app_type in TRAY_APPS.iter() {
-        if !visible_apps.is_visible(app_type) {
+        if !sidebar_settings.is_sidebar_visible(app_type) {
             continue;
         }
 
@@ -3272,11 +3273,12 @@ pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
     let Some(app_state) = app.try_state::<AppState>() else {
         return;
     };
-    let visible_apps = crate::settings::get_settings()
-        .visible_apps
-        .unwrap_or_default();
+    let sidebar_settings = crate::settings::get_settings();
     let mut due = Vec::new();
-    for app_type in TRAY_APPS.iter().filter(|app| visible_apps.is_visible(app)) {
+    for app_type in TRAY_APPS
+        .iter()
+        .filter(|app| sidebar_settings.is_sidebar_visible(app))
+    {
         let rows = match app_state.db.get_all_providers(app_type.as_str()) {
             Ok(rows) => rows,
             Err(e) => {

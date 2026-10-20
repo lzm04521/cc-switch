@@ -65,9 +65,8 @@ async fn run_refresh_cycle(
     }
 
     let app_state = app.state::<AppState>();
-    let visible_apps = crate::settings::get_settings()
-        .visible_apps
-        .unwrap_or_default();
+    // 与悬浮球/托盘同轴：按「侧栏显示」（sidebar_apps 回落 visible_apps）过滤
+    let sidebar_settings = crate::settings::get_settings();
     let now_ms = crate::services::usage_cache::now_millis();
 
     let mut due = Vec::new();
@@ -76,7 +75,7 @@ async fn run_refresh_cycle(
         if matches!(app_type, AppType::Zcode | AppType::Dsh) {
             continue;
         }
-        if !visible_apps.is_visible(&app_type) {
+        if !sidebar_settings.is_sidebar_visible(&app_type) {
             continue;
         }
         let providers = match app_state.db.get_all_providers(app_type.as_str()) {

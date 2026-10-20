@@ -816,6 +816,17 @@ impl AppSettings {
         self.quota_display.as_deref() == Some("used")
     }
 
+    /// 侧栏显示可见性（fork）：悬浮球/托盘的应用清单与侧栏同轴。
+    /// `sidebar_apps` 缺省时整体回落 `visible_apps`（两者皆缺省用默认可见集），
+    /// 与前端 `resolveSidebarApps` 的展开语义一致。
+    pub fn is_sidebar_visible(&self, app: &AppType) -> bool {
+        match (self.sidebar_apps.as_ref(), self.visible_apps.as_ref()) {
+            (Some(sidebar), _) => sidebar.is_visible(app),
+            (None, Some(visible)) => visible.is_visible(app),
+            (None, None) => VisibleApps::default().is_visible(app),
+        }
+    }
+
     fn settings_path() -> Option<PathBuf> {
         // settings.json 保留用于旧版本迁移和无数据库场景
         Some(
@@ -1859,6 +1870,33 @@ mod tests {
         assert!(sidebar_back.is_visible(&AppType::Claude));
         assert!(!sidebar_back.is_visible(&AppType::Gemini));
         assert!(sidebar_back.is_visible(&AppType::Zcode));
+    }
+
+    #[test]
+    fn is_sidebar_visible_resolves_sidebar_over_visible_over_default() {
+        let mut settings = AppSettings::default();
+
+        // 两者皆缺省：走默认可见集（claude 默认显示、hermes 默认隐藏）
+        assert!(settings.is_sidebar_visible(&AppType::Claude));
+        assert!(!settings.is_sidebar_visible(&AppType::Hermes));
+
+        // sidebar 缺省：回落 visible_apps
+        settings.visible_apps = Some(VisibleApps {
+            hermes: true,
+            claude: false,
+            ..Default::default()
+        });
+        assert!(!settings.is_sidebar_visible(&AppType::Claude));
+        assert!(settings.is_sidebar_visible(&AppType::Hermes));
+
+        // sidebar 有值：整体压过 visible_apps
+        settings.sidebar_apps = Some(VisibleApps {
+            claude: true,
+            hermes: false,
+            ..Default::default()
+        });
+        assert!(settings.is_sidebar_visible(&AppType::Claude));
+        assert!(!settings.is_sidebar_visible(&AppType::Hermes));
     }
 
     #[test]

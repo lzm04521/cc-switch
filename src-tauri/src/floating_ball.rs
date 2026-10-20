@@ -978,14 +978,14 @@ pub struct BallSection {
     pub providers: Vec<BallProviderInfo>,
 }
 
-/// 构建面板分组数据：按 AppType 顺序遍历，过滤不可见应用。
+/// 构建面板分组数据：按 AppType 顺序遍历，过滤非侧栏显示的应用（sidebar_apps
+/// 缺省时回落 visible_apps，与侧栏同轴）。
 /// additive 模式（OpenCode/OpenClaw/Hermes/Pi）无单一“当前供应商”，
 /// current_provider_id 为 None（不渲染勾选），点击行为与主界面一致（switch_provider）。
 pub fn build_sections(
     app_state: &crate::store::AppState,
 ) -> Result<Vec<BallSection>, crate::error::AppError> {
     let app_settings = crate::settings::get_settings();
-    let visible_apps = app_settings.visible_apps.unwrap_or_default();
     let mut sections = Vec::new();
 
     for app_type in crate::app_config::AppType::all() {
@@ -999,7 +999,7 @@ pub fn build_sections(
         ) {
             continue;
         }
-        if !visible_apps.is_visible(&app_type) {
+        if !app_settings.is_sidebar_visible(&app_type) {
             continue;
         }
         let providers = app_state.db.get_all_providers(app_type.as_str())?;
@@ -1287,28 +1287,49 @@ mod tests {
     }
 
     /// build_sections 读取全局 settings store（update_settings 会落盘），
-    /// 先快照原值、改为全量已知 visible_apps，测试结束恢复。
-    struct VisibleAppsGuard {
+    /// 先快照原值、按测试需要改写，测试结束恢复。
+    struct SettingsGuard {
         previous: crate::settings::AppSettings,
     }
 
-    impl VisibleAppsGuard {
-        fn with_self_managed_apps_visible() -> Self {
+    impl SettingsGuard {
+        fn with_settings(next: crate::settings::AppSettings) -> Self {
             let previous = crate::settings::get_settings();
-            let mut next = previous.clone();
+            crate::settings::update_settings(next).expect("set settings for test");
+            Self { previous }
+        }
+
+        fn with_self_managed_apps_visible() -> Self {
             // 全量已知可见性（Default：常规应用可见，hermes 隐藏），
             // 并显式打开 zcode / workbuddy，验证"可见也不进悬浮球"
+            let mut next = crate::settings::get_settings();
             next.visible_apps = Some(crate::settings::VisibleApps {
                 zcode: true,
                 workbuddy: true,
                 ..Default::default()
             });
-            crate::settings::update_settings(next).expect("set visible apps for test");
-            Self { previous }
+            Self::with_settings(next)
+        }
+
+        /// 参与/侧栏两轴交叉：codex 只开「侧栏显示」、claude 只开「参与管理」、
+        /// gemini 两边都开
+        fn with_sidebar_over_visible_apps() -> Self {
+            let mut next = crate::settings::get_settings();
+            next.visible_apps = Some(crate::settings::VisibleApps {
+                claude: true,
+                codex: false,
+                ..Default::default()
+            });
+            next.sidebar_apps = Some(crate::settings::VisibleApps {
+                claude: false,
+                codex: true,
+                ..Default::default()
+            });
+            Self::with_settings(next)
         }
     }
 
-    impl Drop for VisibleAppsGuard {
+    impl Drop for SettingsGuard {
         fn drop(&mut self) {
             let _ = crate::settings::update_settings(self.previous.clone());
         }
@@ -1321,7 +1342,7 @@ mod tests {
         // 打开可见性，悬浮球快速切换面板也不得出现这些分组（设计 §5.5）
         let temp = tempfile::tempdir().expect("tempdir");
         let _home = TestHomeGuard::set(temp.path());
-        let _settings = VisibleAppsGuard::with_self_managed_apps_visible();
+        let _settings = SettingsGuard::with_self_managed_apps_visible();
 
         let state = crate::store::AppState::new(std::sync::Arc::new(
             crate::database::Database::memory().expect("create in-memory database"),
@@ -1338,6 +1359,34 @@ mod tests {
         assert!(
             sections.iter().any(|s| s.app_type == "claude"),
             "claude section should remain in ball sections"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn build_sections_follows_sidebar_visibility_over_visible_apps() {
+        // 悬浮球与侧栏同轴：sidebar_apps 压过 visible_apps——只开「侧栏显示」的
+        // 应用进面板，只开「参与管理」的不进
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _home = TestHomeGuard::set(temp.path());
+        let _settings = SettingsGuard::with_sidebar_over_visible_apps();
+
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().expect("create in-memory database"),
+        ));
+        let sections = build_sections(&state).expect("build ball sections");
+
+        assert!(
+            sections.iter().all(|s| s.app_type != "claude"),
+            "claude (manage-only, sidebar off) must not appear in ball sections"
+        );
+        assert!(
+            sections.iter().any(|s| s.app_type == "codex"),
+            "codex (sidebar-only) should appear in ball sections"
+        );
+        assert!(
+            sections.iter().any(|s| s.app_type == "gemini"),
+            "gemini (both on) should remain in ball sections"
         );
     }
 }
