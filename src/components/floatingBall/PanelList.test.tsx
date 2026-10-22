@@ -16,7 +16,11 @@ const stateFixture: TrayPanelState = {
     openPanel: "打开快捷面板",
     configTab: "配置",
     usageTab: "用量",
-    resetsAt: "{when} 重置",
+    resetsIn: "{when} 后重置",
+    durationDays: "{n}天",
+    durationHours: "{n}小时",
+    durationMinutes: "{n}分",
+    durationSep: " ",
     resetCredits: "可重置 {count} 次",
   },
   problems: [

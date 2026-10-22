@@ -103,8 +103,8 @@ describe("NewLayoutDialog", () => {
   it("stays closed when no app has providers", async () => {
     mocks.getAll.mockResolvedValue({});
     renderDialog();
-    // fork 应用清单 13 个（上游 10 + zcode/dsh/workbuddy），逐应用探测 providers
-    await waitFor(() => expect(mocks.getAll).toHaveBeenCalledTimes(13));
+    // fork 应用清单 14 个（上游 11 + zcode/dsh/workbuddy），逐应用探测 providers
+    await waitFor(() => expect(mocks.getAll).toHaveBeenCalledTimes(14));
     expect(screen.queryByText("newLayoutNotice.title")).not.toBeInTheDocument();
   });
 

@@ -102,6 +102,7 @@ const APP_SHORT_NAME: Record<AppId, string> = {
   hermes: "Hermes",
   pi: "Pi",
   mcode: "MiniMax",
+  agy: "Antigravity",
   zcode: "ZCode",
   dsh: "DSH",
   workbuddy: "WB",

@@ -101,9 +101,12 @@ export function ClaudeStackRoleMappingField({
         {ROLE_ROWS.map((role) => {
           const current = stripClaudeOneMMarker(values[role.tier]).trim();
           const matched = options.some((option) => option.model === current);
-          const followDefault = t("providerForm.stackRoleMappingFollowDefault", {
-            defaultValue: "跟随默认",
-          });
+          const followDefault = t(
+            "providerForm.stackRoleMappingFollowDefault",
+            {
+              defaultValue: "跟随默认",
+            },
+          );
           return (
             <div
               key={role.tier}

@@ -12,6 +12,7 @@
 //! - `hermes` - Hermes MCP 同步和导入
 //! - `zcode` - ZCode MCP 同步和导入（Claude 风格容器，直接透传）
 
+pub mod agy;
 mod claude;
 mod codex;
 mod dsh;

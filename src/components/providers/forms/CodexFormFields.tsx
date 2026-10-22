@@ -673,8 +673,8 @@ export function CodexFormFields({
   // 请求覆盖 / 非默认的上游格式 / 已配置思考能力。模型列表在高级区外面，不算。
   const hasRequestOverrides = Boolean(
     localProxyHeadersOverride.trim() ||
-    localProxyBodyOverride.trim() ||
-    localProxyBodyRewrites.trim(),
+      localProxyBodyOverride.trim() ||
+      localProxyBodyRewrites.trim(),
   );
   const hasAnyAdvancedValue =
     isCopilotPreset ||

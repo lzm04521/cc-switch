@@ -10,6 +10,8 @@ pub struct McpApps {
     #[serde(default)]
     pub mcode: bool,
     #[serde(default)]
+    pub agy: bool,
+    #[serde(default)]
     pub claude: bool,
     #[serde(default)]
     pub codex: bool,
@@ -48,6 +50,7 @@ impl McpApps {
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
             AppType::Workbuddy => self.workbuddy,
+            AppType::Agy => self.agy,
         }
     }
 
@@ -67,6 +70,7 @@ impl McpApps {
             AppType::Zcode => self.zcode = enabled,
             AppType::Dsh => self.dsh = enabled,
             AppType::Workbuddy => self.workbuddy = enabled,
+            AppType::Agy => self.agy = enabled,
         }
     }
 
@@ -87,6 +91,9 @@ impl McpApps {
         }
         if self.opencode {
             apps.push(AppType::OpenCode);
+        }
+        if self.agy {
+            apps.push(AppType::Agy);
         }
         if self.mcode {
             apps.push(AppType::Mcode);
@@ -117,6 +124,7 @@ impl McpApps {
             && !self.grokbuild
             && !self.opencode
             && !self.hermes
+            && !self.agy
             && !self.mcode
             && !self.zcode
             && !self.dsh
@@ -130,6 +138,8 @@ impl McpApps {
 pub struct SkillApps {
     #[serde(default)]
     pub mcode: bool,
+    #[serde(default)]
+    pub agy: bool,
     #[serde(default)]
     pub claude: bool,
     #[serde(default)]
@@ -164,7 +174,8 @@ impl SkillApps {
             AppType::Hermes => self.hermes,
             AppType::Pi => self.pi,
             AppType::Mcode => self.mcode,
-            AppType::OpenClaw => false, // OpenClaw doesn't support Skills
+            AppType::OpenClaw => false,
+            AppType::Agy => self.agy,
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
             AppType::Dsh => self.dsh,
@@ -183,7 +194,8 @@ impl SkillApps {
             AppType::Hermes => self.hermes = enabled,
             AppType::Pi => self.pi = enabled,
             AppType::Mcode => self.mcode = enabled,
-            AppType::OpenClaw => {} // OpenClaw doesn't support Skills, ignore
+            AppType::OpenClaw => {}
+            AppType::Agy => self.agy = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
             AppType::Zcode => self.zcode = enabled,
             AppType::Dsh => self.dsh = enabled,
@@ -208,6 +220,9 @@ impl SkillApps {
         }
         if self.opencode {
             apps.push(AppType::OpenCode);
+        }
+        if self.agy {
+            apps.push(AppType::Agy);
         }
         if self.mcode {
             apps.push(AppType::Mcode);
@@ -238,6 +253,7 @@ impl SkillApps {
             && !self.grokbuild
             && !self.opencode
             && !self.hermes
+            && !self.agy
             && !self.mcode
             && !self.pi
             && !self.zcode
@@ -475,6 +491,7 @@ pub enum AppType {
     Hermes,
     Pi,
     Mcode,
+    Agy,
     Zcode,
     Dsh,
     Workbuddy,
@@ -493,6 +510,7 @@ impl AppType {
             AppType::Hermes => "hermes",
             AppType::Pi => "pi",
             AppType::Mcode => "mcode",
+            AppType::Agy => "agy",
             AppType::Zcode => "zcode",
             AppType::Dsh => "dsh",
             AppType::Workbuddy => "workbuddy",
@@ -538,6 +556,7 @@ impl AppType {
             AppType::Hermes,
             AppType::Pi,
             AppType::Mcode,
+            AppType::Agy,
             AppType::Zcode,
             AppType::Dsh,
             AppType::Workbuddy,
@@ -562,13 +581,14 @@ impl FromStr for AppType {
             "hermes" => Ok(AppType::Hermes),
             "pi" => Ok(AppType::Pi),
             "mcode" => Ok(AppType::Mcode),
+            "agy" | "antigravity" | "antigravity-cli" => Ok(AppType::Agy),
             "zcode" => Ok(AppType::Zcode),
             "dsh" => Ok(AppType::Dsh),
             "workbuddy" => Ok(AppType::Workbuddy),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, zcode, dsh, workbuddy。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, zcode, dsh, workbuddy."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, agy, zcode, dsh, workbuddy。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, agy, zcode, dsh, workbuddy."),
             )),
         }
     }
@@ -613,6 +633,7 @@ impl CommonConfigSnippets {
             AppType::Hermes => self.hermes.as_ref(),
             AppType::Pi => None,
             AppType::Mcode => None,
+            AppType::Agy => None,
             AppType::Zcode => self.zcode.as_ref(),
             // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
             AppType::Dsh => None,
@@ -634,6 +655,7 @@ impl CommonConfigSnippets {
             AppType::Hermes => self.hermes = snippet,
             AppType::Pi => {}
             AppType::Mcode => {}
+            AppType::Agy => {}
             AppType::Zcode => self.zcode = snippet,
             // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
             AppType::Dsh => {}
@@ -684,6 +706,7 @@ impl Default for MultiAppConfig {
         apps.insert("openclaw".to_string(), ProviderManager::default());
         apps.insert("hermes".to_string(), ProviderManager::default());
         apps.insert("zcode".to_string(), ProviderManager::default());
+        apps.insert("agy".to_string(), ProviderManager::default());
 
         Self {
             version: 2,
@@ -969,6 +992,7 @@ impl MultiAppConfig {
             // Pi was added after prompts moved to SQLite. Keeping it out of
             // this legacy config avoids a second, unused prompt state.
             AppType::Pi | AppType::Mcode => return Ok(false),
+            AppType::Agy => return Ok(false),
             AppType::Zcode => &mut config.prompts.zcode.prompts,
             // dsh 不支持 prompts
             AppType::Dsh => return Ok(false),
@@ -1019,6 +1043,7 @@ impl MultiAppConfig {
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue, // Hermes didn't exist in v3.6.x, skip
                 AppType::Pi | AppType::Mcode => continue, // Pi didn't exist in v3.6.x, skip
+                AppType::Agy => continue, // Agy didn't exist in v3.6.x, skip
                 AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip
                 AppType::Workbuddy => continue, // WorkBuddy didn't exist in v3.6.x, skip
             };

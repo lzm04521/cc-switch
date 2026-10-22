@@ -301,6 +301,7 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Hermes
         | AppType::Pi
         | AppType::Mcode
+        | AppType::Agy
         | AppType::ClaudeDesktop
         | AppType::Zcode
         | AppType::Dsh
@@ -381,6 +382,7 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::Pi
         | AppType::Mcode
         | AppType::ClaudeDesktop
+        | AppType::Agy
         | AppType::Zcode
         | AppType::Dsh
         | AppType::Workbuddy => Ok(settings.clone()),
@@ -420,6 +422,10 @@ pub(crate) fn write_live_for_state(
     }
     if matches!(app_type, AppType::GrokBuild) {
         super::grok_direct::reapply(db, Some(provider), provider)?;
+        return Ok(());
+    }
+    if matches!(app_type, AppType::Agy) {
+        // 卡片只作用于它打开的终端，全量同步不写真实 settings.json。
         return Ok(());
     }
 
@@ -700,6 +706,11 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
         AppType::Pi => {
             return Err(AppError::InvalidInput(
                 "Pi providers use the Pi provider service".to_string(),
+            ));
+        }
+        AppType::Agy => {
+            return Err(AppError::Config(
+                "Antigravity configuration requires the provider switch flow".into(),
             ));
         }
         AppType::Zcode => {
@@ -1012,6 +1023,7 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
         AppType::Pi => Err(AppError::InvalidInput(
             "Pi providers are read from Pi's native models file".to_string(),
         )),
+        AppType::Agy => crate::agy_config::read_live_settings(),
         AppType::Zcode => Err(AppError::localized(
             "zcode.provider.managed_externally",
             "zcode 的 provider 由 zcode 应用内自管，cc-switch 不读取 live 配置",
@@ -1131,6 +1143,15 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
                 "config": config_obj
             })
         }
+        AppType::Agy => {
+            let live = crate::agy_config::read_live_settings()?;
+            // agy 首次启动就会写出空的 settings.json；没有 Key、端点、模型的配置
+            // 不是用户的供应商，不导入。
+            if !crate::agy_config::has_managed_content(&live) {
+                return Ok(false);
+            }
+            live
+        }
         // OpenCode, OpenClaw and Hermes use additive mode and are handled by early return above
         AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
             unreachable!("additive mode apps are handled by early return")
@@ -1176,6 +1197,9 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
             } else {
                 "custom"
             }
+        } else if matches!(app_type, AppType::Agy) {
+            // Key 只在进程环境里，从不落盘：从 live 导入的一定是 agy 自己的登录。
+            "official"
         } else {
             "custom"
         }

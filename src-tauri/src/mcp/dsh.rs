@@ -174,6 +174,7 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
                         mcode: false,
                         zcode: false,
                         dsh: true,
+                        agy: false,
                         workbuddy: false,
                         pi: false,
                     },

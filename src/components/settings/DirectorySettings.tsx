@@ -1,3 +1,4 @@
+import { HelpTip } from "@/components/ui/help-tip";
 import { useMemo } from "react";
 import { FolderSearch, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -7,10 +8,10 @@ import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
 import type { ResolvedDirectories } from "@/hooks/useSettings";
 
-// fork：WorkBuddy 无用户可配的目录设置（home 由后端自动解析）
+// fork：WorkBuddy 无用户可配的目录设置（home 由后端自动解析）；agy 目录由 CLI 自管
 export type DirectoryAppId = Exclude<
   AppId,
-  "claude-desktop" | "mcode" | "workbuddy"
+  "claude-desktop" | "mcode" | "workbuddy" | "agy"
 >;
 
 interface DirectorySettingsProps {
@@ -101,13 +102,13 @@ export function DirectorySettings({
 
       {/* Claude/Codex 配置目录 - 独立区块 */}
       <section className="space-y-4">
-        <header className="space-y-1">
+        <header className="flex items-center gap-1">
           <h3 className="text-sm font-medium">
             {t("settings.configDirectoryOverride")}
           </h3>
-          <p className="text-xs text-fg-2">
+          <HelpTip title={t("settings.configDirectoryOverride")}>
             {t("settings.configDirectoryDescription")}
-          </p>
+          </HelpTip>
         </header>
 
         <DirectoryInput

@@ -1,0 +1,33 @@
+{
+  "version": "4.0.18-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "支持 Antigravity CLI：账号、供应商、Skills、MCP、会话",
+      "zh-TW": "支援 Antigravity CLI：帳號、供應商、Skills、MCP、會話",
+      "en": "Antigravity CLI support: accounts, providers, Skills, MCP, and sessions",
+      "ja": "Antigravity CLI 対応：アカウント、プロバイダー、Skills、MCP、セッション"
+    },
+    {
+      "type": "improve",
+      "zh": "托盘面板配额增强：余额绿色高亮、重置倒计时对齐",
+      "zh-TW": "系統匣面板配額增強：餘額綠色高亮、重置倒計時對齊",
+      "en": "Tray panel quota upgrades: green remaining balance and aligned reset countdowns",
+      "ja": "トレイ面板のクォータ強化：残高を緑色強調、リセットまでの残り時間を揃えて表示"
+    },
+    {
+      "type": "fix",
+      "zh": "Windows 应用内更新不再重启电脑，桌面快捷方式可选",
+      "zh-TW": "Windows 應用內更新不再重新啟動電腦，桌面捷徑可選",
+      "en": "Windows in-app updates no longer reboot the PC, and the desktop shortcut is optional",
+      "ja": "Windows のアプリ内更新で PC が再起動しなくなり、ショートカット設置を選択可能に"
+    },
+    {
+      "type": "fix",
+      "zh": "Codex 压缩会话计入用量；Claude 会话按最后 /cd 目录分组",
+      "zh-TW": "Codex 壓縮會話計入用量；Claude 會話按最後 /cd 目錄分組",
+      "en": "Codex compaction usage is now counted; Claude sessions group by their last /cd directory",
+      "ja": "Codex の圧縮セッションを課金集計に反映。Claude セッションは最後の /cd でグループ化"
+    }
+  ]
+}

@@ -40,11 +40,11 @@ import {
   useProviderStats,
   useSessionUsageLastSync,
 } from "@/lib/query/usage";
+import { useSettingsQuery } from "@/lib/query";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import { useUsageAutoRefresh } from "@/hooks/useUsageAutoRefresh";
 import { usageApi } from "@/lib/api/usage";
 import { proxyApi } from "@/lib/api/proxy";
-import { useSettingsQuery } from "@/lib/query/queries";
 import { isProxyAppId, resolveSidebarApps } from "@/config/appConfig";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { cn } from "@/lib/utils";
@@ -568,6 +568,8 @@ export function UsageDashboard({
 
   // ── 筛选行 ───────────────────────────────────────────────────────────
   // 选中块是单独的滑块（SegmentThumb），切换应用时滑过去
+  // fork：chips 由 useStatsAppTypes（侧栏可见 + 路由/聚合模式）决定，
+  // 上游「只列应用页可见应用」的意图由其中的侧栏过滤承担
   const appFilterIndicator = useSlidingIndicator<HTMLDivElement>(
     '[aria-pressed="true"]',
     appType,
@@ -601,7 +603,8 @@ export function UsageDashboard({
         >
           {t("usage.appFilter.all")}
         </button>
-        {/* 应用只露图标，名字放悬停提示和 aria-label；来源按侧栏+模式过滤（fork） */}
+        {/* 应用只露图标，名字放悬停提示和 aria-label；来源按侧栏+模式过滤（fork，
+            即上游 711a4127 的「只列可见应用」意图由 useStatsAppTypes 的侧栏过滤承担） */}
         {statsAppTypes.map((app) => (
           <HoverTip key={app} content={APP_DISPLAY_NAME[app]}>
             <button
@@ -796,7 +799,6 @@ export function UsageDashboard({
         controls="usage-tabpanel"
         trailing={tabTrailing}
       />
-
       <div
         role="tabpanel"
         id="usage-tabpanel"

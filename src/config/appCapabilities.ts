@@ -122,6 +122,15 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     usage: false,
     defaultModel: false,
   }),
+  // Antigravity (upstream v4.0.18): independent provider switching without the
+  // CCS proxy; shares skills, prompts, MCP, and session surfaces.
+  agy: generic({
+    proxy: false,
+    failover: false,
+    universal: false,
+    tray: false,
+    usage: false,
+  }),
   // WorkBuddy providers are managed in-app; cc-switch only manages its
   // skills deployment and its user-level mcp.json MCP config.
   workbuddy: generic({

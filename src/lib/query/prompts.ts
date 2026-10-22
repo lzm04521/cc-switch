@@ -22,6 +22,7 @@ export const PROMPT_APP_IDS: AppId[] = [
   "pi",
   "mcode",
   "zcode", // fork：ZCode 提示词（AGENTS.md）随上游八应用页一并管理
+  "agy",
 ];
 
 /** 应用页对应的提示词应用；不支持提示词的返回 null。 */

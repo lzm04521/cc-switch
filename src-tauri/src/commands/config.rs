@@ -156,6 +156,13 @@ pub async fn get_config_status(
                 path,
             })
         }
+        AppType::Agy => {
+            let dir = crate::agy_config::agy_dir();
+            Ok(ConfigStatus {
+                exists: crate::agy_config::settings_path().exists(),
+                path: dir.to_string_lossy().into_owned(),
+            })
+        }
         AppType::Zcode => {
             let config_path = crate::zcode_config::get_zcode_cli_config_path();
             let exists = config_path.exists();
@@ -209,6 +216,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::Agy => crate::agy_config::agy_dir(),
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
         AppType::Dsh => crate::dsh_config::get_home(),
         AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir(),
@@ -235,6 +243,7 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::Agy => crate::agy_config::agy_dir(),
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
         AppType::Dsh => crate::dsh_config::get_home(),
         AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir(),

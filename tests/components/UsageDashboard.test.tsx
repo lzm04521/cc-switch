@@ -364,6 +364,10 @@ describe("UsageDashboard", () => {
     );
   });
 
+  // 上游 711a4127 的「只列应用页可见应用」测试不适用：fork 的应用 chips 走
+  // useStatsAppTypes（侧栏可见 + 路由/聚合模式），选中应用越界时由
+  // pendingApps 守卫重置为 all，不存在「隐藏但保留选中」路径。
+
   it("filters by provider and lists request counts", async () => {
     const user = userEvent.setup();
     renderDashboard();

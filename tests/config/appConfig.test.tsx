@@ -3,6 +3,9 @@ import {
   DEFAULT_VISIBLE_APPS,
   isAdditiveAppId,
   resolveSidebarApps,
+  SKILLS_APP_IDS,
+  MCP_APP_IDS,
+  isProxyAppId,
 } from "@/config/appConfig";
 import type { VisibleApps } from "@/types";
 
@@ -53,5 +56,15 @@ describe("resolveSidebarApps", () => {
     expect(resolved.codex).toBe(false);
     // 两对象都未覆盖 claude → 回落默认值
     expect(resolved.claude).toBe(true);
+  });
+});
+
+// Antigravity shares management UI, but has independent configuration and no CCS proxy.
+describe("Antigravity capabilities", () => {
+  it("supports skills and MCP with direct provider switching", () => {
+    expect(SKILLS_APP_IDS).toContain("agy");
+    expect(MCP_APP_IDS).toContain("agy");
+    expect(isAdditiveAppId("agy")).toBe(false);
+    expect(isProxyAppId("agy")).toBe(false);
   });
 });
