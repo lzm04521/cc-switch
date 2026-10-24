@@ -81,6 +81,7 @@ pub fn import_from_zcode(config: &mut MultiAppConfig) -> Result<usize, AppError>
                         agy: false,
                         dsh: false,
                         workbuddy: false,
+                        kimi: false,
                         pi: false,
                     },
                     description: None,

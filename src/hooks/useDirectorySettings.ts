@@ -9,7 +9,7 @@ import type { SettingsFormState } from "./useSettingsForm";
 // 自管，均不纳入目录管理。agy 目录同样由 CLI 自管（~/.gemini/config）。
 export type DirectoryAppId = Exclude<
   AppId,
-  "claude-desktop" | "workbuddy" | "mcode" | "agy"
+  "claude-desktop" | "workbuddy" | "mcode" | "agy" | "kimi"
 >;
 type AppDirectoryKey =
   | "claude"

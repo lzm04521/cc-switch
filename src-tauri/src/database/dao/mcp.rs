@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension, Row};
 
 const MCP_SERVER_SELECT: &str =
-    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy FROM mcp_servers";
+    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy, enabled_kimi FROM mcp_servers";
 
 fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let id: String = row.get(0)?;
@@ -31,6 +31,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let enabled_workbuddy: bool = row.get(16)?;
     let enabled_pi: bool = row.get(17)?;
     let enabled_agy: bool = row.get(18)?;
+    let enabled_kimi: bool = row.get(19)?;
 
     let server = serde_json::from_str(&server_config_str).unwrap_or_default();
     let tags = serde_json::from_str(&tags_str).unwrap_or_default();
@@ -54,6 +55,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
                 workbuddy: enabled_workbuddy,
                 pi: enabled_pi,
                 agy: enabled_agy,
+                kimi: enabled_kimi,
             },
             description,
             homepage,
@@ -107,6 +109,7 @@ impl Database {
             AppType::Workbuddy => Some("enabled_workbuddy"),
             // These applications intentionally have no MCP flag in the SSOT.
             AppType::Mcode => Some("enabled_mcode"),
+            AppType::Kimi => Some("enabled_kimi"),
             AppType::Pi => Some("enabled_pi"),
             AppType::ClaudeDesktop | AppType::OpenClaw => None,
             AppType::Agy => Some("enabled_agy"),
@@ -138,8 +141,8 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (
                 id, name, server_config, description, homepage, docs, tags,
-                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy, enabled_kimi
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 server.id,
                 server.name,
@@ -163,6 +166,7 @@ impl Database {
                 server.apps.workbuddy,
                 server.apps.pi,
                 server.apps.agy,
+                server.apps.kimi,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

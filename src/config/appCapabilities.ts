@@ -131,6 +131,14 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     tray: false,
     usage: false,
   }),
+  // Kimi Code (upstream v4.0.19): official OAuth accounts with in-app provider
+  // switching; no CCS proxy data plane. Shares skills, prompts, MCP, sessions,
+  // and usage surfaces.
+  kimi: generic({
+    proxy: false,
+    failover: false,
+    universal: false,
+  }),
   // WorkBuddy providers are managed in-app; cc-switch only manages its
   // skills deployment and its user-level mcp.json MCP config.
   workbuddy: generic({

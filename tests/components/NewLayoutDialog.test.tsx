@@ -23,6 +23,7 @@ vi.mock("@tauri-apps/api/app", () => ({
 }));
 
 import { NewLayoutDialog } from "@/components/shell/NewLayoutDialog";
+import { APP_IDS } from "@/config/appConfig";
 
 function renderDialog() {
   const client = new QueryClient({
@@ -103,8 +104,10 @@ describe("NewLayoutDialog", () => {
   it("stays closed when no app has providers", async () => {
     mocks.getAll.mockResolvedValue({});
     renderDialog();
-    // fork 应用清单 14 个（上游 11 + zcode/dsh/workbuddy），逐应用探测 providers
-    await waitFor(() => expect(mocks.getAll).toHaveBeenCalledTimes(14));
+    // fork 应用清单 = APP_IDS（上游 + zcode/dsh/workbuddy + kimi），逐应用探测 providers
+    await waitFor(() =>
+      expect(mocks.getAll).toHaveBeenCalledTimes(APP_IDS.length),
+    );
     expect(screen.queryByText("newLayoutNotice.title")).not.toBeInTheDocument();
   });
 

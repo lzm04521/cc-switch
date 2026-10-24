@@ -216,8 +216,7 @@ impl ProviderType {
             }
             AppType::GrokBuild => ProviderType::Codex,
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => ProviderType::Codex,
-            AppType::Pi | AppType::Mcode => return None,
-            AppType::Agy => return None,
+            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy => return None,
             AppType::Zcode => ProviderType::Codex,
             // dsh 不接管本地代理（provider 由 dsh 应用内自管）
             AppType::Dsh => return None,
@@ -278,8 +277,7 @@ pub fn get_adapter(app_type: &AppType) -> Option<Box<dyn ProviderAdapter>> {
         AppType::Gemini => Box::new(GeminiAdapter::new()),
         AppType::GrokBuild => Box::new(CodexAdapter::new()),
         AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => Box::new(CodexAdapter::new()),
-        AppType::Pi | AppType::Mcode => return None,
-        AppType::Agy => return None,
+        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy => return None,
         AppType::Zcode => Box::new(CodexAdapter::new()),
         // dsh 不接管本地代理（provider 由 dsh 应用内自管）
         AppType::Dsh => return None,

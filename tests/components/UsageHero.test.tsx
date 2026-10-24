@@ -47,7 +47,13 @@ function renderHero(props: Record<string, unknown> = {}) {
   });
   return render(
     <QueryClientProvider client={client}>
-      <UsageHero range={{ preset: "today" }} refreshIntervalMs={0} {...props} />
+      <UsageHero
+        range={{ preset: "today" }}
+        refreshIntervalMs={0}
+        metric="cost"
+        onMetricChange={() => {}}
+        {...props}
+      />
     </QueryClientProvider>,
   );
 }

@@ -11,7 +11,7 @@ import type { ResolvedDirectories } from "@/hooks/useSettings";
 // fork：WorkBuddy 无用户可配的目录设置（home 由后端自动解析）；agy 目录由 CLI 自管
 export type DirectoryAppId = Exclude<
   AppId,
-  "claude-desktop" | "mcode" | "workbuddy" | "agy"
+  "claude-desktop" | "mcode" | "workbuddy" | "agy" | "kimi"
 >;
 
 interface DirectorySettingsProps {

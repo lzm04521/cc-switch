@@ -103,6 +103,7 @@ export function SkillImportDialog({
               zcode: chosen.has("zcode"),
               dsh: chosen.has("dsh"),
               workbuddy: chosen.has("workbuddy"),
+              kimi: chosen.has("kimi"),
               agy: chosen.has("agy"),
             },
           };

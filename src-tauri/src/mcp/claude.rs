@@ -99,6 +99,7 @@ pub fn import_from_claude(config: &mut MultiAppConfig) -> Result<usize, AppError
                         zcode: false,
                         dsh: false,
                         workbuddy: false,
+                        kimi: false,
                         pi: false,
                     },
                     description: None,

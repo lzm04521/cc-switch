@@ -176,6 +176,7 @@ pub fn import_from_dsh(config: &mut MultiAppConfig) -> Result<usize, AppError> {
                         dsh: true,
                         agy: false,
                         workbuddy: false,
+                        kimi: false,
                         pi: false,
                     },
                     description: None,
