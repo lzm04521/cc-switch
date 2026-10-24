@@ -1,0 +1,33 @@
+{
+  "version": "4.0.19-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "支持 Kimi Code：官方登录、多账号切换、供应商、Skills、MCP",
+      "zh-TW": "支援 Kimi Code：官方登入、多帳號切換、供應商、Skills、MCP",
+      "en": "Kimi Code support: official login, multi-account switching, providers, Skills, and MCP",
+      "ja": "Kimi Code 対応：公式ログイン、複数アカウント切替、プロバイダー、Skills、MCP"
+    },
+    {
+      "type": "improve",
+      "zh": "统计页布局重构：设置入口集中，趋势图与请求日志更清晰",
+      "zh-TW": "統計頁版面重構：設定入口集中，趨勢圖與請求日誌更清晰",
+      "en": "Usage page redesign: unified settings entry, clearer trend charts and request logs",
+      "ja": "使用量ページを再構成：設定入口を集約し、トレンド図とリクエストログを見やすく"
+    },
+    {
+      "type": "fix",
+      "zh": "Codex 聚合切换不再复制不兼容的命令记录导致报错",
+      "zh-TW": "Codex 聚合切換不再複製不相容的命令記錄導致報錯",
+      "en": "Codex stack switching no longer copies incompatible tool calls that broke turns",
+      "ja": "Codex スタック切替で互換性のないコマンド履歴を持ち越し、失敗する問題を修正"
+    },
+    {
+      "type": "fix",
+      "zh": "统计时间预设跨夏令时准确回退；余额密钥按账号选择",
+      "zh-TW": "統計時間預設跨夏令時間準確回退；餘額密鑰按帳號選擇",
+      "en": "Usage presets step back correctly across DST; Keychain credentials select by account",
+      "ja": "統計の期間プリセットが夏時間をまたいでも正確に遡る。キーチェーン資格情報をアカウント別に選択"
+    }
+  ]
+}
