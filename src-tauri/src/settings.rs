@@ -53,6 +53,8 @@ pub struct VisibleApps {
     pub dsh: bool,
     #[serde(default = "default_true")]
     pub pi: bool,
+    #[serde(default)]
+    pub omp: bool,
     #[serde(default = "default_true")]
     pub mcode: bool,
     #[serde(default)]
@@ -83,6 +85,7 @@ impl Default for VisibleApps {
             zcode: false,     // 默认不显示，需用户手动启用
             workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
             agy: true,
+            omp: true,
         }
     }
 }
@@ -106,6 +109,7 @@ impl VisibleApps {
             AppType::Workbuddy => self.workbuddy,
             AppType::Kimi => self.kimi,
             AppType::Agy => self.agy,
+            AppType::Omp => self.omp,
         }
     }
 }
@@ -636,6 +640,9 @@ pub struct AppSettings {
     /// 侧栏显示的应用（fork）：None 时逐 app 回落 visible_apps，由前端兜底
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidebar_apps: Option<VisibleApps>,
+    /// 应用页和侧栏的应用顺序（应用 ID）。缺的应用由前端按默认顺序插回，不认识的忽略
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_order: Option<Vec<String>>,
 
     // ===== 设备级目录覆盖 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -656,6 +663,8 @@ pub struct AppSettings {
     pub dsh_config_dir: Option<String>,
     pub pi_config_dir: Option<String>,
     pub zcode_config_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omp_config_dir: Option<String>,
 
     // ===== 当前供应商 ID（设备级）=====
     /// 当前 Claude 供应商 ID（本地存储，优先于数据库 is_current）
@@ -789,6 +798,7 @@ impl Default for AppSettings {
             quota_display: None,
             visible_apps: None,
             sidebar_apps: None,
+            app_order: None,
             claude_config_dir: None,
             codex_config_dir: None,
             gemini_config_dir: None,
@@ -799,6 +809,7 @@ impl Default for AppSettings {
             dsh_config_dir: None,
             pi_config_dir: None,
             zcode_config_dir: None,
+            omp_config_dir: None,
             current_provider_claude: None,
             current_provider_claude_desktop: None,
             current_provider_codex: None,
@@ -913,6 +924,13 @@ impl AppSettings {
             .map(|s| s.to_string());
         self.zcode_config_dir = self
             .zcode_config_dir
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        self.omp_config_dir = self
+            .omp_config_dir
             .as_ref()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
@@ -1468,6 +1486,13 @@ pub fn get_pi_override_dir() -> Option<PathBuf> {
         .as_ref()
         .map(|path| resolve_override_path(path))
 }
+pub fn get_omp_override_dir() -> Option<PathBuf> {
+    let settings = settings_store().read().ok()?;
+    settings
+        .omp_config_dir
+        .as_ref()
+        .map(|path| resolve_override_path(path))
+}
 
 pub fn preserve_codex_official_auth_on_switch() -> bool {
     settings_store()
@@ -1551,7 +1576,7 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::OpenClaw => settings.current_provider_openclaw.clone(),
         AppType::Hermes => settings.current_provider_hermes.clone(),
         AppType::Agy => settings.current_provider_agy.clone(),
-        AppType::Pi | AppType::Mcode | AppType::Kimi => None,
+        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Omp => None,
         // zcode 的 provider 由 zcode 应用内自管，cc-switch 不记录 current provider
         AppType::Zcode => None,
         // dsh 的 provider 由 dsh 应用内自管，cc-switch 不记录 current provider
@@ -1577,7 +1602,7 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
         AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
         AppType::Agy => settings.current_provider_agy = id_owned.clone(),
-        AppType::Pi | AppType::Mcode | AppType::Kimi => {}
+        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Omp => {}
         // zcode 的 provider 由 zcode 应用内自管，忽略设置
         AppType::Zcode => {}
         // dsh 的 provider 由 dsh 应用内自管，忽略设置
@@ -1812,6 +1837,31 @@ mod tests {
             serde_json::to_value(&hidden).expect("serialize"),
             serde_json::json!({ "sidebarTodayItems": [] })
         );
+    }
+
+    #[test]
+    fn app_order_round_trips_as_camel_case() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "appOrder": ["codex", "claude", "future-app"]
+        }))
+        .expect("parse settings");
+        assert_eq!(
+            settings.app_order.as_deref(),
+            Some(
+                &[
+                    "codex".to_string(),
+                    "claude".to_string(),
+                    "future-app".to_string()
+                ][..]
+            )
+        );
+        let value = serde_json::to_value(&settings).expect("serialize settings");
+        assert_eq!(
+            value["appOrder"],
+            serde_json::json!(["codex", "claude", "future-app"])
+        );
+        let default = serde_json::to_value(AppSettings::default()).expect("serialize default");
+        assert!(default.get("appOrder").is_none());
     }
 
     #[test]

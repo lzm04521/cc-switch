@@ -1,0 +1,47 @@
+{
+  "version": "4.0.20-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "支持 Oh My Pi（第 13 个应用）：供应商、MCP、Skills、提示词和会话",
+      "zh-TW": "支援 Oh My Pi（第 13 個應用）：供應商、MCP、Skills、提示詞和會話",
+      "en": "Oh My Pi support (13th app): providers, MCP, Skills, prompts, and sessions",
+      "ja": "Oh My Pi 対応（13 番目のアプリ）：プロバイダー、MCP、Skills、プロンプト、セッション"
+    },
+    {
+      "type": "new",
+      "zh": "托管 ChatGPT 账号可以用浏览器登录",
+      "zh-TW": "託管 ChatGPT 帳號可以用瀏覽器登入",
+      "en": "Managed ChatGPT accounts can sign in with the browser",
+      "ja": "管理対象 ChatGPT アカウントをブラウザーログインで追加可能に"
+    },
+    {
+      "type": "improve",
+      "zh": "「应用」页按已安装和未安装分组，可拖动排序，侧栏跟随",
+      "zh-TW": "「應用」頁按已安裝和未安裝分組，可拖動排序，側欄跟隨",
+      "en": "The Apps page groups installed and missing apps; drag to reorder the sidebar",
+      "ja": "「アプリ」ページをインストール済みと未インストールに分け、ドラッグで並べ替え"
+    },
+    {
+      "type": "improve",
+      "zh": "Kimi 官方账号的卡片可以编辑模型、从 Kimi Code 移除",
+      "zh-TW": "Kimi 官方帳號的卡片可以編輯模型、從 Kimi Code 移除",
+      "en": "Official Kimi cards can now edit models and be removed from Kimi Code",
+      "ja": "Kimi 公式アカウントのカードでモデル編集と Kimi Code からの削除が可能に"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 DeepSeek 余额用完后显示成「套餐已过期」",
+      "zh-TW": "修正 DeepSeek 餘額用完後顯示成「套餐已過期」",
+      "en": "Fixed a used-up DeepSeek balance showing as an expired plan",
+      "ja": "DeepSeek の残高切れが「プラン期限切れ」と表示される問題を修正"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 Skills 更新报 HTTP 429、Kimi 子代理用量未统计等问题",
+      "zh-TW": "修正 Skills 更新報 HTTP 429、Kimi 子代理用量未統計等問題",
+      "en": "Fixed Skills updates hitting HTTP 429 and missing Kimi subagent usage",
+      "ja": "Skills 更新時の HTTP 429 と Kimi サブエージェント使用量の未集計を修正"
+    }
+  ]
+}

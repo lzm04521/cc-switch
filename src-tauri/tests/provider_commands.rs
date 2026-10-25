@@ -549,6 +549,7 @@ command = "say"
                 workbuddy: false,
                 kimi: false,
                 pi: false,
+                omp: false,
             },
             description: None,
             homepage: None,

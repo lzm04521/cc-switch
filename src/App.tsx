@@ -138,7 +138,10 @@ import {
   DEFAULT_VISIBLE_APPS,
   isModeAppId,
   resolveSidebarApps,
+  isPiFamilyApp,
+  orderAppIds,
 } from "@/config/appConfig";
+import type { PiFamilyAppId } from "@/lib/api/pi";
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -225,7 +228,10 @@ function App() {
   );
 
   const getFirstVisibleApp = (): AppId => {
-    return APP_IDS.find((app) => sidebarApps[app]) ?? "claude";
+    return (
+      orderAppIds(settingsData?.appOrder).find((app) => sidebarApps[app]) ??
+      "claude"
+    );
   };
 
   useEffect(() => {
@@ -380,10 +386,13 @@ function App() {
     activeApp,
     isProxyRunning && isCurrentAppTakeoverActive,
   );
-  const handleEnablePiProvider = async (provider: Provider) => {
+  const handleEnablePiProvider = async (
+    provider: Provider,
+    app: PiFamilyAppId,
+  ) => {
     try {
-      await providersApi.switch(provider.id, "pi");
-      await invalidatePiProviderCaches(queryClient);
+      await providersApi.switch(provider.id, app);
+      await invalidatePiProviderCaches(queryClient, app);
       await providersApi.updateTrayMenu().catch((error) => {
         console.error(
           "Failed to update tray menu after enabling Pi provider",
@@ -391,7 +400,7 @@ function App() {
         );
       });
       toast.success(
-        t("pi.provider.enabled", {
+        t(`${app}.provider.enabled`, {
           defaultValue: "已在 Pi 中启用",
         }),
         { closeButton: true },
@@ -399,7 +408,7 @@ function App() {
     } catch (error) {
       const detail = extractErrorMessage(error);
       toast.error(
-        t("pi.provider.enableFailed", {
+        t(`${app}.provider.enableFailed`, {
           defaultValue: "无法在 Pi 中启用此供应商",
         }),
         {
@@ -584,6 +593,144 @@ function App() {
 
     void syncWindowDecorations();
   }, [useAppWindowControls, settingsData]);
+
+  useEffect(() => {
+    if (!isLinux() || !useAppWindowControls) return;
+
+    const win = getCurrentWindow();
+    let active = true;
+    let revision = 0;
+    let canResize = false;
+    let nativeScale = 1;
+    const unlisteners: (() => void)[] = [];
+    let cursor:
+      | {
+          target: HTMLElement | SVGElement;
+          value: string;
+          priority: string;
+          applied: string;
+        }
+      | undefined;
+    const restoreCursor = () => {
+      if (
+        cursor &&
+        cursor.target.style.cursor === cursor.applied &&
+        cursor.target.style.getPropertyPriority("cursor") === "important"
+      ) {
+        cursor.target.style.setProperty(
+          "cursor",
+          cursor.value,
+          cursor.priority,
+        );
+      }
+      cursor = undefined;
+    };
+    const refresh = async () => {
+      const current = ++revision;
+      canResize = false;
+      restoreCursor();
+      try {
+        const [maximized, fullscreen, resizable, scale] = await Promise.all([
+          win.isMaximized(),
+          win.isFullscreen(),
+          win.isResizable(),
+          win.scaleFactor(),
+        ]);
+        if (active && current === revision) {
+          canResize = resizable && !maximized && !fullscreen;
+          nativeScale = scale;
+        }
+      } catch (error) {
+        console.error("[App] Failed to read window resize state", error);
+      }
+    };
+    const edgeCursor = ({ clientX: x, clientY: y }: MouseEvent) => {
+      if (
+        !canResize ||
+        x < 0 ||
+        y < 0 ||
+        x >= window.innerWidth ||
+        y >= window.innerHeight
+      ) {
+        return "";
+      }
+      // 与 tauri-runtime-wry 的 GTK 边缘宽度（5 × scale，GDK 坐标）对齐，
+      // 再从 GDK 坐标转换为 CSS 像素，兼容显示缩放和 WebView 缩放。
+      const inset = (5 * nativeScale * nativeScale) / window.devicePixelRatio;
+      const horizontal =
+        x < inset ? -1 : x >= window.innerWidth - inset ? 1 : 0;
+      const vertical = y < inset ? -1 : y >= window.innerHeight - inset ? 1 : 0;
+      if (horizontal && vertical) {
+        return horizontal === vertical ? "nwse-resize" : "nesw-resize";
+      }
+      return horizontal ? "ew-resize" : vertical ? "ns-resize" : "";
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const value = edgeCursor(event);
+      const target = event.target;
+      if (
+        !value ||
+        !(target instanceof HTMLElement || target instanceof SVGElement)
+      ) {
+        restoreCursor();
+        return;
+      }
+      if (cursor?.target !== target) {
+        restoreCursor();
+        cursor = {
+          target,
+          value: target.style.cursor,
+          priority: target.style.getPropertyPriority("cursor"),
+          applied: "",
+        };
+      }
+      if (cursor.applied !== value) {
+        cursor.applied = value;
+        target.style.setProperty("cursor", value, "important");
+      }
+    };
+    const onMouseDown = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const drag = event.target.getAttribute("data-tauri-drag-region");
+      if (
+        event.button === 0 &&
+        drag !== null &&
+        drag !== "false" &&
+        edgeCursor(event)
+      ) {
+        // 保留 GTK 原生缩放，阻止 Tauri 的 document 冒泡监听再发起窗口移动。
+        event.stopPropagation();
+      }
+    };
+
+    document.addEventListener("mousemove", onMouseMove, true);
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.documentElement.addEventListener("mouseleave", restoreCursor);
+    window.addEventListener("blur", restoreCursor);
+    for (const listener of [
+      win.onResized(refresh),
+      win.onScaleChanged(refresh),
+    ]) {
+      void listener
+        .then((unlisten) => {
+          if (active) unlisteners.push(unlisten);
+          else unlisten();
+        })
+        .catch((error) =>
+          console.error("[App] Failed to listen for window resize", error),
+        );
+    }
+    void refresh();
+    return () => {
+      active = false;
+      unlisteners.forEach((unlisten) => unlisten());
+      document.removeEventListener("mousemove", onMouseMove, true);
+      document.removeEventListener("mousedown", onMouseDown, true);
+      document.documentElement.removeEventListener("mouseleave", restoreCursor);
+      window.removeEventListener("blur", restoreCursor);
+      restoreCursor();
+    };
+  }, [useAppWindowControls]);
 
   useEffect(() => {
     const checkEnvOnStartup = async () => {
@@ -868,8 +1015,8 @@ function App() {
 
   // 累加式应用的「已添加」和「默认」都现读客户端文件，移除前后重读一遍
   const refreshAdditiveLiveState = async (app: AppId) => {
-    if (app === "pi") {
-      await invalidatePiProviderCaches(queryClient);
+    if (isPiFamilyApp(app)) {
+      await invalidatePiProviderCaches(queryClient, app);
     } else if (app === "opencode") {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -907,7 +1054,7 @@ function App() {
       } catch (error) {
         const detail = extractErrorMessage(error);
         const description =
-          (activeApp === "pi"
+          (isPiFamilyApp(activeApp)
             ? translatePiProviderMutationError(detail, t)
             : activeApp === "kimi"
               ? translateKimiProviderMutationError(detail, t)
@@ -922,8 +1069,8 @@ function App() {
       }
       await refreshAdditiveLiveState(activeApp);
       toast.success(
-        activeApp === "pi"
-          ? t("pi.provider.removed", {
+        isPiFamilyApp(activeApp)
+          ? t(`${activeApp}.provider.removed`, {
               defaultValue: "已从 Pi 移除",
             })
           : t("notifications.removeFromConfigSuccess", {
@@ -1010,7 +1157,8 @@ function App() {
       activeApp === "opencode" ||
       activeApp === "openclaw" ||
       activeApp === "hermes" ||
-      activeApp === "pi"
+      activeApp === "pi" ||
+      activeApp === "omp"
     ) {
       let liveProviderIds: string[] = [];
       try {
@@ -1032,8 +1180,11 @@ function App() {
                   })
                 : (
                     await queryClient.ensureQueryData({
-                      queryKey: ["pi", "currentState"],
-                      queryFn: () => piApi.getCurrentState(),
+                      queryKey: [activeApp, "currentState"],
+                      queryFn: () =>
+                        piApi.getCurrentState(
+                          activeApp === "omp" ? "omp" : "pi",
+                        ),
                     })
                   ).enabledProviderIds;
       } catch (error) {
@@ -1437,8 +1588,8 @@ function App() {
             appId={activeApp}
             isLoading={isLoading}
             onSwitch={(provider) =>
-              void (activeApp === "pi"
-                ? handleEnablePiProvider(provider)
+              void (isPiFamilyApp(activeApp)
+                ? handleEnablePiProvider(provider, activeApp)
                 : activeApp === "kimi"
                   ? handleAddKimiProvider(provider)
                   : switchProvider(provider))
@@ -1449,7 +1600,8 @@ function App() {
               activeApp === "hermes" ||
               activeApp === "pi" ||
               activeApp === "mcode" ||
-              activeApp === "kimi"
+              activeApp === "kimi" ||
+              activeApp === "omp"
                 ? (provider) => setConfirmAction({ provider, action: "remove" })
                 : undefined
             }

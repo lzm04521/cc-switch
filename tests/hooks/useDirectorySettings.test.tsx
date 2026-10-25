@@ -76,6 +76,7 @@ describe("useDirectorySettings", () => {
       if (app === "openclaw") return "/remote/openclaw";
       if (app === "dsh") return "/remote/dsh";
       if (app === "pi") return "/remote/pi";
+      if (app === "omp") return "/remote/omp";
       if (app === "hermes") return "/remote/hermes";
       return "/remote/zcode";
     });
@@ -105,6 +106,7 @@ describe("useDirectorySettings", () => {
       dsh: "/remote/dsh",
       pi: "/remote/pi",
       zcode: "/remote/zcode",
+      omp: "/remote/omp",
     });
   });
 

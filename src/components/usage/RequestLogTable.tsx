@@ -126,6 +126,7 @@ const APP_SHORT_NAME: Record<AppId, string> = {
   zcode: "ZCode",
   dsh: "DSH",
   workbuddy: "WB",
+  omp: "omp",
 };
 
 export function appShortName(appType: string): string {

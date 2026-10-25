@@ -30,6 +30,7 @@ const DIRECTORY_FIELD: Record<DirectoryAppId, keyof Settings> = {
   pi: "piConfigDir",
   dsh: "dshConfigDir",
   zcode: "zcodeConfigDir",
+  omp: "ompConfigDir",
 };
 
 const DIRECTORY_PLACEHOLDER: Record<DirectoryAppId, string> = {
@@ -43,6 +44,7 @@ const DIRECTORY_PLACEHOLDER: Record<DirectoryAppId, string> = {
   pi: "settings.browsePlaceholderPi",
   dsh: "settings.browsePlaceholderDsh",
   zcode: "settings.browsePlaceholderZcode",
+  omp: "settings.browsePlaceholderOmp",
 };
 
 const DIRECTORY_APPS: DirectoryAppId[] = [
@@ -57,6 +59,7 @@ const DIRECTORY_APPS: DirectoryAppId[] = [
   // fork：DSH home 与 ZCode 配置目录可自定义
   "dsh",
   "zcode",
+  "omp",
 ];
 
 const normalizeDir = (value: unknown) =>

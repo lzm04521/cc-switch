@@ -21,7 +21,8 @@ type AppDirectoryKey =
   | "hermes"
   | "dsh"
   | "pi"
-  | "zcode";
+  | "zcode"
+  | "omp";
 type DirectoryKey = "appConfig" | AppDirectoryKey;
 
 export interface ResolvedDirectories {
@@ -36,6 +37,7 @@ export interface ResolvedDirectories {
   dsh: string;
   pi: string;
   zcode: string;
+  omp: string;
 }
 
 // Single source of truth for per-app directory metadata.
@@ -53,6 +55,7 @@ const APP_DIRECTORY_META: Record<
   dsh: { key: "dsh", defaultFolder: ".dsh" },
   pi: { key: "pi", defaultFolder: ".pi/agent" },
   zcode: { key: "zcode", defaultFolder: ".zcode" },
+  omp: { key: "omp", defaultFolder: ".omp/agent" },
 };
 
 const DIRECTORY_KEY_TO_SETTINGS_FIELD: Record<
@@ -69,6 +72,7 @@ const DIRECTORY_KEY_TO_SETTINGS_FIELD: Record<
   dsh: "dshConfigDir",
   pi: "piConfigDir",
   zcode: "zcodeConfigDir",
+  omp: "ompConfigDir",
 };
 
 const sanitizeDir = (value?: string | null): string | undefined => {
@@ -160,6 +164,7 @@ export function useDirectorySettings({
     dsh: "",
     pi: "",
     zcode: "",
+    omp: "",
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -175,6 +180,7 @@ export function useDirectorySettings({
     dsh: "",
     pi: "",
     zcode: "",
+    omp: "",
   });
   // 已保存的数据目录（保存按钮和「需要重启」都和它比）。ref 给回调用，state 让比较它的
   // 组件在保存后重渲染：保存成功要把它更新成刚存的值，否则保存按钮一直在、改回去存不了
@@ -218,6 +224,7 @@ export function useDirectorySettings({
           dshDir,
           piDir,
           zcodeDir,
+          ompDir,
           defaultAppConfig,
           defaultClaudeDir,
           defaultCodexDir,
@@ -229,6 +236,7 @@ export function useDirectorySettings({
           defaultDshDir,
           defaultPiDir,
           defaultZcodeDir,
+          defaultOmpDir,
         ] = await Promise.all([
           read(settingsApi.getAppConfigDirOverride(), null),
           read(settingsApi.getConfigDir("claude"), ""),
@@ -241,6 +249,7 @@ export function useDirectorySettings({
           read(settingsApi.getConfigDir("dsh"), ""),
           read(settingsApi.getConfigDir("pi"), ""),
           read(settingsApi.getConfigDir("zcode"), ""),
+          read(settingsApi.getConfigDir("omp"), ""),
           read(computeDefaultAppConfigDir(), undefined),
           read(computeDefaultConfigDir("claude"), undefined),
           read(computeDefaultConfigDir("codex"), undefined),
@@ -252,6 +261,7 @@ export function useDirectorySettings({
           read(computeDefaultConfigDir("dsh"), undefined),
           read(computeDefaultConfigDir("pi"), undefined),
           read(computeDefaultConfigDir("zcode"), undefined),
+          read(computeDefaultConfigDir("omp"), undefined),
         ]);
 
         if (!active) return;
@@ -270,6 +280,7 @@ export function useDirectorySettings({
           dsh: defaultDshDir ?? "",
           pi: defaultPiDir ?? "",
           zcode: defaultZcodeDir ?? "",
+          omp: defaultOmpDir ?? "",
         };
 
         setAppConfigDir(normalizedOverride);
@@ -287,6 +298,7 @@ export function useDirectorySettings({
           dsh: dshDir || defaultsRef.current.dsh,
           pi: piDir || defaultsRef.current.pi,
           zcode: zcodeDir || defaultsRef.current.zcode,
+          omp: ompDir || defaultsRef.current.omp,
         });
       } catch (error) {
         console.error(
@@ -525,6 +537,7 @@ export function useDirectorySettings({
         dsh: overrides?.dsh ?? defaultsRef.current.dsh,
         pi: overrides?.pi ?? defaultsRef.current.pi,
         zcode: overrides?.zcode ?? defaultsRef.current.zcode,
+        omp: overrides?.omp ?? defaultsRef.current.omp,
       });
     },
     [],

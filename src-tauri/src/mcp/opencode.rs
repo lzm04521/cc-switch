@@ -269,6 +269,7 @@ pub fn import_from_opencode(config: &mut MultiAppConfig) -> Result<usize, AppErr
                         workbuddy: false,
                         kimi: false,
                         pi: false,
+                        omp: false,
                     },
                     description: None,
                     homepage: None,

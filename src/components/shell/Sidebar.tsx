@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { VisibleApps } from "@/types";
-import { APP_IDS } from "@/config/appConfig";
+import { orderAppIds } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
@@ -229,8 +229,11 @@ function MainDirectory({
     todayHitRate,
     authNeedsAttention,
   } = useSidebarStatus();
-  // fork: sidebarApps 双开关（管理/侧栏标签），管理页消费点仍读 visibleApps 与上游一致
-  const apps = APP_IDS.filter((app) => sidebarApps[app]);
+  // fork: sidebarApps 双开关（管理/侧栏标签），管理页消费点仍读 visibleApps 与上游一致；
+  // 顺序跟应用页拖出来的一致
+  const apps = orderAppIds(settings?.appOrder).filter(
+    (app) => sidebarApps[app],
+  );
   const onAppPage = isAppPage(view);
 
   // 选了的项里是 0 的不写（没配定价时金额总是 0）；命中率在今天还没有请求时不写；

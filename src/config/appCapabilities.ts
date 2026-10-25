@@ -139,6 +139,14 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     failover: false,
     universal: false,
   }),
+  // Oh My Pi (upstream v4.0.20): additive providers written into models.yml;
+  // shares MCP (mcp.json), skills, prompts (AGENTS.md) and sessions; no CCS
+  // proxy data plane and no usage stats yet.
+  omp: generic({
+    proxy: false,
+    failover: false,
+    usage: false,
+  }),
   // WorkBuddy providers are managed in-app; cc-switch only manages its
   // skills deployment and its user-level mcp.json MCP config.
   workbuddy: generic({

@@ -20,6 +20,7 @@ export const APP_DISPLAY_NAME: Record<AppId, string> = {
   zcode: "ZCode",
   dsh: "Deepseek",
   workbuddy: "WorkBuddy",
+  omp: "Oh My Pi",
 };
 
 export const APP_ICON_NAME: Record<AppId, string> = {
@@ -38,6 +39,7 @@ export const APP_ICON_NAME: Record<AppId, string> = {
   zcode: "zcode",
   dsh: "deepseek",
   workbuddy: "workbuddy",
+  omp: "omp",
 };
 
 // Claude Code 和 Claude Desktop 用同一个图标，靠右下角的小角标区分终端与桌面

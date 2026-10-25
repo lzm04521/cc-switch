@@ -14,4 +14,5 @@ export type AppId =
   | "mcode"
   | "zcode"
   | "workbuddy"
-  | "agy";
+  | "agy"
+  | "omp";

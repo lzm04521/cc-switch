@@ -340,8 +340,7 @@ export function UsageHero({
             body: t("usage.metrics.speedHelp"),
           }}
           value={
-            placeholder ??
-            (outputSpeed == null ? "--" : `${outputSpeed} t/s`)
+            placeholder ?? (outputSpeed == null ? "--" : `${outputSpeed} t/s`)
           }
           selected={false}
         />

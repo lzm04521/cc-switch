@@ -23,6 +23,7 @@ const ENDPOINT_TIMEOUT_SECS: Partial<Record<AppId, number>> = {
   zcode: 8,
   kimi: 8,
   agy: 8,
+  omp: 8,
 };
 
 interface TestResult {
