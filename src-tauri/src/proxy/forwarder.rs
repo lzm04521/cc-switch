@@ -7853,7 +7853,8 @@ mod tests {
                 gate(AppType::Codex, &third_party),
                 Some(OpaqueStateRejection {
                     reasoning: false,
-                    compaction: true
+                    compaction: true,
+                    item_ids: false,
                 })
             );
             assert_eq!(gate(AppType::Codex, &official), None);
@@ -7895,6 +7896,7 @@ mod tests {
                 Some(OpaqueStateRejection {
                     reasoning: false,
                     compaction: true,
+                    item_ids: false,
                 })
             );
             assert_eq!(
