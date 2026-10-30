@@ -50,8 +50,6 @@ pub struct VisibleApps {
     #[serde(default)]
     pub hermes: bool,
     #[serde(default = "default_true")]
-    pub dsh: bool,
-    #[serde(default = "default_true")]
     pub pi: bool,
     #[serde(default)]
     pub omp: bool,
@@ -63,6 +61,8 @@ pub struct VisibleApps {
     pub workbuddy: bool,
     #[serde(default = "default_true")]
     pub kimi: bool,
+    #[serde(default = "default_true")]
+    pub dsh: bool,
     #[serde(default = "default_true")]
     pub agy: bool,
 }
@@ -78,10 +78,10 @@ impl Default for VisibleApps {
             opencode: true,
             openclaw: true,
             hermes: false, // 默认不显示，需用户手动启用
-            dsh: true,
             pi: true,
             mcode: true,
             kimi: true,
+            dsh: true,
             zcode: false,     // 默认不显示，需用户手动启用
             workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
             agy: true,
@@ -105,9 +105,9 @@ impl VisibleApps {
             AppType::Pi => self.pi,
             AppType::Mcode => self.mcode,
             AppType::Zcode => self.zcode,
-            AppType::Dsh => self.dsh,
             AppType::Workbuddy => self.workbuddy,
             AppType::Kimi => self.kimi,
+            AppType::Dsh => self.dsh,
             AppType::Agy => self.agy,
             AppType::Omp => self.omp,
         }
@@ -1589,11 +1589,9 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::OpenClaw => settings.current_provider_openclaw.clone(),
         AppType::Hermes => settings.current_provider_hermes.clone(),
         AppType::Agy => settings.current_provider_agy.clone(),
-        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Omp => None,
+        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Omp => None,
         // zcode 的 provider 由 zcode 应用内自管，cc-switch 不记录 current provider
         AppType::Zcode => None,
-        // dsh 的 provider 由 dsh 应用内自管，cc-switch 不记录 current provider
-        AppType::Dsh => None,
         // workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不记录 current provider
         AppType::Workbuddy => None,
     }
@@ -1615,11 +1613,9 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
         AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
         AppType::Agy => settings.current_provider_agy = id_owned.clone(),
-        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Omp => {}
+        AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Omp => {}
         // zcode 的 provider 由 zcode 应用内自管，忽略设置
         AppType::Zcode => {}
-        // dsh 的 provider 由 dsh 应用内自管，忽略设置
-        AppType::Dsh => {}
         // workbuddy 的 provider 由 workbuddy 应用内自管，忽略设置
         AppType::Workbuddy => {}
     })

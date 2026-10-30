@@ -198,7 +198,11 @@
       "confirm": "Terminali Aç",
       "agySwitchTitle": "Bu işlem agy'nin oturum açma hesabını değiştirir",
       "agySwitchBody": "Terminal açılmadan önce agy'nin oturumu {{account}} hesabına geçirilir; bundan sonra başlatılan agy oturumları bu hesabı kullanır.",
-      "agySwitchRunning": "agy çalışıyor: açık agy oturumları önceki hesabı kullanmaya devam eder ve hesabı yeniden kaydedebilir. Mümkünse önce agy oturumlarını kapatın."
+      "agySwitchRunning": "agy çalışıyor: açık agy oturumları önceki hesabı kullanmaya devam eder ve hesabı yeniden kaydedebilir. Mümkünse önce agy oturumlarını kapatın.",
+      "extraArgs": "Ek argümanlar (isteğe bağlı)",
+      "extraArgsHint": "Başlatma komutunun sonuna eklenir, yalnızca bu terminal için geçerlidir. Boşluklarla ayırın; boşluk içeren değerleri tırnak içine alın.",
+      "extraArgsPlaceholder": "örn. --debug --append-system-prompt \"Kısa ol\"",
+      "skipPermissions": "İzin istemlerini atla"
     },
     "name": "İsim",
     "namePlaceholder": "ör. Claude Resmi",
@@ -232,6 +236,29 @@
         "oauthTitle": "OAuth Kimlik Doğrulama Modu",
         "oauthHint": "Google’ın resmî hizmeti kişisel OAuth kimlik doğrulaması kullanır; API anahtarı girmeniz gerekmez. İlk kullanımda oturum açmanız için tarayıcı otomatik açılır.",
         "apiKeyPlaceholder": "Gemini API Anahtarını girin"
+      },
+      "claudeAccount": {
+        "claudeAccount": "Claude hesabı",
+        "default": "Claude Code oturumunu izle",
+        "defaultDescription": "Hesap, geçerli Claude Code oturumuyla birlikte değişir",
+        "help": "Bu karta geçmek, Claude Code'un oturumunu çalışan oturumlar dahil hemen seçilen hesaba çevirir. Birden çok hesabı aynı anda kullanmak için karttaki Terminal Aç'ı kullanın.",
+        "helpTerminal": "Claude yapılandırma klasörü Ayarlar'da geçersiz kılındığından bu karta geçmek Claude Code'un oturumunu değiştirmez. Seçilen hesabı kullanmak için karttaki Terminal Aç'ı kullanın.",
+        "helpWsl": "Claude yapılandırma klasörü WSL içinde ve burada Claude hesapları henüz desteklenmiyor. Bu karta geçmek Claude Code'un oturumunu değiştirmez.",
+        "label": "Oturum açma yöntemi",
+        "manage": "Claude hesapları ekle veya yönet",
+        "missing": "Hesap bu bilgisayarda değil",
+        "plan": {
+          "enterprise": "Enterprise",
+          "max": "Max",
+          "max20x": "Max 20x",
+          "max5x": "Max 5x",
+          "pro": "Pro",
+          "team": "Team",
+          "teamPremium": "Team Premium"
+        },
+        "reauthBadge": "Yeniden oturum gerekli",
+        "terminalHint": "Terminal Aç ile kullan",
+        "wslHint": "WSL'de desteklenmiyor"
       }
     },
     "duplicateLiveIdsLoadFailed": "Sağlayıcı tanımlayıcıları yapılandırmadan okunamadı. Lütfen yapılandırmayı düzeltip tekrar deneyin.",
@@ -247,7 +274,9 @@
     "formSubtitleStack": "{{app}} (Birleştirme modu)",
     "editCurrentNoticeFile": "Bu, kullanımda olan sağlayıcıdır. Kaydetme şunu yazar:",
     "editCurrentNoticeFileEnd": "hemen; sonraki istek bunu kullanır.",
-    "editCurrentNotice": "Bu, kullanımda olan sağlayıcıdır. Kaydetme hemen etkili olur; sonraki istek yeni ayarları kullanır."
+    "editCurrentNotice": "Bu, kullanımda olan sağlayıcıdır. Kaydetme hemen etkili olur; sonraki istek yeni ayarları kullanır.",
+    "liveConfigReadFailed": "{{app}} yapılandırma dosyası okunamadı",
+    "liveConfigReadFailedHint": "Yapılandırma dosyası düzeltilene kadar sağlayıcı ekleme veya kaldırma başarısız olacak."
   },
   "claudeCode": {
     "needsRouting": "Yönlendirme Gerekiyor",
@@ -731,7 +760,16 @@
         "warning": "Bu, uzak sunucudaki mevcut eşitleme verilerinin üzerine yazılacaktır",
         "legacyNotice": "Eski uzak veriler algılandı. Bu yükleme, yeni v2/db-v6 yoluna yazacak ve eski yolun üzerine yazılmayacaktır.",
         "confirm": "Yüklemeyi Onayla"
-      }
+      },
+      "clear": "Yapılandırmayı temizle",
+      "clearConfirm": {
+        "confirm": "Temizle",
+        "message": "Bu işlem, kaydedilen WebDAV adresini, kullanıcı adını, parolayı ve uzak klasörü bu cihazdan kaldırır ve otomatik eşitlemeyi durdurur. Sunucuya yüklenmiş veriler silinmez.",
+        "title": "WebDAV yapılandırmasını temizle"
+      },
+      "clearFailed": "Yapılandırma temizlenemedi: {{error}}",
+      "clearSuccess": "WebDAV yapılandırması bu cihazda temizlendi",
+      "clearing": "Temizleniyor..."
     },
     "syncType": {
       "label": "Eşitleme Türü",
@@ -1335,6 +1373,7 @@
     "groupByTime": "Zamana göre",
     "groupByProject": "Projeye göre",
     "desktopNote": "Claude Desktop'nin kendine ait oturum kaydı yoktur. Claude Code oturumları gösteriliyor.",
+    "dshMergedNote": "DeepSeek Harness Web ve Desktop aynı oturum kayıtlarını paylaşır; burada birlikte gösterilir.",
     "matchCount": "{{count}} eşleştirme oturumları",
     "totalCount": "{{count}} oturumları",
     "selectAllMatches": "Tüm eşleşmeleri seç",
@@ -1607,13 +1646,13 @@
       "packycode": "PackyCode, CC Switch’in resmi ortağıdır. Bu bağlantıyı kullanarak kaydolun ve %10 indirimden yararlanmak için şarj sırasında \"cc-switch\" promosyon kodunu girin",
       "apikeyfun": "APIKEY.FUN, CC Switch kullanıcıları için özel bir fırsat sunuyor. Kalıcı %5'e varan yükleme indirimlerinden yararlanmak için özel bağlantı aracılığıyla kaydolun.",
       "apinebula": "APINEBULA, CC Switch kullanıcılarına özel bir indirim sunuyor: bağlantıyı kullanarak kaydolun ve %10 indirimden yararlanmak için ilk yükleme sırasında \"ccswitch\" promosyon kodunu girin.",
-      "patewayai": "PatewayAI, CC Switch kullanıcılarına özel avantajlar sunuyor. 3$ kredi almak için bu bağlantı üzerinden kaydolun.",
+      "patewayai": "PatewayAI, deneyimli yapay zekâ geliştiricilerine yönelik bir API aktarma hizmeti sağlayıcısıdır; Claude, GPT serisi ve yaygın Çin modellerinin geniş bir yelpazesini tam olarak destekler. Tüm modeller resmi, yüksek kaliteli kanallardan gelir; asla seyreltilmez veya taklit edilmez, faturalandırma ayrıntıları şeffaf ve doğrulanabilirdir. Ekonomi modunda fiyatlar orijinal fiyatın %5'ine kadar düşer. Bu bağlantı üzerinden kaydolarak ücretsiz 1$ deneme kredisi alın ve ek ücretsiz kredi için ara sıra düzenlenen kampanyalara katılın. Platform ayrıca kurumsal düzeyde eşzamanlılık, özel yönetim paneli, resmi sözleşme ve fatura desteği sunar ve 150$'a kadar iki yönlü yönlendirme yükleme ödülü verir.",
       "claudecn": "ClaudeCN, kayıtlı bir şirket tarafından işletilen, kurumsal satın alma süreçlerini kurumsal ödemeler, sözleşmeler ve uyumluluk garantileriyle destekleyen kurumsal düzeyde bir yapay zeka ağ geçididir.",
       "runapi": "RunAPI, CC Switch kullanıcılarına özel avantajlar sunar. Bu bağlantı aracılığıyla kaydolun ve ilk yüklemenizde %10 indirimin keyfini çıkarın.",
       "opencode_go": "OpenCode Go, çeşitli kodlama modellerine abonelik erişimi sunar. Plan ayrıntılarını görüntüleyin ve bu bağlantı aracılığıyla abone olun.",
       "dmxapi": "Claude Code özel modeli şimdi %66 İNDİRİM!",
       "cubence": "Cubence, CC Switch’in resmi ortağıdır. Bu bağlantıyı kullanarak kaydolun ve her yüklemede %10 indirim kazanmak için yükleme sırasında \"CCSWITCH\" promosyon kodunu girin",
-      "aigocode": "AIGoCode, CC Switch’in resmi ortağıdır. Bu bağlantıyı kullanarak kaydolun ve ilk yüklemenizde %10 bonus kredi kazanın!",
+      "aigocode": "Yalnızca token başına ödeme değil, abonelik tabanlı bir yapay zekâ kodlama platformu. Tek hesap ve tek aylık planla Claude Code, Codex ve Gemini; Çin anakarasından doğrudan bağlantı ve hızlı yanıtlar. Bu bağlantı üzerinden abone olarak %10 ek kredi kazanın!",
       "rightcode": "RightCode, CC Switch’in resmi ortağıdır. Bu bağlantıyı kullanarak kaydolun ve her yüklemede %5 bonus kredi kazanın!",
       "aicodemirror": "AICodeMirror, CC Switch’in resmi ortağıdır. %20 indirimden yararlanmak için bu bağlantıyı kullanarak kaydolun!",
       "aicoding": "AI Coding, CC Switch kullanıcılarına özel bir indirim sunuyor — ilk yüklemenizde %10 indirim!",
@@ -1644,9 +1683,10 @@
       "alltokens_si": "AllTokens SI, istikrar ve güvenilirliği temel alan kurumsal bir yapay zekâ token aktarım ve ekip iş birliği platformudur. Üyeler, anahtarlar, kullanım ve bakiye tek bir şirket konsolunda yönetilir; açık izinler ve harcama sınırları ekip kullanımının izlenebilir ve denetimli olmasını sağlar.",
       "openmodel": "OpenModel, desteklenen modellerde Codex için %90'a, Claude Code için %60'a varan uygulamaya özel indirimler sunar. Bu bağlantıyla kaydolup \"cc-switch\" promosyon kodunu kullanan CC Switch kullanıcıları ilk yüklemelerinde %10 indirim kazanır!",
       "grooroute": "GrooRoute Pro; kullandıkça öde ve abonelik planlarıyla OpenAI, Claude, DeepSeek ve diğer yaygın modellere erişim sağlayan güvenilir bir yapay zekâ API aktarım hizmetidir. Bu bağlantı üzerinden kaydolan CC Switch kullanıcıları ¥5 deneme bakiyesi kazanır!",
-      "dit": "DIT.ai, birden fazla sağlayıcıya daha düşük maliyetle yönlendirme yapan bir yapay zekâ token borsasıdır. OpenAI uyumlu tek bir API üzerinden GPT, Claude, Gemini, DeepSeek, Grok ve Llama dahil 50'den fazla önde gelen modele erişilir; 160'tan fazla rotada sağlayıcılar rekabet eder ve fiyatlar genellikle resmî ücretlerden %30–70 daha düşüktür. CC Switch kullanıcıları bu bağlantıdan kaydolup \"ccswitch\" promosyon koduyla 5 ABD doları değerinde hoş geldin kuponu alabilir!",
+      "dit": "Aynı modeller, çoğu zaman çok daha düşük bir fatura. OpenAI uyumlu tek bir API ile GPT, Claude, Gemini ve daha fazlası dahil 50'den fazla modele erişin; istekler 160'tan fazla sağlayıcı arasında en iyi fiyat-kalite seçeneğine yönlendirilir ve fiyatlar genellikle resmî liste fiyatlarından %30–70 daha düşüktür. Base URL'nizi ve API anahtarınızı değiştirin, mevcut yığınınızı koruyun ve hemen çağırmaya başlayın. CC Switch kullanıcıları bu bağlantıdan kaydolup \"cc-switch\" koduyla hoş geldin yüklemesinde %30 indirim kazanır!",
       "buytoken": "BuyToken; Claude Code, Codex, DeepSeek ve daha fazlası için kurumsal düzeyde eşzamanlılık ve hızlı faturalandırma sunan, uzun süreli ve istikrarlı kullanım için tasarlanmış bir yönlendirme hizmetidir. CC Switch kullanıcıları bu bağlantı üzerinden kaydolduklarında 3 ¥ deneme kredisi ve ilk yüklemelerinde %10 indirim kazanır.",
-      "vapi": "V-API, bireyler, geliştiriciler ve işletmeler için kararlı, hızlı ve güvenli, yüksek kaliteli LLM API hizmetleri sunan üç yıllık bir markadır. Resmî sözleşmelerin yanı sıra genel ve özel KDV faturaları sağlar. Bu bağlantıdan kaydolan CC Switch kullanıcıları 2 ¥ indirim ve ilk siparişlerinde %10 indirim kazanır!"
+      "vapi": "V-API, bireyler, geliştiriciler ve işletmeler için kararlı, hızlı ve güvenli, yüksek kaliteli LLM API hizmetleri sunan üç yıllık bir markadır. Resmî sözleşmelerin yanı sıra genel ve özel KDV faturaları sağlar. Bu bağlantıdan kaydolan CC Switch kullanıcıları 2 ¥ indirim ve ilk siparişlerinde %10 indirim kazanır!",
+      "ospreyai": "ACS OspreyAI, geliştiriciler ve işletmeler için tek noktadan çok modelli API platformudur. Tek bir API anahtarıyla Claude, Gemini, GPT, GLM, Kimi, Qwen, DeepSeek ve Tencent Hunyuan dahil önde gelen Çinli ve uluslararası modellere erişirsiniz. Platform OpenAI, Anthropic ve diğer ana akım API protokolleriyle uyumludur; Claude Code, Codex, OpenCode, Pi ve Hermes gibi popüler yapay zekâ araçlarıyla çalışır. Uluslararası modeller resmî fiyatların %20-40'ı, Çinli modeller %30-50'si kadar daha ucuzdur. Birleşik bakiye yükleme, birleşik faturalandırma, kullanım takibi ve esnek model değiştirme özellikleriyle yapay zekâ uygulama geliştirme, içerik üretimi ve otomatik iş akışları için uygundur. Bu bağlantıyla hesap oluşturup indirim kazanın ve Çin'deki ile yurt dışındaki önde gelen modellere hızla bağlanın."
     },
     "presets": {
       "ucloud": "Compshare",
@@ -2087,9 +2127,6 @@
     "extraOptionValuePlaceholder": "600000",
     "noExtraOptions": "Hiçbir ekstra seçenek yapılandırılmadı",
     "noModelOptions": "Model seçenekleri, eklemek için +'ya tıklayın",
-    "modelLimits": "Token Limitleri",
-    "limitContext": "Bağlam",
-    "limitOutput": "Çıktı",
     "modelExtraFields": "Model Özellikleri",
     "noModelExtraFields": "Model özellikleri (varyantlar, maliyet vb.), eklemek için + işaretine tıklayın",
     "modelExtraFieldKeyPlaceholder": "variants",
@@ -2227,6 +2264,11 @@
       "short": "Oturum günlükleri",
       "label": "{{app}} · Oturum günlükleri",
       "hint": "Yönlendirme kapalıyken istemcinin oturum günlüklerini okuyun, böylece sağlayıcı birbirinden ayırt edilemez"
+    },
+    "sessionAccountProvider": {
+      "short": "DeepSeek hesabı",
+      "label": "{{app}} · DeepSeek hesabı (OAuth)",
+      "hint": "DeepSeek hesabı oturumuyla yapılan istekler için oturum günlüklerinden okunur; Web ve Desktop bu oturumu paylaştığından kullanımları birleştirilir"
     },
     "stream": "Akış",
     "nonStream": "Yayın dışı",
@@ -2526,7 +2568,7 @@
       "scanTitle": "Oturum günlüklerini otomatik olarak tara",
       "scanHelpTitle": "Oturum günlükleri nedir?",
       "scanHelp": "Konuşma, bu bilgisayara yazılan her uygulamanın kaydını tutar. CC Switch bunların kullanımını okur, böylece yönlendirme olmadan bile veri alırsınız.",
-      "coverage": "7 uygulamayı kapsar: {{apps}}",
+      "coverage": "{{total}} uygulamayı kapsar: {{apps}}",
       "cadenceOn": "Başlangıçta ve arka planda her 10 dakikada bir tarar; Kullanım sayfası açıldığında hemen tarar, ardından seçilen aralıkla tarar",
       "cadenceOff": "Otomatik tarama kapalı; günlükler yalnızca Şimdi Eşitle'ye tıkladığınızda taranır",
       "unsupported": "Hermes ve OpenClaw henüz kullanım istatistiklerini desteklemiyor",
@@ -4154,7 +4196,8 @@
     "expired": "Oturumun süresi doldu",
     "expiredHint": "Giriş bilgilerinizi yenilemek için {{tool}} komutunu çalıştırın",
     "queryFailed": "Sorgu başarısız oldu",
-    "refresh": "Yenile"
+    "refresh": "Yenile",
+    "expiredHintAccounts": "Bu hesapla Hesaplar'da yeniden oturum açın"
   },
   "nav": {
     "mainLabel": "Ana gezinme",
@@ -4221,7 +4264,12 @@
     },
     "sectionInstalled": "Yüklü · {{count}}",
     "sectionNotInstalled": "Yüklü değil · {{count}}",
-    "dragHandle": "{{name}} öğesini yeniden sıralamak için sürükleyin"
+    "dragHandle": "{{name}} öğesini yeniden sıralamak için sürükleyin",
+    "forkAppMeta": {
+      "dsh": "DeepSeek Harness: CC Switch sağlayıcılarını ve resmî hesabını yönetir, Skills ve MCP'yi eşitler",
+      "zcode": "ZCode: sağlayıcılar uygulama tarafından yönetilir; CC Switch Skills / istemler / MCP / oturumları yönetir",
+      "workbuddy": "WorkBuddy: yapılandırma uygulama tarafından yönetilir; CC Switch Skills ve MCP'yi eşitler"
+    }
   },
   "appPage": {
     "moreActions": "{{name}} için diğer işlemler",
@@ -4372,7 +4420,8 @@
       "more": "{{name}} için diğer işlemler",
       "moveUp": "{{name}}'yi yukarı taşı",
       "moveDown": "{{name}}'yi aşağı taşı",
-      "setStackKey": "Grup anahtarını değiştir"
+      "setStackKey": "Grup anahtarını değiştir",
+      "openTerminal": "{{name}} ile bir terminal aç"
     },
     "chip": {
       "official": "Resmi",
@@ -4586,6 +4635,7 @@
       "failedTitle": "Bazı uygulamalar okunamadı",
       "filesTitle": "Hangi dosyalar okundu",
       "claudeNote": " (üst düzey mcpServers)",
+      "dshNote": " (başlatılmış her profile yazılır: web, desktop, headless, acp)",
       "ok": "Anladım"
     },
     "templateLabels": {
@@ -4683,7 +4733,11 @@
       "tags": "Etiketler",
       "tagsPlaceholder": "Virgülle ayrılmış, ör. dokümanlar, web",
       "homepage": "Ana sayfa",
-      "docs": "Dokümanlar"
+      "docs": "Dokümanlar",
+      "sseAsHttpBody": "{{apps}} yalnızca stdio ve HTTP (Streamable HTTP) destekler; bu nedenle bu adres bir HTTP sunucusu olarak kullanılacak, sunucu yalnızca SSE konuşuyorsa bağlanmaz. Sunucu Streamable HTTP de sunuyorsa HTTP'e geçin.",
+      "sseAsHttpTitle": "{{apps}} SSE desteklemez ve HTTP üzerinden bağlanacak",
+      "sseRejectedBody": "Bu uygulamalar yalnızca stdio ve HTTP (Streamable HTTP) destekler; bu nedenle bunlara yazmak kaydetmede başarısız olur. HTTP'e geçin veya bu uygulamaların işaretini kaldırın.",
+      "sseRejectedTitle": "SSE {{apps}} tarafından desteklenmiyor"
     },
     "resync": "Bu anahtarlardan her uygulamanın yapılandırmasını yeniden yazın"
   },
@@ -4744,7 +4798,7 @@
     "rowFail": "{{app}}'de etkinleştirme başarısız oldu: {{error}}",
     "fixSync": "Eşitleme yöntemini değiştir",
     "rowMoreAria": "{{name}} için diğer işlemler",
-    "copyDir": "Klasör adını kopyala",
+    "openDir": "Klasörü aç",
     "uninstallEllipsis": "Kaldır",
     "listLabel": "Yüklü Beceriler",
     "noMatch": "“{{query}}” Beceri eşleşmesi yok",
@@ -4772,7 +4826,8 @@
       "enableFailed": "{{apps}}'de etkinleştirilemedi; listede işaretlendi",
       "uninstalledMany": "Kaldırılan {{count}} Becerileri",
       "backupAt": "{{path}}'ye yedeklendi",
-      "copiedDir": "Kopyalanan klasör adı {{dir}}",
+      "copiedName": "{{name}} kopyalandı",
+      "openDirFailed": "Klasör açılamadı",
       "noUpdatesInSelection": "Seçilen Becerilerin hiçbirinde güncelleme yok",
       "selectionAlreadyOn": "{{count}}'nin seçilen Becerileri zaten {{app}}'de etkindir",
       "selectionAlreadyOff": "Seçilen {{count}} Becerilerinden hiçbiri {{app}}'de etkin değil",
@@ -4883,7 +4938,10 @@
       "copilotHelp": "Claude Code ve Claude Desktop'deki GitHub Copilot ön ayarları tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
       "chatgptHelp": "Claude Code ve Claude Desktop'deki ChatGPT ön ayarları ve Codex'nin resmi oturum açma bağlaması tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
       "xaiHelp": "Claude Code, Claude Desktop ve Codex'deki xAI ön ayarları tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
-      "agyHelp": "Antigravity CLI (agy) için resmî oturum açma yöntemi. agy aynı anda yalnızca tek bir hesapta oturum açabilir. Hesabı Değiştir seçeneği agy'nin oturumunu seçilen hesapla değiştirir ve bundan sonra başlatılan agy oturumları bu hesabı kullanır. agy'nin hâlihazırda oturum açtığı hesap buraya otomatik olarak eklenir; böylece başka hesaba geçerken önceki hesabı kaybetmezsiniz."
+      "agyHelp": "Antigravity CLI (agy) için resmî oturum açma yöntemi. agy aynı anda yalnızca tek bir hesapta oturum açabilir. Hesabı Değiştir seçeneği agy'nin oturumunu seçilen hesapla değiştirir ve bundan sonra başlatılan agy oturumları bu hesabı kullanır. agy'nin hâlihazırda oturum açtığı hesap buraya otomatik olarak eklenir; böylece başka hesaba geçerken önceki hesabı kaybetmezsiniz.",
+      "claudeHelp": "Resmî Claude Code abonelik hesapları (Pro / Max / Team). Claude resmî kartında bir hesap seçin: karta geçildiğinde Claude Code'un oturumu hemen o hesaba geçer. Birden çok hesabı aynı anda kullanmak için karttaki Terminal Aç'ı kullanın. Oturum token'ları bu bilgisayarda kalır; asla yüklenmez, yenilenmez veya kapatılmaz. İlk geçiş, Claude Code'un şu anki oturumunu kaydeder; geçiş Uzaktan Kumandayı sonlandırır ve istem önbelleğini yeniden oluşturur.",
+      "claudeHelpTerminal": "Resmî Claude Code abonelik hesapları (Pro / Max / Team). Claude yapılandırma klasörü Ayarlar'da geçersiz kılındığından kart değiştirmek Claude Code'un oturumunu değiştirmez. Resmî bir karttan hesap seçip karttaki Terminal Aç'ı kullanın.",
+      "claudeHelpWsl": "Resmî Claude Code abonelik hesapları (Pro / Max / Team). Claude yapılandırma klasörü WSL içindeyken henüz desteklenmiyor."
     },
     "addAccount": "Hesap ekle",
     "accountMenu": "{{login}} için daha fazla eylem",
@@ -4935,6 +4993,21 @@
       "removeNote": "agy'nin oturumu açık kalır: agy bu hesabı kullanıyorsa kaldırdıktan sonra da çalışmaya devam eder.",
       "switched": "Hesap değiştirildi. Yeni agy oturumları bu hesabı kullanacak.",
       "switchedWhileRunning": "Hesap değiştirildi. agy çalışıyor: açık agy oturumları önceki hesabı kullanmaya devam eder ve hesabı yeniden kaydedebilir. agy'yi kapatıp yeniden açın."
+    },
+    "claude": {
+      "addedOn": "{{date}} tarihinde eklendi",
+      "empty": "Henüz Claude hesabı yok. Birden çok abonelik hesabı arasında geçiş yapmak için buradan oturum açın.",
+      "loginExpiresOn": "Oturum yaklaşık {{date}} tarihinde sona eriyor; sonrasında yeniden oturum açın",
+      "loginMaybeExpired": "Oturum süresi dolmuş olabilir. Bu hesaba geçmeden önce yeniden oturum açın.",
+      "pasteHint": "Yetkilendirmeden sonra tarayıcının adres çubuğundaki adresi veya sayfada görünen kodu yapıştırın.",
+      "pasteLabel": "Yetkilendirme kodu veya adresi",
+      "pasteSubmit": "Gönder",
+      "pasteSubmitted": "Gönderildi. Oturum açma tamamlanıyor…",
+      "pasteToggle": "Yetkilendirmeden sonra buraya dönmedi mi?",
+      "reauthNote": "Oturum süresi doldu. Yeniden oturum açın.",
+      "removeNote": "Yalnızca CC Switch'in bu hesap için kaydettiği oturumu kaldırır; başka bir yerde oturum kapatılmaz ve Claude Code'un geçerli oturumu (~/.claude) değişmez. Bu hesaba bağlı kartlar Claude Code'un geçerli oturumuna döner.",
+      "statusLoadFailed": "Claude hesapları okunamadı. Yeniden deneyin.",
+      "wslUnsupported": "Claude yapılandırma klasörü WSL içinde. Burada Claude hesabı ekleme ve geçiş henüz desteklenmiyor."
     }
   },
   "kimi": {
@@ -5031,5 +5104,37 @@
       "providerMissing": "Bu Oh My Pi sağlayıcısı artık kayıtlı değil.",
       "legacyModelsJson": "Oh My Pi'de eski biçimde bir models.json dosyası var. omp, sonraki açılışında bunu models.yml biçimine geçirir. omp'yi bir kez çalıştırın, ardından sağlayıcıyı yeniden ekleyin."
     }
+  },
+  "dsh": {
+    "empty": {
+      "title": "DeepSeek Harness sağlayıcısı ekle",
+      "description": "Bir uç nokta, API anahtarı ve modeller yapılandırın. Mevcut özel sağlayıcılar burada otomatik olarak görünür."
+    },
+    "sharedProviders": "Eklenen sağlayıcılar DeepSeek Harness'ın hem Web hem Desktop yapılandırmasına (ve başlatılmış headless, acp profillerine) yazılır; modeli DeepSeek Harness içinde seçin.",
+    "sharedProvidersNote": "Web ve Desktop ortak kullanır",
+    "account": {
+      "help": "DeepSeek hesabı tarayıcı üzerinden oturum açar (OAuth); burada veya DeepSeek Harness'ta oturum açabilirsiniz. Oturum $DSH_HOME/.credentials.yaml (varsayılan ~/.dsh/.credentials.yaml) içinde saklanır ve DeepSeek Harness Web ile Desktop tarafından paylaşılır: herhangi bir yerde oturum açmak veya kapatmak ikisine de uygulanır, çalışan DeepSeek Harness dosyayı otomatik olarak yeniden okur. Hesabın modellerinin kullanımı, Kullanım sayfasında ayrıca \"DeepSeek hesabı (OAuth)\" olarak görünür.",
+      "statusFailed": "DeepSeek hesabı oturumu okunamadı",
+      "empty": "DeepSeek hesabında oturum açılmamış",
+      "unnamed": "DeepSeek hesabı",
+      "expired": "Oturumun süresi doldu. Yeniden oturum açın",
+      "shared": "Web ve Desktop tarafından paylaşılır",
+      "signOut": "Oturumu kapat",
+      "signOutConfirm": "\"{{name}}\" DeepSeek hesabından çıkış yapılsın mı? DeepSeek Harness Web ve Desktop'ta birlikte oturum kapatılır. API anahtarı sağlayıcıları etkilenmez.",
+      "signOutFailed": "DeepSeek hesabından çıkış yapılamadı",
+      "balance": "Bakiye {{amount}}",
+      "bonus": "Bonus {{amount}}",
+      "balanceFailed": "Bakiye şu anda alınamıyor",
+      "signedIn": "DeepSeek hesabında hem Web hem Desktop için oturum açıldı",
+      "signInFailed": "DeepSeek hesabında oturum açılamadı",
+      "presetName": "DeepSeek resmi oturum açma",
+      "presetDescription": "DeepSeek hesabınızda tarayıcı üzerinden oturum açtıktan sonra DeepSeek Harness hesabın modellerini doğrudan sunar; sağlayıcı eklemeniz gerekmez. Web ve Desktop bu oturumu paylaşır. Oturum açma ve kapatma Yetkilendirme Merkezi'nde yönetilir; oturum açınca hesap Eklenenler altında görünür.",
+      "manageAccounts": "DeepSeek hesabını yönet",
+      "cardSubtitle": "Resmi hesap · Web ve Desktop ortak",
+      "expiredChip": "Oturum süresi doldu",
+      "editDisabled": "Bu hesabın modellerini DeepSeek Harness kendisi sağlar; düzenlenecek bir şey yok.",
+      "managedHint": "Hesap Yetkilendirme Merkezi'nde yönetilir; oturumu kapatınca bu kart kendiliğinden kaybolur."
+    },
+    "deleteSessionHint": "Geçmişin tutarlı kalması için bu oturumu DeepSeek Harness içinde silin."
   }
 }

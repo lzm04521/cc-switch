@@ -89,10 +89,13 @@ const IMPORT_SOURCE_FILES: Record<
   hermes: { file: "~/.hermes/config.yaml" },
   pi: { file: "~/.pi/agent/mcp.json" },
   agy: { file: "~/.gemini/config/mcp_config.json" },
+  dsh: {
+    file: "~/.dsh/profiles/<profile>/cordis.patch.yml",
+    noteKey: "mcpPage.import.dshNote",
+  },
   kimi: { file: "~/.kimi-code/mcp.json" },
   mcode: { file: "~/.minimax/mcp.json" },
   zcode: { file: "ZCode MCP 配置" },
-  dsh: { file: "~/.dsh/profiles/web/cordis.patch.yml" },
   workbuddy: { file: "WorkBuddy mcp.json" },
   omp: { file: "~/.omp/agent/mcp.json" },
 };
@@ -101,6 +104,7 @@ const IMPORT_SOURCE_FILES: Record<
 const WRITE_THEN_SAVE_APPS: ReadonlySet<McpAppId> = new Set([
   "mcode",
   "kimi",
+  "dsh",
   "pi",
   "agy",
   "omp",

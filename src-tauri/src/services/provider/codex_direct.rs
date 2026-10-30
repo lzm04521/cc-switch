@@ -406,7 +406,7 @@ fn auth_target<'a>(goal: &'a AuthGoal, op_name: &str) -> AuthTarget<'a> {
     }
 }
 
-fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
+pub(super) fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
     CodexProjection::of(&RowInput {
         settings: &provider.settings_config,
         official: is_official(provider),
@@ -415,7 +415,10 @@ fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
 }
 
 /// 这个供应商的独有字段，含 `web_search`（需要时为 `"disabled"`）。
-fn exclusive_of(provider: &Provider, projection: &CodexProjection) -> Vec<(String, TomlValue)> {
+pub(super) fn exclusive_of(
+    provider: &Provider,
+    projection: &CodexProjection,
+) -> Vec<(String, TomlValue)> {
     let mut exclusive = projection.exclusive.clone();
     let profile = crate::proxy::providers::resolve_codex_catalog_tool_profile(provider);
     if codex_disables_web_search(
@@ -798,7 +801,7 @@ pub(crate) fn settings_without_row_catalog(route: &Provider) -> Option<Value> {
 }
 
 /// 代理契约的路由表从行的路由表照搬的客户端键：Codex 自己的重试和流空闲超时。
-const PROXY_KEPT_CLIENT_KEYS: &[&str] = &[
+pub(super) const PROXY_KEPT_CLIENT_KEYS: &[&str] = &[
     "request_max_retries",
     "stream_max_retries",
     "stream_idle_timeout_ms",
@@ -880,7 +883,13 @@ pub(crate) fn stack_subagent_choices(
                 .and_then(Value::as_str)
                 .unwrap_or(model);
             choices.push(crate::mode::stack::StackSubagentModel {
-                id: crate::mode::stack::encode(&crate::settings::get_route_prefix(), &AppType::Codex, &member.key, model, false),
+                id: crate::mode::stack::encode(
+                    &crate::settings::get_route_prefix(),
+                    &AppType::Codex,
+                    &member.key,
+                    model,
+                    false,
+                ),
                 provider_id: member.provider.id.clone(),
                 display_name: crate::mode::stack::display_name(display, &member.provider.name),
                 efforts: catalog_entry_efforts(entry).map(str::to_string).collect(),

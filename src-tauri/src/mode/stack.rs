@@ -517,7 +517,13 @@ pub fn desktop_models(key: &str, provider: &Provider) -> Vec<DesktopStackModel> 
             .label_override
             .unwrap_or_else(|| route.upstream_model.clone());
         models.push(DesktopStackModel {
-            id: encode("", &AppType::ClaudeDesktop, key, &route.upstream_model, false),
+            id: encode(
+                "",
+                &AppType::ClaudeDesktop,
+                key,
+                &route.upstream_model,
+                false,
+            ),
             label: format!("{} / {name}", provider.name),
             upstream: route.upstream_model,
             supports_1m: route.supports_1m,
@@ -725,9 +731,7 @@ pub fn claude_route_roles(prefix: &str, members: &[Member]) -> Option<RouteRoles
             .map(|value| strip_one_m_suffix_for_upstream(value).trim().to_string())
             .and_then(|model| {
                 list.iter()
-                    .find(|entry| {
-                        strip_one_m_suffix_for_upstream(&entry.upstream).trim() == model
-                    })
+                    .find(|entry| strip_one_m_suffix_for_upstream(&entry.upstream).trim() == model)
                     .cloned()
             });
         hit.unwrap_or_else(|| fallback.clone())
@@ -988,7 +992,13 @@ fn resolve_desktop(
     let stack = state::stack(store, app.as_str())?;
     let route = state::mode_state(store, app.as_str())?.proxy_route;
     let id = format!("{DESKTOP_PREFIX}{code}");
-    let members = members(&crate::settings::get_route_prefix(), db, app, &stack, route.as_deref())?;
+    let members = members(
+        &crate::settings::get_route_prefix(),
+        db,
+        app,
+        &stack,
+        route.as_deref(),
+    )?;
     let published = members.iter().filter(|member| !member.route);
     let route = members.iter().filter(|member| member.route);
     for member in published.chain(route) {
@@ -1091,7 +1101,14 @@ pub fn member_views(app: &AppType, members: &[Member]) -> Vec<StackMemberView> {
             model_ids: member.model_ids.clone(),
             route: member.route,
             member_models: if member.route {
-                model_ids_of(&crate::settings::get_route_prefix(), app, &member.key, &member.provider, false).len()
+                model_ids_of(
+                    &crate::settings::get_route_prefix(),
+                    app,
+                    &member.key,
+                    &member.provider,
+                    false,
+                )
+                .len()
             } else {
                 member.model_ids.len()
             },
@@ -1415,7 +1432,10 @@ mod tests {
         );
         let models = claude_models("ccs-", "kimi", &row);
         assert_eq!(models.len(), 2);
-        assert_eq!(models[0].window, 128_000, "行级 contextLength 应覆盖供应商窗口");
+        assert_eq!(
+            models[0].window, 128_000,
+            "行级 contextLength 应覆盖供应商窗口"
+        );
         assert_eq!(models[0].description, "kimi-k3 · 128K");
         assert_eq!(models[1].window, 256_000, "无行级值时应退回供应商窗口");
         assert_eq!(models[1].description, "kimi-k4 · 256K");
@@ -1642,8 +1662,7 @@ mod tests {
     fn route_roles_are_none_without_a_route_member() {
         let fx = fixture();
         let stack = state::stack(&fx.store, "claude").unwrap();
-        let members =
-            published_members("ccs-", &fx.db, &AppType::Claude, &stack, None).unwrap();
+        let members = published_members("ccs-", &fx.db, &AppType::Claude, &stack, None).unwrap();
         assert!(claude_route_roles("ccs-", &members).is_none());
     }
 
@@ -1869,7 +1888,10 @@ mod tests {
 
     #[test]
     fn encode_roundtrip_custom_prefix() {
-        assert_eq!(encode("G.", &AppType::Claude, "cc", "m", true), "G.cc.m[1M]");
+        assert_eq!(
+            encode("G.", &AppType::Claude, "cc", "m", true),
+            "G.cc.m[1M]"
+        );
         assert_eq!(encode("G.", &AppType::Codex, "cc", "m", false), "G.cc.m");
         assert_eq!(encode_short("G.", &AppType::Claude, "cc"), "G.cc");
         assert_eq!(encode_short("G.", &AppType::Codex, "cc"), "G.cc");
@@ -2299,7 +2321,10 @@ mod tests {
                     assert!(digits.bytes().all(|b| b.is_ascii_digit()), "{id}");
                     assert!(desktop_keeps(&id), "Desktop would drop {id}");
                     assert_eq!(desktop_identity(&id), id, "Desktop would trim {id}");
-                    assert_eq!(decode("", &AppType::ClaudeDesktop, &id), Decoded::Code(digits));
+                    assert_eq!(
+                        decode("", &AppType::ClaudeDesktop, &id),
+                        Decoded::Code(digits)
+                    );
                 }
             }
             // Claude Code 的写法 Desktop 会丢掉，所以不能照搬
@@ -2313,12 +2338,18 @@ mod tests {
                 decode("", &app, "claude-fable-ccs-012345[1m]"),
                 Decoded::Code("012345")
             );
-            assert_eq!(decode("", &app, "claude-fable-ccs-1234"), Decoded::Malformed);
+            assert_eq!(
+                decode("", &app, "claude-fable-ccs-1234"),
+                Decoded::Malformed
+            );
             assert_eq!(
                 decode("", &app, "claude-fable-ccs-12345678"),
                 Decoded::Malformed
             );
-            assert_eq!(decode("", &app, "claude-fable-ccs-12345a"), Decoded::Malformed);
+            assert_eq!(
+                decode("", &app, "claude-fable-ccs-12345a"),
+                Decoded::Malformed
+            );
             assert_eq!(decode("", &app, "claude-sonnet-5"), Decoded::Plain);
             assert_eq!(decode("", &app, "claude-fable-5"), Decoded::Plain);
             // 别的应用不认这个前缀
@@ -2333,7 +2364,8 @@ mod tests {
             let fx = fixture();
             let stack = state::stack(&fx.store, "claude-desktop").unwrap();
             let members =
-                published_members("", &fx.db, &AppType::ClaudeDesktop, &stack, Some("zhipu")).unwrap();
+                published_members("", &fx.db, &AppType::ClaudeDesktop, &stack, Some("zhipu"))
+                    .unwrap();
             let published = desktop_published(&members);
             assert_eq!(
                 published
@@ -2345,8 +2377,8 @@ mod tests {
                     ))
                     .collect::<Vec<_>>(),
                 vec![
-                    ("kimi-k3-turbo", "Kimi / kimi-k3-turbo", false),
                     ("kimi-k3", "Kimi / Kimi K3", true),
+                    ("kimi-k3-turbo", "Kimi / kimi-k3-turbo", false),
                 ]
             );
             assert!(published.iter().all(|model| desktop_keeps(&model.id)));
@@ -2370,7 +2402,8 @@ mod tests {
 
             // 默认换成 kimi 后，zhipu 的模型带数字 id 发布，kimi 的不再发布
             let members =
-                published_members("", &fx.db, &AppType::ClaudeDesktop, &stack, Some("kimi")).unwrap();
+                published_members("", &fx.db, &AppType::ClaudeDesktop, &stack, Some("kimi"))
+                    .unwrap();
             assert_eq!(
                 desktop_published(&members)
                     .into_iter()

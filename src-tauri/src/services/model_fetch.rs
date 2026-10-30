@@ -160,7 +160,11 @@ pub async fn fetch_models(
             } else {
                 catalog_model_ids(resp.models)
                     .into_iter()
-                    .map(|id| FetchedModel { id, owned_by: None, context_length: None })
+                    .map(|id| FetchedModel {
+                        id,
+                        owned_by: None,
+                        context_length: None,
+                    })
                     .collect()
             };
 

@@ -22,6 +22,7 @@ const ENDPOINT_TIMEOUT_SECS: Partial<Record<AppId, number>> = {
   mcode: 8,
   zcode: 8,
   kimi: 8,
+  dsh: 8,
   agy: 8,
   omp: 8,
 };

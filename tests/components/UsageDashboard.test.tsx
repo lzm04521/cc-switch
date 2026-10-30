@@ -378,6 +378,35 @@ describe("UsageDashboard", () => {
     ).toBeInTheDocument();
   });
 
+  it("filters to Oh My Pi separately from Pi", async () => {
+    const user = userEvent.setup();
+    // fork 语义：chips 由 useStatsAppTypes 决定；omp 是会话用量导入应用，
+    // 不查路由模式、仅按侧栏可见即列出。
+    renderDashboard();
+
+    // Two products, two filters: the chip must query appType "omp" and must
+    // not be confused with Pi's.
+    await user.click(
+      await screen.findByRole("button", { name: "Oh My Pi" }),
+    );
+
+    await waitFor(() =>
+      expect(useProviderStatsMock).toHaveBeenLastCalledWith(
+        expect.anything(),
+        { appType: "omp" },
+        expect.anything(),
+      ),
+    );
+    expect(usageHeroMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ appType: "omp" }),
+    );
+    // fork 语义：Pi 非代理应用不进 chips；omp 靠会话用量导入显示，不与 Pi 混淆
+    expect(screen.queryByRole("button", { name: "Pi" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Oh My Pi", pressed: true }),
+    ).toBeInTheDocument();
+  });
+
   it("starts with the app filter passed in from an app page", async () => {
     renderDashboard({ initialAppType: "codex" });
 

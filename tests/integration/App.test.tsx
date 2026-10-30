@@ -1107,10 +1107,11 @@ describe("App integration with MSW", () => {
       screen.queryByText("zcode.providerManagedExternally"),
     ).not.toBeInTheDocument();
 
-    // dsh 分支（打回目标原本是 skills）同样放行
-    fireEvent.click(sidebarApp("Deepseek"));
+    // dsh 已随上游 v4.0.22 全量接管（provider 走正常列表），
+    // 侧栏「应用」入口从 dsh 页同样不打回
+    fireEvent.click(sidebarApp("DeepSeek Harness"));
     expect(
-      await screen.findByText("dsh.providerManagedExternally"),
+      await screen.findByTestId("provider-list"),
     ).toBeInTheDocument();
     fireEvent.click(sidebarApp("nav.apps"));
     expect(

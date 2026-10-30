@@ -146,6 +146,10 @@ function useStatsAppTypes(): {
 } {
   const { data: settings } = useSettingsQuery();
   const sidebar = resolveSidebarApps(settings);
+  // 非代理但有会话用量导入的应用（上游 dsh/omp 导入），不查路由模式直接列出
+  const sessionUsageApps: AppType[] = (["dsh", "omp"] as AppType[]).filter(
+    (app) => sidebar[app],
+  );
   const candidates = KNOWN_APP_TYPES.filter((app) => isProxyAppId(app));
   const modeQueries = useQueries({
     queries: candidates.map((app) => ({
@@ -154,11 +158,14 @@ function useStatsAppTypes(): {
       enabled: sidebar[app],
     })),
   });
-  const appTypes = candidates.filter((app, i) => {
-    if (!sidebar[app]) return false;
-    const mode = modeQueries[i]?.data?.mode;
-    return mode === "route" || mode === "stack";
-  });
+  const appTypes = [
+    ...candidates.filter((app, i) => {
+      if (!sidebar[app]) return false;
+      const mode = modeQueries[i]?.data?.mode;
+      return mode === "route" || mode === "stack";
+    }),
+    ...sessionUsageApps,
+  ];
   const pendingApps = candidates.filter(
     (app, i) => sidebar[app] && !modeQueries[i]?.data,
   );
@@ -606,7 +613,7 @@ export function UsageDashboard({
 
   // ── 筛选行 ───────────────────────────────────────────────────────────
   // 选中块是单独的滑块（SegmentThumb），切换应用时滑过去
-  // fork：chips 由 useStatsAppTypes（侧栏可见 + 路由/聚合模式）决定，
+  // fork：chips 由 useStatsAppTypes（侧栏可见 + 路由/聚合模式 + 会话用量导入应用）决定，
   // 上游「只列应用页可见应用」的意图由其中的侧栏过滤承担
   const appFilterIndicator = useSlidingIndicator<HTMLDivElement>(
     '[aria-pressed="true"]',

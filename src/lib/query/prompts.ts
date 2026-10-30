@@ -23,6 +23,7 @@ export const PROMPT_APP_IDS: AppId[] = [
   "mcode",
   "zcode", // fork：ZCode 提示词（AGENTS.md）随上游八应用页一并管理
   "kimi",
+  "dsh",
   "agy",
   "omp",
 ];

@@ -7,6 +7,7 @@ import type { SettingsFormState } from "./useSettingsForm";
 
 // WorkBuddy 无用户可配的目录设置（home 由后端自动解析）、MCode 目录由应用
 // 自管，均不纳入目录管理。agy 目录同样由 CLI 自管（~/.gemini/config）。
+// fork：DSH 目录保留覆盖设置（dshConfigDir → data_dir 覆盖），不进排除列表
 export type DirectoryAppId = Exclude<
   AppId,
   "claude-desktop" | "workbuddy" | "mcode" | "agy" | "kimi"

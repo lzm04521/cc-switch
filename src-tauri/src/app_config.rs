@@ -12,6 +12,8 @@ pub struct McpApps {
     #[serde(default)]
     pub kimi: bool,
     #[serde(default)]
+    pub dsh: bool,
+    #[serde(default)]
     pub agy: bool,
     #[serde(default)]
     pub claude: bool,
@@ -27,8 +29,6 @@ pub struct McpApps {
     pub hermes: bool,
     #[serde(default)]
     pub zcode: bool,
-    #[serde(default)]
-    pub dsh: bool,
     #[serde(default)]
     pub workbuddy: bool,
     #[serde(default)]
@@ -50,6 +50,7 @@ impl McpApps {
             AppType::Hermes => self.hermes,
             AppType::Mcode => self.mcode,
             AppType::Kimi => self.kimi,
+            AppType::Dsh => self.dsh,
             AppType::Pi => self.pi,
             AppType::Omp => self.omp,
             AppType::ClaudeDesktop => false,
@@ -72,6 +73,7 @@ impl McpApps {
             AppType::Hermes => self.hermes = enabled,
             AppType::Mcode => self.mcode = enabled,
             AppType::Kimi => self.kimi = enabled,
+            AppType::Dsh => self.dsh = enabled,
             AppType::Pi => self.pi = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
             AppType::Zcode => self.zcode = enabled,
@@ -103,6 +105,9 @@ impl McpApps {
         if self.agy {
             apps.push(AppType::Agy);
         }
+        if self.dsh {
+            apps.push(AppType::Dsh);
+        }
         if self.kimi {
             apps.push(AppType::Kimi);
         }
@@ -140,6 +145,7 @@ impl McpApps {
             && !self.hermes
             && !self.agy
             && !self.kimi
+            && !self.dsh
             && !self.mcode
             && !self.zcode
             && !self.dsh
@@ -156,6 +162,8 @@ pub struct SkillApps {
     pub mcode: bool,
     #[serde(default)]
     pub kimi: bool,
+    #[serde(default)]
+    pub dsh: bool,
     #[serde(default)]
     pub agy: bool,
     #[serde(default)]
@@ -175,8 +183,6 @@ pub struct SkillApps {
     #[serde(default)]
     pub zcode: bool,
     #[serde(default)]
-    pub dsh: bool,
-    #[serde(default)]
     pub workbuddy: bool,
     #[serde(default)]
     pub omp: bool,
@@ -195,6 +201,7 @@ impl SkillApps {
             AppType::Pi => self.pi,
             AppType::Mcode => self.mcode,
             AppType::Kimi => self.kimi,
+            AppType::Dsh => self.dsh,
             AppType::OpenClaw => false,
             AppType::Agy => self.agy,
             AppType::Omp => self.omp,
@@ -217,6 +224,7 @@ impl SkillApps {
             AppType::Pi => self.pi = enabled,
             AppType::Mcode => self.mcode = enabled,
             AppType::Kimi => self.kimi = enabled,
+            AppType::Dsh => self.dsh = enabled,
             AppType::OpenClaw => {}
             AppType::Agy => self.agy = enabled,
             AppType::Omp => self.omp = enabled,
@@ -248,6 +256,9 @@ impl SkillApps {
         if self.agy {
             apps.push(AppType::Agy);
         }
+        if self.dsh {
+            apps.push(AppType::Dsh);
+        }
         if self.kimi {
             apps.push(AppType::Kimi);
         }
@@ -285,6 +296,7 @@ impl SkillApps {
             && !self.hermes
             && !self.agy
             && !self.kimi
+            && !self.dsh
             && !self.mcode
             && !self.pi
             && !self.zcode
@@ -524,9 +536,9 @@ pub enum AppType {
     Pi,
     Mcode,
     Kimi,
+    Dsh,
     Agy,
     Zcode,
-    Dsh,
     Workbuddy,
     Omp,
 }
@@ -545,9 +557,9 @@ impl AppType {
             AppType::Pi => "pi",
             AppType::Mcode => "mcode",
             AppType::Kimi => "kimi",
+            AppType::Dsh => "dsh",
             AppType::Agy => "agy",
             AppType::Zcode => "zcode",
-            AppType::Dsh => "dsh",
             AppType::Workbuddy => "workbuddy",
             AppType::Omp => "omp",
         }
@@ -567,6 +579,7 @@ impl AppType {
                 | AppType::Pi
                 | AppType::Mcode
                 | AppType::Kimi
+                | AppType::Dsh
                 | AppType::Omp
         )
     }
@@ -599,9 +612,9 @@ impl AppType {
             AppType::Pi,
             AppType::Mcode,
             AppType::Kimi,
+            AppType::Dsh,
             AppType::Agy,
             AppType::Zcode,
-            AppType::Dsh,
             AppType::Workbuddy,
             AppType::Omp,
         ]
@@ -626,6 +639,7 @@ impl FromStr for AppType {
             "pi" => Ok(AppType::Pi),
             "mcode" => Ok(AppType::Mcode),
             "kimi" | "kimi-code" => Ok(AppType::Kimi),
+            "dsh" | "deepseek-harness" => Ok(AppType::Dsh),
             "agy" | "antigravity" | "antigravity-cli" => Ok(AppType::Agy),
             "zcode" => Ok(AppType::Zcode),
             "dsh" => Ok(AppType::Dsh),
@@ -633,8 +647,8 @@ impl FromStr for AppType {
             "omp" | "oh-my-pi" | "oh_my_pi" | "ohmypi" => Ok(AppType::Omp),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy, zcode, dsh, workbuddy, omp。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy, zcode, dsh, workbuddy, omp."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, zcode, workbuddy。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, zcode, workbuddy."),
             )),
         }
     }
@@ -677,10 +691,13 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode.as_ref(),
             AppType::OpenClaw => self.openclaw.as_ref(),
             AppType::Hermes => self.hermes.as_ref(),
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => None,
+            AppType::Pi
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Agy => None,
             AppType::Zcode => self.zcode.as_ref(),
-            // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
-            AppType::Dsh => None,
             // workbuddy 的 provider 由 workbuddy 应用内自管，不使用通用配置片段
             AppType::Workbuddy => None,
         }
@@ -697,10 +714,13 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode = snippet,
             AppType::OpenClaw => self.openclaw = snippet,
             AppType::Hermes => self.hermes = snippet,
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => {}
+            AppType::Pi
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Agy => {}
             AppType::Zcode => self.zcode = snippet,
-            // dsh 的 provider 由 dsh 应用内自管，不使用通用配置片段
-            AppType::Dsh => {}
             // workbuddy 的 provider 由 workbuddy 应用内自管，不使用通用配置片段
             AppType::Workbuddy => {}
         }
@@ -1033,12 +1053,13 @@ impl MultiAppConfig {
             AppType::Hermes => &mut config.prompts.hermes.prompts,
             // Pi was added after prompts moved to SQLite. Keeping it out of
             // this legacy config avoids a second, unused prompt state.
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => {
-                return Ok(false)
-            }
+            AppType::Pi
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Agy => return Ok(false),
             AppType::Zcode => &mut config.prompts.zcode.prompts,
-            // dsh 不支持 prompts
-            AppType::Dsh => return Ok(false),
             // workbuddy 不支持 prompts
             AppType::Workbuddy => return Ok(false),
         };
@@ -1085,9 +1106,12 @@ impl MultiAppConfig {
                 AppType::Dsh => continue, // dsh 走 cordis.patch.yml 插件条目，无旧结构可迁移
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue, // Hermes didn't exist in v3.6.x, skip
-                AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => {
-                    continue
-                } // Pi didn't exist in v3.6.x, skip
+                AppType::Pi
+                | AppType::Mcode
+                | AppType::Kimi
+                | AppType::Dsh
+                | AppType::Omp
+                | AppType::Agy => continue, // Pi didn't exist in v3.6.x, skip
                 AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip
                 AppType::Workbuddy => continue, // WorkBuddy didn't exist in v3.6.x, skip
             };

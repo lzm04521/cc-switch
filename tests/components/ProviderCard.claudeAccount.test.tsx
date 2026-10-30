@@ -42,6 +42,7 @@ vi.mock("@/lib/query/failover", () => ({
 }));
 vi.mock("@/lib/query/queries", () => ({
   useUsageQuery: () => ({ data: undefined }),
+  useSettingsQuery: () => ({ data: undefined }),
 }));
 
 const boundCard = (meta: Provider["meta"] = {}): Provider => ({

@@ -284,12 +284,28 @@ function App() {
     }
   }, [activeApp, currentView]);
 
-  // zcode / dsh / workbuddy 的 provider 由应用内自管：切换时把视图重定向到
-  // 允许的功能页（providers 为默认页，仅展示提示；dsh/workbuddy 以 skills 为主入口）。
-  // apps / usage / auth 是 v4 全局页（应用管理、用量统计、授权中心），与当前应用
-  // 无关且侧栏入口对所有应用显示，任何应用下都允许停留
+  // zcode / workbuddy 的 provider 由应用内自管：切换时把视图重定向到
+  // 允许的功能页（providers 为默认页，仅展示提示；workbuddy 以 skills 为主入口）。
+  // dsh 已随上游 v4.0.22 全量接管（provider/账号/用量/会话），仅保留非代理的
+  // 视图边界。apps / usage / auth 是 v4 全局页（应用管理、用量统计、授权中心），
+  // 与当前应用无关且侧栏入口对所有应用显示，任何应用下都允许停留
   useEffect(() => {
-    if (activeApp === "dsh" || activeApp === "workbuddy") {
+    if (activeApp === "dsh") {
+      const allowed: View[] = [
+        "providers",
+        "skills",
+        "skillsDiscovery",
+        "mcp",
+        "sessions",
+        "settings",
+        "apps",
+        "usage",
+        "auth",
+      ];
+      if (!allowed.includes(currentView)) setCurrentView("providers");
+      return;
+    }
+    if (activeApp === "workbuddy") {
       const allowed: View[] = [
         "providers",
         "skills",
@@ -824,6 +840,7 @@ function App() {
       try {
         if (
           activeApp === "mcode" ||
+          activeApp === "dsh" ||
           activeApp === "kimi" ||
           activeApp === "agy"
         )
@@ -1054,7 +1071,7 @@ function App() {
         queryClient.invalidateQueries({ queryKey: hermesKeys.liveProviderIds }),
         queryClient.invalidateQueries({ queryKey: hermesKeys.modelConfig }),
       ]);
-    } else if (app === "mcode" || app === "kimi") {
+    } else if (app === "mcode" || app === "dsh" || app === "kimi") {
       await queryClient.invalidateQueries({ queryKey: ["providers", app] });
     }
   };
@@ -1225,7 +1242,11 @@ function App() {
         existingKeys,
       );
       duplicatedProvider.addToLive = false;
-    } else if (activeApp === "mcode" || activeApp === "kimi") {
+    } else if (
+      activeApp === "mcode" ||
+      activeApp === "dsh" ||
+      activeApp === "kimi"
+    ) {
       // The MCode list already includes its live custom nodes; the backend
       // rejects a key that MCode itself owns.
       duplicatedProvider.providerKey = generateUniqueProviderCopyKey(
@@ -1344,7 +1365,7 @@ function App() {
 
   // 应用页 ⋯ →「查看此应用的用量」：带上这个应用的筛选（Claude Desktop 的流量并在 Claude 里）
   const usageAppOf = (app: AppId): AppTypeFilter | null => {
-    const type = app === "claude-desktop" ? "claude" : app;
+    const type = sharedFeatureAppOf(app);
     return (KNOWN_APP_TYPES as ReadonlyArray<string>).includes(type)
       ? (type as AppTypeFilter)
       : null;
@@ -1432,6 +1453,7 @@ function App() {
         <>
           {currentView === "providers" &&
             activeApp !== "mcode" &&
+            activeApp !== "dsh" &&
             activeApp !== "kimi" &&
             (settingsData?.showProfileSwitcher ?? false) && (
               <ProfileSwitcher activeApp={activeApp} />
@@ -1532,7 +1554,7 @@ function App() {
     onConfigureUsage: setUsageProvider,
     onOpenWebsite: handleOpenWebsite,
     onOpenTerminal:
-      activeApp === "claude" || activeApp === "agy"
+      activeApp === "claude" || activeApp === "codex" || activeApp === "agy"
         ? setTerminalProvider
         : undefined,
     onCreate: () => openAddProvider(currentModeView),
@@ -1541,21 +1563,16 @@ function App() {
   };
 
   const renderProviderList = () => {
-    // zcode / dsh / workbuddy 的 provider 由应用内自管，cc-switch 不提供
+    // zcode / workbuddy 的 provider 由应用内自管，cc-switch 不提供
     // 新增/路由/统计等管理功能，仅展示一条提示。
-    if (
-      activeApp === "zcode" ||
-      activeApp === "dsh" ||
-      activeApp === "workbuddy"
-    ) {
+    // dsh 已随上游 v4.0.22 全量接管（provider/账号/用量），走正常列表流程。
+    if (activeApp === "zcode" || activeApp === "workbuddy") {
       return (
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <p className="max-w-md text-sm leading-relaxed text-fg-2">
-            {activeApp === "dsh"
-              ? t("dsh.providerManagedExternally")
-              : activeApp === "workbuddy"
-                ? t("workbuddy.providerManagedExternally")
-                : t("zcode.providerManagedExternally")}
+            {activeApp === "workbuddy"
+              ? t("workbuddy.providerManagedExternally")
+              : t("zcode.providerManagedExternally")}
           </p>
         </div>
       );
@@ -1618,6 +1635,7 @@ function App() {
               activeApp === "pi" ||
               activeApp === "mcode" ||
               activeApp === "kimi" ||
+              activeApp === "dsh" ||
               activeApp === "omp"
                 ? (provider) => setConfirmAction({ provider, action: "remove" })
                 : undefined

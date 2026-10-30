@@ -60,15 +60,26 @@ impl McpService {
             }
         };
         // MCode / Pi 的文件和数据库一起提交：任一步失败都恢复原样
+        let save_with_dsh = || {
+            if server.apps.dsh || prev_apps.dsh {
+                mcp::dsh::sync_and_commit(
+                    &server.id,
+                    server.apps.dsh.then_some(&server.server),
+                    save_with_omp,
+                )
+            } else {
+                save_with_omp()
+            }
+        };
         let save_with_kimi = || {
             if server.apps.kimi || prev_apps.kimi {
                 mcp::kimi::sync_and_commit(
                     &server.id,
                     server.apps.kimi.then_some(&server.server),
-                    save_with_omp,
+                    save_with_dsh,
                 )
             } else {
-                save_with_omp()
+                save_with_dsh()
             }
         };
         let save_with_agy = || {
@@ -143,11 +154,18 @@ impl McpService {
         let server = state.db.get_all_mcp_servers()?.shift_remove(id);
 
         if let Some(server) = server {
-            let delete_with_kimi = || {
-                if server.apps.kimi {
-                    mcp::kimi::sync_and_commit(id, None, || state.db.delete_mcp_server(id))
+            let delete_with_dsh = || {
+                if server.apps.dsh {
+                    mcp::dsh::sync_and_commit(id, None, || state.db.delete_mcp_server(id))
                 } else {
                     state.db.delete_mcp_server(id)
+                }
+            };
+            let delete_with_kimi = || {
+                if server.apps.kimi {
+                    mcp::kimi::sync_and_commit(id, None, delete_with_dsh)
+                } else {
+                    delete_with_dsh()
                 }
             };
             let delete_with_omp = || {
@@ -226,7 +244,12 @@ impl McpService {
     ) -> Result<(), AppError> {
         if matches!(
             app,
-            AppType::Mcode | AppType::Kimi | AppType::Pi | AppType::Agy | AppType::Omp
+            AppType::Mcode
+                | AppType::Kimi
+                | AppType::Dsh
+                | AppType::Omp
+                | AppType::Pi
+                | AppType::Agy
         ) {
             if let Some(server) = state.db.get_all_mcp_servers()?.get(server_id) {
                 let spec = enabled.then_some(&server.server);
@@ -241,6 +264,8 @@ impl McpService {
                         mcp::agy::AgyChange::from_enabled(spec),
                         commit,
                     )?;
+                } else if app == AppType::Dsh {
+                    mcp::dsh::sync_and_commit(server_id, spec, commit)?;
                 } else if app == AppType::Kimi {
                     mcp::kimi::sync_and_commit(server_id, spec, commit)?;
                 } else if app == AppType::Mcode {
@@ -281,7 +306,12 @@ impl McpService {
         for app in server.apps.enabled_apps() {
             if matches!(
                 app,
-                AppType::Mcode | AppType::Kimi | AppType::Pi | AppType::Agy | AppType::Omp
+                AppType::Mcode
+                    | AppType::Kimi
+                    | AppType::Dsh
+                    | AppType::Omp
+                    | AppType::Pi
+                    | AppType::Agy
             ) {
                 continue; // Already written before saving the managed state.
             }
@@ -343,13 +373,11 @@ impl McpService {
             }
             AppType::Mcode => mcp::mcode::sync(&server.id, Some(&server.server))?,
             AppType::Kimi => mcp::kimi::sync(&server.id, Some(&server.server))?,
+            AppType::Dsh => mcp::dsh::sync(&server.id, Some(&server.server))?,
             AppType::Pi => mcp::pi::sync(&server.id, Some(&server.server))?,
             AppType::Agy => mcp::agy::sync(&server.id, Some(&server.server))?,
             AppType::Zcode => {
                 mcp::sync_single_server_to_zcode(&Default::default(), &server.id, &server.server)?;
-            }
-            AppType::Dsh => {
-                mcp::sync_single_server_to_dsh(&Default::default(), &server.id, &server.server)?;
             }
             AppType::Workbuddy => {
                 mcp::sync_single_server_to_workbuddy(
@@ -373,7 +401,12 @@ impl McpService {
         for app in server.apps.enabled_apps() {
             if matches!(
                 app,
-                AppType::Mcode | AppType::Kimi | AppType::Pi | AppType::Agy | AppType::Omp
+                AppType::Mcode
+                    | AppType::Kimi
+                    | AppType::Dsh
+                    | AppType::Omp
+                    | AppType::Pi
+                    | AppType::Agy
             ) {
                 continue; // Already removed before deleting the managed record.
             }
@@ -408,13 +441,11 @@ impl McpService {
             }
             AppType::Mcode => mcp::mcode::sync(id, None)?,
             AppType::Kimi => mcp::kimi::sync(id, None)?,
+            AppType::Dsh => mcp::dsh::sync(id, None)?,
             AppType::Pi => mcp::pi::sync(id, None)?,
             AppType::Agy => mcp::agy::sync(id, None)?,
             AppType::Zcode => {
                 mcp::remove_server_from_zcode(id)?;
-            }
-            AppType::Dsh => {
-                mcp::remove_server_from_dsh(id)?;
             }
             AppType::Workbuddy => {
                 mcp::remove_server_from_workbuddy(id)?;
@@ -527,7 +558,12 @@ impl McpService {
                 Self::sync_server_to_app(state, server, app)
             } else if !matches!(
                 app,
-                AppType::Mcode | AppType::Kimi | AppType::Pi | AppType::Agy | AppType::Omp
+                AppType::Mcode
+                    | AppType::Kimi
+                    | AppType::Dsh
+                    | AppType::Omp
+                    | AppType::Pi
+                    | AppType::Agy
             ) {
                 Self::remove_server_from_app(state, &server.id, app)
             } else {
@@ -860,41 +896,6 @@ impl McpService {
         Ok(new_count)
     }
 
-    /// 从 DSH 导入 MCP（fork 定制，落盘 ~/.dsh/mcp.json 数组格式）
-    pub fn import_from_dsh(state: &AppState) -> Result<usize, AppError> {
-        let mut temp_config = crate::app_config::MultiAppConfig::default();
-        let count = crate::mcp::import_from_dsh(&mut temp_config)?;
-
-        let mut new_count = 0;
-
-        if count > 0 {
-            if let Some(servers) = &temp_config.mcp.servers {
-                let mut existing = state.db.get_all_mcp_servers()?;
-                for server in servers.values() {
-                    // 已存在：镜像 dsh 文件的 enabled 状态（temp 条目的 apps.dsh
-                    // 来自条目 enabled 标志），导入不应无条件改变 dsh 侧开关
-                    let to_save = if let Some(existing_server) = existing.get(&server.id) {
-                        let mut merged = existing_server.clone();
-                        merged.apps.dsh = server.apps.dsh;
-                        merged
-                    } else {
-                        // 真正的新服务器
-                        new_count += 1;
-                        server.clone()
-                    };
-
-                    state.db.save_mcp_server(&to_save)?;
-                    existing.insert(to_save.id.clone(), to_save.clone());
-
-                    // 导入是读取已有配置，不应反向写回任何应用的 live 配置。
-                    // 显式编辑、启用/禁用或手动同步时再执行写回。
-                }
-            }
-        }
-
-        Ok(new_count)
-    }
-
     /// 从 WorkBuddy 导入 MCP（fork 定制，读 ~/.workbuddy/mcp.json 顶层 mcpServers）
     pub fn import_from_workbuddy(state: &AppState) -> Result<usize, AppError> {
         let mut temp_config = crate::app_config::MultiAppConfig::default();
@@ -953,9 +954,9 @@ impl McpService {
             ("hermes", Self::import_from_hermes(state)),
             ("mcode", mcp::mcode::import(state)),
             ("kimi", mcp::kimi::import(state)),
+            ("dsh", mcp::dsh::import(state)),
             ("agy", mcp::agy::import(state)),
             ("zcode", Self::import_from_zcode(state)),
-            ("dsh", Self::import_from_dsh(state)),
             ("workbuddy", Self::import_from_workbuddy(state)),
             ("pi", mcp::pi::import(state)),
             ("omp", Self::import_from_omp(state)),

@@ -59,8 +59,10 @@ use std::sync::Mutex;
 /// v24 承接上游 v4.0.2 的 enabled_pi（上游侧编号为 v20，顺延同上）；
 /// v25 承接上游 v4.0.18 的 enabled_agy（上游侧编号为 v21，顺延同上）；
 /// v26 承接上游 v4.0.19 的 enabled_kimi（上游侧编号为 v22，顺延同上）；
-/// v27 承接上游 v4.0.20 的 enabled_omp（上游侧编号为 v23，顺延同上）
-pub(crate) const SCHEMA_VERSION: i32 = 27;
+/// v27 承接上游 v4.0.20 的 enabled_omp（上游侧编号为 v23，顺延同上）；
+/// v28 承接上游 v4.0.22 的 enabled_dsh + session_log_sync.parser_state
+/// （上游侧编号为 v24，顺延同上；enabled_dsh 列 fork v18/v19 已建，幂等无害）
+pub(crate) const SCHEMA_VERSION: i32 = 28;
 
 /// 安全地序列化 JSON，避免 unwrap panic
 pub(crate) fn to_json_string<T: Serialize>(value: &T) -> Result<String, AppError> {

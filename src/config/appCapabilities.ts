@@ -107,19 +107,16 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     failover: false,
     universal: false,
   }),
-  // DSH providers are managed in-app (settings.yaml/.credentials.yaml);
-  // cc-switch only manages its skills deployment and its profile patch
-  // MCP config (cordis.patch.yml).
+  // DeepSeek Harness (upstream v4.0.22): fully managed — additive providers
+  // with official account sign-in, profile-patch MCP (cordis.patch.yml),
+  // skills, sessions and imported usage; no CCS proxy data plane, no prompts
+  // page. fork: tray/floating-ball rows stay off for dsh (same as before).
   dsh: generic({
     proxy: false,
     failover: false,
     prompts: false,
-    skills: true,
-    mcp: true,
-    sessions: false,
     universal: false,
     tray: false,
-    usage: false,
     defaultModel: false,
   }),
   // Antigravity (upstream v4.0.18): independent provider switching without the

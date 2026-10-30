@@ -41,6 +41,7 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir()?,
         AppType::Mcode => crate::mcode_config::data_dir(),
+        AppType::Dsh => crate::dsh_config::data_dir(),
         AppType::Zcode => get_zcode_dir(),
         AppType::Kimi => crate::kimi_config::data_dir(),
         // agy 只从各「定制根目录」读独立的 AGENTS.md；全局那一个是 ~/.gemini/config，Key 模式的
@@ -57,9 +58,14 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Gemini => "GEMINI.md",
         AppType::GrokBuild | AppType::OpenCode | AppType::OpenClaw => "AGENTS.md",
         AppType::Hermes => "SOUL.md",
-        AppType::Pi | AppType::Mcode | AppType::Agy | AppType::Kimi | AppType::Omp => "AGENTS.md",
+        AppType::Pi
+        | AppType::Mcode
+        | AppType::Agy
+        | AppType::Kimi
+        | AppType::Dsh
+        | AppType::Omp => "AGENTS.md",
         AppType::Zcode => "AGENTS.md",
-        AppType::ClaudeDesktop | AppType::Dsh | AppType::Workbuddy => unreachable!("handled above"),
+        AppType::ClaudeDesktop | AppType::Workbuddy => unreachable!("handled above"),
     };
 
     Ok(base_dir.join(filename))

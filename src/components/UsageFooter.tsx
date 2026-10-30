@@ -29,9 +29,9 @@ interface UsageFooterProps {
   providerId: string;
   appId: AppId;
   usageEnabled: boolean; // 是否启用了用量查询
-  isCurrent: boolean; // 是否为当前激活的供应商
-  isInConfig?: boolean; // OpenCode: 是否已添加到配置
   inline?: boolean; // 是否内联显示（在按钮左侧）
+  isCurrent: boolean; // 是否为当前激活的供应商
+  isInConfig?: boolean; // 累加模式应用：是否已添加到配置
 }
 
 /** UsageData → QuotaTier 转换（Token Plan 使用） */
@@ -106,9 +106,9 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
   providerId,
   appId,
   usageEnabled,
+  inline = false,
   isCurrent,
   isInConfig = false,
-  inline = false,
 }) => {
   const { t } = useTranslation();
   const display = useQuotaDisplay();

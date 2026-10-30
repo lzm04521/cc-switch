@@ -330,13 +330,12 @@ export interface VisibleApps {
   opencode: boolean;
   openclaw: boolean;
   hermes: boolean;
-  /** Deepseek (DSH, live YAML settings, not the SQLite provider store). */
-  dsh: boolean;
   pi: boolean;
   mcode: boolean;
   zcode: boolean;
   workbuddy?: boolean;
   kimi: boolean;
+  dsh?: boolean;
   agy: boolean;
   omp: boolean;
 }
@@ -818,6 +817,7 @@ export interface McpServerSpec {
 export interface McpApps {
   mcode?: boolean;
   kimi?: boolean;
+  dsh?: boolean;
   agy?: boolean;
   claude: boolean;
   "claude-desktop"?: boolean;
@@ -827,7 +827,6 @@ export interface McpApps {
   opencode: boolean;
   openclaw: boolean;
   hermes: boolean;
-  dsh: boolean;
   zcode: boolean;
   workbuddy: boolean;
   pi?: boolean;

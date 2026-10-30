@@ -2118,11 +2118,9 @@ mod tests {
     fn stack_exclusive(route: &Provider, others: &[&Provider]) -> Map<String, Value> {
         let stack: Vec<StackModel> = std::iter::once(route)
             .chain(others.iter().copied())
-            .flat_map(|provider| stack::claude_models(
-                &stack::configured_prefix(),
-                &provider.id,
-                provider,
-            ))
+            .flat_map(|provider| {
+                stack::claude_models(&stack::configured_prefix(), &provider.id, provider)
+            })
             .collect();
         // 这些用例只看 exclusive 字段：四档按同源（默认那家的第一模型）传入。
         let default = stack.first().cloned().map(|model| stack::RouteRoles {
@@ -5894,10 +5892,7 @@ model_provider = "c"
 
         // 进入 Stack 模式时默认那家（a）已经在名单里，照常发布；四档都指向它的第一个模型。
         assert_eq!(stack_state().members, vec!["a"]);
-        assert_eq!(
-            picker(),
-            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
-        );
+        assert_eq!(picker(), Some(vec!["ccs-a.claude-sonnet-4-6".to_string()]));
         let options = &settings()[CLAUDE_MODEL_PICKER]["options"][0];
         assert_eq!(options["label"], "claude-sonnet-4-6(A)");
         assert_eq!(options["description"], "claude-sonnet-4-6 · 200K");
@@ -5998,10 +5993,7 @@ model_provider = "c"
         let state = state_with(AppType::Claude, &stack_rows(), "a").await;
 
         enter(&state, &AppType::Claude, true).await.expect("enter");
-        assert_eq!(
-            picker(),
-            Some(vec!["ccs-a.claude-sonnet-4-6".to_string()])
-        );
+        assert_eq!(picker(), Some(vec!["ccs-a.claude-sonnet-4-6".to_string()]));
 
         exit(&state, &AppType::Claude).await.expect("exit");
         assert!(settings().get(CLAUDE_MODEL_PICKER).is_none());
@@ -6057,10 +6049,7 @@ model_provider = "c"
         assert!(picker().is_some());
         let env = settings()["env"].clone();
         assert_eq!(env[CLAUDE_MAX_CONTEXT_ENV], "128000");
-        assert_eq!(
-            env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
-            "ccs-kimi.kimi-k3"
-        );
+        assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "ccs-kimi.kimi-k3");
         assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"], "kimi-k3");
         let views = stack_views(&state, &AppType::Claude).unwrap().members;
         let published: Vec<(&str, bool, usize)> = views
@@ -6229,10 +6218,7 @@ model_provider = "c"
         let with_a = settings();
         set_member(&state, "a", false).await;
         assert_eq!(stack_state().members, vec!["zhipu"]);
-        assert_eq!(
-            picker(),
-            Some(vec!["ccs-zhipu.glm-5.2[1M]".to_string()])
-        );
+        assert_eq!(picker(), Some(vec!["ccs-zhipu.glm-5.2[1M]".to_string()]));
         let env = settings()["env"].clone();
         assert_eq!(env, with_a["env"], "a is not the default any more");
     }
@@ -6462,10 +6448,10 @@ model_provider = "c"
         assert_eq!(
             profile["inferenceModels"],
             json!([
-                "claude-fable-5",
-                "claude-haiku-4-5",
+                "claude-sonnet-5",
                 "claude-opus-5",
-                "claude-sonnet-5"
+                "claude-fable-5",
+                "claude-haiku-4-5"
             ])
         );
         assert!(models.iter().all(Value::is_string), "no synthetic 1M claim");
@@ -7685,7 +7671,9 @@ model_provider = "c"
         let id = "ccs-deepseek.deepseek-v4-pro";
         set_stack_auto_review(Some(id));
         resync_codex_stack_catalog(&state).await.expect("set");
-        assert!(catalog_auto_review().iter().all(|v| v.as_deref() == Some(id)));
+        assert!(catalog_auto_review()
+            .iter()
+            .all(|v| v.as_deref() == Some(id)));
 
         // 默认那家的 `ccs-*` 不在合并目录里：不写。
         set_stack_auto_review(Some("ccs-a.gpt-a"));
@@ -8203,9 +8191,10 @@ model_provider = "c"
         // 幽灵条目：指向已删除供应商（库里没有这家）的登记 key
         state::update(&DeviceStore::for_device(), |live| {
             let stack = &mut live.apps.entry("claude".to_string()).or_default().stack;
-            stack
-                .keys
-                .insert("CommandCodeClaude".to_string(), "fffcef2d-deleted".to_string());
+            stack.keys.insert(
+                "CommandCodeClaude".to_string(),
+                "fffcef2d-deleted".to_string(),
+            );
         })
         .expect("seed ghost key");
 
@@ -8216,7 +8205,10 @@ model_provider = "c"
         let stack = settled_stack(&AppType::Claude).unwrap();
         assert_eq!(stack.key_of("b"), Some("CommandCodeClaude"));
         assert!(stack.reserved_keys.contains("b"));
-        assert!(!stack.keys.values().any(|id| id.as_str() == "fffcef2d-deleted"));
+        assert!(!stack
+            .keys
+            .values()
+            .any(|id| id.as_str() == "fffcef2d-deleted"));
 
         // c 移出名单但行还在：key 留登记簿挡复用（重新加入拿回原 key 的契约）
         set_stack_member(&state, &AppType::Claude, "c", false)

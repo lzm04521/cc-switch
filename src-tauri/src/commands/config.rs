@@ -138,6 +138,13 @@ pub async fn get_config_status(
 
             Ok(ConfigStatus { exists, path })
         }
+        AppType::Dsh => {
+            let file = crate::dsh_config::config_path();
+            Ok(ConfigStatus {
+                exists: file.exists(),
+                path: file.to_string_lossy().to_string(),
+            })
+        }
         AppType::Kimi => {
             let file = crate::kimi_config::config_path();
             Ok(ConfigStatus {
@@ -180,13 +187,12 @@ pub async fn get_config_status(
             Ok(ConfigStatus { exists, path })
         }
         AppType::Dsh => {
-            // web 与 desktop 两个 profile 任一存在即视为已配置
-            let exists = crate::dsh_mcp_config::get_dsh_mcp_config_paths()
-                .iter()
-                .any(|path| path.exists());
-            let path = crate::dsh_config::get_home().to_string_lossy().to_string();
-
-            Ok(ConfigStatus { exists, path })
+            // 上游语义：权威 profile（web 优先）存在即视为已配置
+            let file = crate::dsh_config::config_path();
+            Ok(ConfigStatus {
+                exists: file.exists(),
+                path: file.to_string_lossy().into_owned(),
+            })
         }
         AppType::Workbuddy => {
             let config_path = crate::workbuddy_config::get_mcp_config_path();
@@ -231,6 +237,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
         AppType::OpenClaw => crate::openclaw_config::get_openclaw_dir(),
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir().map_err(|e| e.to_string())?,
+        AppType::Dsh => crate::dsh_config::data_dir(),
         AppType::Kimi => crate::kimi_config::data_dir(),
         AppType::Omp => crate::omp_config::get_omp_agent_dir().map_err(|e| e.to_string())?,
         AppType::Mcode => crate::mcode_config::config_path()
@@ -239,7 +246,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
             .to_path_buf(),
         AppType::Agy => crate::agy_config::agy_dir(),
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
-        AppType::Dsh => crate::dsh_config::get_home(),
+        AppType::Dsh => crate::dsh_config::data_dir(),
         AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir(),
     };
 
@@ -260,6 +267,7 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
         AppType::OpenClaw => crate::openclaw_config::get_openclaw_dir(),
         AppType::Hermes => crate::hermes_config::get_hermes_dir(),
         AppType::Pi => crate::pi_config::get_pi_agent_dir().map_err(|e| e.to_string())?,
+        AppType::Dsh => crate::dsh_config::data_dir(),
         AppType::Kimi => crate::kimi_config::data_dir(),
         AppType::Omp => crate::omp_config::get_omp_agent_dir().map_err(|e| e.to_string())?,
         AppType::Mcode => crate::mcode_config::config_path()
@@ -268,7 +276,6 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
             .to_path_buf(),
         AppType::Agy => crate::agy_config::agy_dir(),
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
-        AppType::Dsh => crate::dsh_config::get_home(),
         AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir(),
     };
 

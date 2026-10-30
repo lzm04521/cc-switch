@@ -122,9 +122,9 @@ const APP_SHORT_NAME: Record<AppId, string> = {
   pi: "Pi",
   mcode: "MiniMax",
   kimi: "Kimi",
+  dsh: "DSH",
   agy: "Antigravity",
   zcode: "ZCode",
-  dsh: "DSH",
   workbuddy: "WB",
   omp: "omp",
 };
