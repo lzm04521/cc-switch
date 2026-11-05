@@ -1,0 +1,12 @@
+{
+  "version": "4.0.22-2",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "DeepSeek Harness 提示词管理现已生效，可编辑启用 AGENTS.md",
+      "zh-TW": "DeepSeek Harness 提示詞管理現已生效，可編輯啟用 AGENTS.md",
+      "en": "DeepSeek Harness prompt management now works — edit and activate AGENTS.md",
+      "ja": "DeepSeek Harness のプロンプト管理が有効に。AGENTS.md を編集・有効化可能"
+    }
+  ]
+}
