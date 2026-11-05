@@ -295,6 +295,7 @@ function App() {
         "providers",
         "skills",
         "skillsDiscovery",
+        "prompts",
         "mcp",
         "sessions",
         "settings",

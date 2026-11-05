@@ -109,12 +109,11 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
   }),
   // DeepSeek Harness (upstream v4.0.22): fully managed — additive providers
   // with official account sign-in, profile-patch MCP (cordis.patch.yml),
-  // skills, sessions and imported usage; no CCS proxy data plane, no prompts
-  // page. fork: tray/floating-ball rows stay off for dsh (same as before).
+  // skills, prompts (AGENTS.md), sessions and imported usage; no CCS proxy
+  // data plane. fork: tray/floating-ball rows stay off for dsh (same as before).
   dsh: generic({
     proxy: false,
     failover: false,
-    prompts: false,
     universal: false,
     tray: false,
     defaultModel: false,
