@@ -62,6 +62,7 @@ const DIRECTORY_KEYS = [
   "hermesConfigDir",
   "piConfigDir",
   "ompConfigDir",
+  "dshConfigDir",
 ] as const;
 
 const sanitizeDir = (value?: string | null): string | undefined => {
@@ -374,6 +375,7 @@ export function useSettings(): UseSettingsResult {
         const previousOpenclawDir = sanitizeDir(data?.openclawConfigDir);
         const previousPiDir = sanitizeDir(data?.piConfigDir);
         const previousOmpDir = sanitizeDir(data?.ompConfigDir);
+        const previousDshDir = sanitizeDir(data?.dshConfigDir);
         const {
           webdavSync: _ignoredWebdavSync,
           s3Sync: _ignoredS3Sync,
@@ -482,6 +484,7 @@ export function useSettings(): UseSettingsResult {
         const openclawDirChanged = sanitizedOpenclawDir !== previousOpenclawDir;
         const piDirChanged = sanitizedPiDir !== previousPiDir;
         const ompDirChanged = sanitizedOmpDir !== previousOmpDir;
+        const dshDirChanged = sanitizedDshDir !== previousDshDir;
         if (
           !pluginSynced &&
           (claudeDirChanged ||
@@ -504,6 +507,19 @@ export function useSettings(): UseSettingsResult {
         }
         if (ompDirChanged) {
           await invalidatePiDirectoryCaches(queryClient, "omp");
+        }
+        if (dshDirChanged) {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["providers", "dsh"] }),
+            queryClient.invalidateQueries({
+              queryKey: ["skills", "installed"],
+            }),
+            queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+            // DSH_ACCOUNT_STATUS_KEY：登录凭据也在 DSH 主目录里，不刷新会显示旧目录的账号
+            queryClient.invalidateQueries({
+              queryKey: ["dsh-account-status"],
+            }),
+          ]);
         }
 
         const appDirChanged = sanitizedAppDir !== (previousAppDir ?? undefined);

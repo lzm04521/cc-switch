@@ -186,14 +186,6 @@ pub async fn get_config_status(
 
             Ok(ConfigStatus { exists, path })
         }
-        AppType::Dsh => {
-            // 上游语义：权威 profile（web 优先）存在即视为已配置
-            let file = crate::dsh_config::config_path();
-            Ok(ConfigStatus {
-                exists: file.exists(),
-                path: file.to_string_lossy().into_owned(),
-            })
-        }
         AppType::Workbuddy => {
             let config_path = crate::workbuddy_config::get_mcp_config_path();
             let exists = config_path.exists();
@@ -246,7 +238,6 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
             .to_path_buf(),
         AppType::Agy => crate::agy_config::agy_dir(),
         AppType::Zcode => crate::zcode_config::get_zcode_dir(),
-        AppType::Dsh => crate::dsh_config::data_dir(),
         AppType::Workbuddy => crate::workbuddy_config::get_workbuddy_dir(),
     };
 

@@ -716,9 +716,6 @@ impl SkillService {
                     return Ok(custom.join("skills"));
                 }
             }
-            // dsh 的覆盖解析在默认段的 dsh_config::data_dir() 里统一处理
-            // （dsh_config_dir 覆盖 → DSH_HOME → ~/.dsh，fork 融合进上游 data_dir）
-            AppType::Dsh => {}
             // workbuddy 目录固定 ~/.workbuddy（无覆盖机制），默认段直接解析
             AppType::Workbuddy => {}
             AppType::Omp => {

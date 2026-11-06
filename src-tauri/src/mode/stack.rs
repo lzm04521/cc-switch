@@ -494,6 +494,8 @@ pub struct DesktopStackModel {
     pub upstream: String,
     /// 选择器里显示的名字（`labelOverride`）：`<供应商名> / <模型显示名>`。
     pub label: String,
+    /// 供应商名（模型说明里用）。
+    pub provider_name: String,
     /// 映射表里这个模型标了 1M。
     pub supports_1m: bool,
 }
@@ -525,6 +527,7 @@ pub fn desktop_models(key: &str, provider: &Provider) -> Vec<DesktopStackModel> 
                 false,
             ),
             label: format!("{} / {name}", provider.name),
+            provider_name: provider.name.clone(),
             upstream: route.upstream_model,
             supports_1m: route.supports_1m,
         });
@@ -570,13 +573,23 @@ pub fn provider_label(provider: &Provider) -> &str {
         .unwrap_or(&provider.name)
 }
 
-/// 选择器里 Stack 模型的说明：`<上游模型名> · <窗口>`。显示名可以是用户自己起的，id 又带着
+/// Codex Stack 模型的说明：`<上游模型名> · <窗口>`。显示名可以是用户自己起的，id 又带着
 /// 前缀，上游真正的模型名只有这里看得到；供应商名已经在显示名里，不再重复。窗口未知
 /// （`0`）时只写模型名。
 pub fn model_description(model: &str, window: u64) -> String {
     match window_label(window) {
         Some(window) => format!("{model} · {window}"),
         None => model.to_string(),
+    }
+}
+
+/// Claude Code、Claude Desktop 里模型的说明：`<供应商名> · <上游模型名> · <窗口>`。路由那家的
+/// 档位、聚合模式的模型、「打开终端」的菜单都用它。供应商名为空时同 [`model_description`]。
+pub fn provider_model_description(provider_name: &str, model: &str, window: u64) -> String {
+    let description = model_description(model, window);
+    match provider_name.trim() {
+        "" => description,
+        name => format!("{name} · {description}"),
     }
 }
 
@@ -1322,6 +1335,12 @@ mod tests {
         assert_eq!(model_description("glm-5.2", 1_000_000), "glm-5.2 · 1M");
         assert_eq!(model_description("glm-5.2", 1_050_000), "glm-5.2 · 1050K");
         assert_eq!(model_description("m", 0), "m");
+        // Claude Code、Claude Desktop 的说明带供应商名。
+        assert_eq!(
+            provider_model_description("Kimi", "kimi-k3", 256_000),
+            "Kimi · kimi-k3 · 256K"
+        );
+        assert_eq!(provider_model_description(" ", "m", 0), "m");
     }
 
     fn with_stack_models(mut provider: Provider, models: Value) -> Provider {

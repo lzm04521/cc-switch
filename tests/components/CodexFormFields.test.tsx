@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexFormFields } from "@/components/providers/forms/CodexFormFields";
 import { Form } from "@/components/ui/form";
 import type { FetchedModel } from "@/lib/api/model-fetch";
+import type { CodexChatReasoning } from "@/types";
 
 const modelFetchApiMock = vi.hoisted(() => ({
   fetchModelsForConfig: vi.fn(),
@@ -47,8 +48,8 @@ const HEADERS_PLACEHOLDER = /X-Provider/;
 // while Base URL / API Key stay untouched.
 const INITIAL_HEADERS_OVERRIDE = '{"X-Tenant": "tenant-1"}';
 
-function renderCodexForm() {
-  const baseProps: CodexFormFieldsProps = {
+function baseCodexProps(): CodexFormFieldsProps {
+  return {
     codexApiKey: "sk-test",
     onApiKeyChange: vi.fn(),
     category: "third_party",
@@ -85,6 +86,10 @@ function renderCodexForm() {
     onLocalProxyBodyRewritesChange: vi.fn(),
     shouldShowSpeedTest: true,
   };
+}
+
+function renderCodexForm() {
+  const baseProps = baseCodexProps();
 
   function Harness() {
     const [headersOverride, setHeadersOverride] = useState(
@@ -97,6 +102,35 @@ function renderCodexForm() {
           {...baseProps}
           localProxyHeadersOverride={headersOverride}
           onLocalProxyHeadersOverrideChange={setHeadersOverride}
+        />
+      </FormShell>
+    );
+  }
+
+  return render(<Harness />);
+}
+
+function renderReasoningForm() {
+  function Harness() {
+    const [reasoning, setReasoning] = useState<CodexChatReasoning>({
+      supportsThinking: true,
+      supportsEffort: true,
+      thinkingParam: "thinking",
+      effortParam: "reasoning_effort",
+      effortValueMode: "passthrough",
+      outputFormat: "auto",
+    });
+
+    return (
+      <FormShell>
+        <output data-testid="reasoning-state">
+          {JSON.stringify(reasoning)}
+        </output>
+        <CodexFormFields
+          {...baseCodexProps()}
+          apiFormat="openai_chat"
+          codexChatReasoning={reasoning}
+          onCodexChatReasoningChange={setReasoning}
         />
       </FormShell>
     );
@@ -179,5 +213,30 @@ describe("CodexFormFields model fetch identity", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
+  });
+});
+
+describe("CodexFormFields reasoning effort", () => {
+  it("restores the default parameter after effort support is disabled and re-enabled", () => {
+    renderReasoningForm();
+
+    const toggle = screen.getByRole("switch", {
+      name: "支持思考等级",
+    });
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("reasoning-state")).toHaveTextContent(
+      '"supportsEffort":false',
+    );
+    expect(screen.getByTestId("reasoning-state")).toHaveTextContent(
+      '"effortParam":"none"',
+    );
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("reasoning-state")).toHaveTextContent(
+      '"supportsEffort":true',
+    );
+    expect(screen.getByTestId("reasoning-state")).toHaveTextContent(
+      '"effortParam":"reasoning_effort"',
+    );
   });
 });

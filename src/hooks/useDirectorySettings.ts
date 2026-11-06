@@ -467,30 +467,6 @@ export function useDirectorySettings({
   const resetDirectory = useCallback(
     async (app: DirectoryAppId) => {
       const key = APP_DIRECTORY_META[app].key;
-      if (app === "dsh") {
-        // DSH's effective home may come from DSH_HOME, so ask the backend for
-        // the fallback after clearing the cc-switch override.
-        onUpdateSettings({ dshConfigDir: undefined });
-        const fallback = await settingsApi
-          .getDshDefaultHome()
-          .catch((error) => {
-            console.error(
-              "[useDirectorySettings] Failed to resolve DSH default",
-              error,
-            );
-            return undefined;
-          });
-        if (fallback) {
-          defaultsRef.current = { ...defaultsRef.current, dsh: fallback };
-          setResolvedDirs((prev) => ({ ...prev, dsh: fallback }));
-        } else {
-          setResolvedDirs((prev) => ({
-            ...prev,
-            dsh: defaultsRef.current.dsh,
-          }));
-        }
-        return;
-      }
       if (!defaultsRef.current[key]) {
         const fallback = await computeDefaultConfigDir(app);
         if (fallback) {

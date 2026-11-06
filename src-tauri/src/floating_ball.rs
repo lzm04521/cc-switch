@@ -130,6 +130,8 @@ pub struct BallPanelLayout {
     pub main_width: f64,
     pub sub_width: f64,
     pub gap: f64,
+    /// 面板文案随布局一起下发（上游 #9154 起文案不再跟面板数据走，悬浮球布局同构）
+    pub texts: crate::tray_panel::PanelTexts,
 }
 
 pub fn panel_layout_payload() -> Option<BallPanelLayout> {
@@ -144,6 +146,7 @@ pub fn panel_layout_payload() -> Option<BallPanelLayout> {
         main_width: canvas.main_width,
         sub_width: SUB_PANEL_WIDTH,
         gap: SUB_PANEL_GAP,
+        texts: crate::tray_panel::PanelTexts::current(),
     })
 }
 

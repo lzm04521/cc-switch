@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
 import type { UsageResult } from "@/types";
+import type { PanelTexts } from "@/tray-panel/api";
 import type { AppId } from "./types";
 
 export interface BallProviderInfo {
@@ -24,6 +25,8 @@ export interface BallPanelLayout {
   mainWidth: number;
   subWidth: number;
   gap: number;
+  /** 面板文案随布局一起下发（上游 #9154 起不再跟面板数据走） */
+  texts: PanelTexts;
 }
 
 /** 后端 UsageCache 全量快照条目（get_provider_usage_cache 返回） */

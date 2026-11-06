@@ -55,7 +55,6 @@ impl McpApps {
             AppType::Omp => self.omp,
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
-            AppType::Dsh => self.dsh,
             AppType::Workbuddy => self.workbuddy,
             AppType::Agy => self.agy,
         }
@@ -77,7 +76,6 @@ impl McpApps {
             AppType::Pi => self.pi = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
             AppType::Zcode => self.zcode = enabled,
-            AppType::Dsh => self.dsh = enabled,
             AppType::Workbuddy => self.workbuddy = enabled,
             AppType::Agy => self.agy = enabled,
             AppType::Omp => self.omp = enabled,
@@ -207,7 +205,6 @@ impl SkillApps {
             AppType::Omp => self.omp,
             AppType::ClaudeDesktop => false,
             AppType::Zcode => self.zcode,
-            AppType::Dsh => self.dsh,
             AppType::Workbuddy => self.workbuddy,
         }
     }
@@ -230,7 +227,6 @@ impl SkillApps {
             AppType::Omp => self.omp = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
             AppType::Zcode => self.zcode = enabled,
-            AppType::Dsh => self.dsh = enabled,
             AppType::Workbuddy => self.workbuddy = enabled,
         }
     }
@@ -642,7 +638,6 @@ impl FromStr for AppType {
             "dsh" | "deepseek-harness" => Ok(AppType::Dsh),
             "agy" | "antigravity" | "antigravity-cli" => Ok(AppType::Agy),
             "zcode" => Ok(AppType::Zcode),
-            "dsh" => Ok(AppType::Dsh),
             "workbuddy" => Ok(AppType::Workbuddy),
             "omp" | "oh-my-pi" | "oh_my_pi" | "ohmypi" => Ok(AppType::Omp),
             other => Err(AppError::localized(
@@ -1109,7 +1104,6 @@ impl MultiAppConfig {
                 AppType::Pi
                 | AppType::Mcode
                 | AppType::Kimi
-                | AppType::Dsh
                 | AppType::Omp
                 | AppType::Agy => continue, // Pi didn't exist in v3.6.x, skip
                 AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip

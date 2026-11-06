@@ -44,6 +44,26 @@ const FALLBACK_OVERLAY_LAYOUT: BallPanelLayout = {
   mainWidth: 300,
   subWidth: 300,
   gap: 8,
+  // 布局拉取失败时的兜底文案（正常路径 texts 随 get_ball_panel_layout 下发）
+  texts: {
+    switchProvider: "切换供应商",
+    searchPlaceholder: "搜索供应商",
+    inUse: "当前",
+    noMatch: "无匹配",
+    openMain: "打开主界面",
+    quit: "退出",
+    settings: "设置",
+    lightweightMode: "轻量模式",
+    openPanel: "打开快捷面板",
+    configTab: "配置",
+    usageTab: "用量",
+    resetsIn: "{when} 后重置",
+    durationDays: "{n}天",
+    durationHours: "{n}小时",
+    durationMinutes: "{n}分",
+    durationSep: " ",
+    resetCredits: "可重置 {count} 次",
+  },
 };
 
 function readTab(): Tab {
@@ -311,7 +331,7 @@ export function PanelList() {
     void trayPanelApi.action(id);
   }, []);
 
-  const texts = state?.texts;
+  const texts = panelLayout?.texts;
   const apps = state?.apps ?? [];
   const openEntry =
     tab === "config"

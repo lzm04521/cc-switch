@@ -60,6 +60,7 @@ const DIRECTORY_APPS: DirectoryAppId[] = [
   "dsh",
   "zcode",
   "omp",
+  "dsh",
 ];
 
 const normalizeDir = (value: unknown) =>

@@ -5,7 +5,6 @@ import type { SettingsFormState } from "@/hooks/useSettingsForm";
 
 const getAppConfigDirOverrideMock = vi.hoisted(() => vi.fn());
 const getConfigDirMock = vi.hoisted(() => vi.fn());
-const getDshDefaultHomeMock = vi.hoisted(() => vi.fn());
 const selectConfigDirectoryMock = vi.hoisted(() => vi.fn());
 const setAppConfigDirOverrideMock = vi.hoisted(() => vi.fn());
 const homeDirMock = vi.hoisted(() => vi.fn<() => Promise<string>>());
@@ -18,7 +17,6 @@ vi.mock("@/lib/api", () => ({
   settingsApi: {
     getAppConfigDirOverride: getAppConfigDirOverrideMock,
     getConfigDir: getConfigDirMock,
-    getDshDefaultHome: getDshDefaultHomeMock,
     selectConfigDirectory: selectConfigDirectoryMock,
     setAppConfigDirOverride: setAppConfigDirOverrideMock,
   },
@@ -80,7 +78,6 @@ describe("useDirectorySettings", () => {
       if (app === "hermes") return "/remote/hermes";
       return "/remote/zcode";
     });
-    getDshDefaultHomeMock.mockResolvedValue("/default/dsh");
     selectConfigDirectoryMock.mockReset();
   });
 
@@ -136,6 +133,7 @@ describe("useDirectorySettings", () => {
     ["openclaw", "openclawConfigDir"],
     ["hermes", "hermesConfigDir"],
     ["pi", "piConfigDir"],
+    ["dsh", "dshConfigDir"],
   ] as const)(
     "syncs the %s display when form drafts are discarded",
     async (app, field) => {
@@ -399,24 +397,6 @@ describe("useDirectorySettings", () => {
     expect(result.current.resolvedDirs.claude).toBe("/home/mock/.claude");
     expect(result.current.resolvedDirs.codex).toBe("/home/mock/.codex");
     expect(result.current.resolvedDirs.appConfig).toBe("/home/mock/.cc-switch");
-  });
-
-  it("clears the DSH override and resolves the backend fallback on reset", async () => {
-    const { result } = renderHook(() =>
-      useDirectorySettings({
-        settings: createSettings({ dshConfigDir: "/custom/dsh" }),
-        onUpdateSettings,
-      }),
-    );
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await act(async () => {
-      await result.current.resetDirectory("dsh");
-    });
-
-    expect(onUpdateSettings).toHaveBeenCalledWith({ dshConfigDir: undefined });
-    expect(getDshDefaultHomeMock).toHaveBeenCalledTimes(1);
-    expect(result.current.resolvedDirs.dsh).toBe("/default/dsh");
   });
 
   it("updates openclaw directory when browsing succeeds", async () => {

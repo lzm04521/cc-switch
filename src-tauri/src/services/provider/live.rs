@@ -313,7 +313,6 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Agy
         | AppType::ClaudeDesktop
         | AppType::Zcode
-        | AppType::Dsh
         | AppType::Workbuddy
         | AppType::Omp => false,
     }
@@ -396,7 +395,6 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::ClaudeDesktop
         | AppType::Agy
         | AppType::Zcode
-        | AppType::Dsh
         | AppType::Workbuddy
         | AppType::Omp => Ok(settings.clone()),
     }
@@ -737,13 +735,6 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 "zcode.provider.managed_externally",
                 "zcode 的 provider 由 zcode 应用内自管，cc-switch 不写入 live 配置",
                 "ZCode providers are managed inside the ZCode app; CC Switch does not write live config",
-            ));
-        }
-        AppType::Dsh => {
-            return Err(AppError::localized(
-                "dsh.provider.managed_externally",
-                "dsh 的 provider 由 dsh 应用内自管，cc-switch 不写入 live 配置",
-                "DSH providers are managed inside the dsh app; CC Switch does not write live config",
             ));
         }
         AppType::Workbuddy => {
@@ -1089,11 +1080,6 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
             "zcode 的 provider 由 zcode 应用内自管，cc-switch 不读取 live 配置",
             "ZCode providers are managed inside the ZCode app; CC Switch does not read live config",
         )),
-        AppType::Dsh => Err(AppError::localized(
-            "dsh.provider.managed_externally",
-            "dsh 的 provider 由 dsh 应用内自管，cc-switch 不读取 live 配置",
-            "DSH providers are managed inside the dsh app; CC Switch does not read live config",
-        )),
         AppType::Workbuddy => Err(AppError::localized(
             "workbuddy.provider.managed_externally",
             "workbuddy 的 provider 由 workbuddy 应用内自管，cc-switch 不读取 live 配置",
@@ -1228,10 +1214,6 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         }
         // zcode 的 provider 由 zcode 应用内自管，没有可导入的 live 配置
         AppType::Zcode => {
-            return Ok(false);
-        }
-        // dsh 的 provider 由 dsh 应用内自管，没有可导入的 live 配置
-        AppType::Dsh => {
             return Ok(false);
         }
         // workbuddy 的 provider 由 workbuddy 应用内自管，没有可导入的 live 配置

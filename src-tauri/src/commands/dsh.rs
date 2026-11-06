@@ -30,31 +30,3 @@ pub fn dsh_account_login_poll(flow_id: String) -> Result<bool, String> {
 pub fn dsh_account_login_cancel(flow_id: String) {
     crate::services::dsh_account::cancel_login(&flow_id)
 }
-
-// ── fork 定制：DSH home 目录管理（设置页目录覆盖 UI 支撑） ──────────────
-
-/// Current DSH home honoring cc-switch's directory override.
-#[tauri::command]
-pub fn dsh_get_home() -> Result<String, String> {
-    Ok(crate::dsh_config::data_dir().to_string_lossy().into_owned())
-}
-
-/// The DSH home cc-switch falls back to (no directory override applied).
-#[tauri::command]
-pub fn dsh_get_default_home() -> Result<String, String> {
-    Ok(crate::dsh_config::get_default_home()
-        .to_string_lossy()
-        .into_owned())
-}
-
-/// Open the DSH home directory in the system file manager.
-#[tauri::command]
-pub fn dsh_open_home(handle: tauri::AppHandle) -> Result<(), String> {
-    let home = crate::dsh_config::data_dir();
-    crate::dsh_config::ensure_secure_home(&home)?;
-    use tauri_plugin_opener::OpenerExt;
-    handle
-        .opener()
-        .open_path(home.to_string_lossy().into_owned(), None::<String>)
-        .map_err(|source| source.to_string())
-}
