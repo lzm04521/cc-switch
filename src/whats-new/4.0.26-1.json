@@ -1,0 +1,33 @@
+{
+  "version": "4.0.26-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "授权中心显示订阅计划、一键刷新全部额度、支持复制链接登录",
+      "zh-TW": "授權中心顯示訂閱方案、一鍵重新整理全部額度、支援複製連結登入",
+      "en": "Auth Center: account plans, refresh all quotas, sign in via copied link",
+      "ja": "認証センターでプラン表示・一括更新・リンクコピーでログイン可能に"
+    },
+    {
+      "type": "new",
+      "zh": "Kimi 等供应商原生格式编辑；深链导入覆盖 Claude Desktop 等",
+      "zh-TW": "Kimi 等供應商原生格式編輯；深連結匯入支援 Claude Desktop 等",
+      "en": "Edit Kimi and more providers natively; deep links cover Claude Desktop",
+      "ja": "Kimi などネイティブ形式で編集、ディープリンク対応拡大"
+    },
+    {
+      "type": "new",
+      "zh": "MCP 页一键检查服务器连通；Codex 额度紧张时自动暂停官方请求",
+      "zh-TW": "MCP 頁一鍵檢查伺服器連通；Codex 額度緊張時自動暫停官方請求",
+      "en": "One-click MCP connectivity check; Codex pauses official requests before quota runs out",
+      "ja": "MCP 接続を一括チェック、Codex はクォータ前に公式を一時停止"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 Windows 轻量模式窗口无法恢复、WSL 启动即退出、会话同步卡顿",
+      "zh-TW": "修正 Windows 輕量模式視窗無法恢復、WSL 啟動即退出、工作階段同步卡頓",
+      "en": "Fixed window loss in lightweight mode on Windows, instant exit on WSL, session-sync freezes",
+      "ja": "Windows 軽量モード復帰不能・WSL 起動即終了・同期フリーズを修正"
+    }
+  ]
+}
