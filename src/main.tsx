@@ -30,8 +30,11 @@ import { initializeWindowActivity } from "@/lib/windowActivity";
 import { initializeInputModality } from "@/lib/inputModality";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FloatingBallRoot } from "./components/floatingBall/FloatingBallRoot";
+import { initializeInterfacePrefs } from "@/lib/interfacePrefs";
+import { disableContextMenu } from "@/lib/disableContextMenu";
 
 installGlobalErrorHandlers();
+disableContextMenu();
 
 // 根据平台添加 body class，便于平台特定样式
 try {
@@ -92,6 +95,9 @@ try {
 }
 
 async function bootstrap() {
+  // 界面密度和缩放要在任何界面渲染之前用上（含悬浮球窗口与数据库升级界面），首屏不会先按紧凑尺寸画一遍
+  initializeInterfacePrefs();
+
   // 悬浮球窗口（ball/panel）走轻量入口：不加载主窗口专属逻辑
   const currentLabel = getCurrentWindow().label;
   if (currentLabel === "ball" || currentLabel === "panel") {

@@ -610,6 +610,9 @@ pub struct AppSettings {
     /// 代理接管记账与启动费用回填（不读会话文件）不受此开关影响。
     #[serde(default = "default_session_auto_sync_enabled")]
     pub session_auto_sync_enabled: bool,
+    /// 会话页搜索消息正文（默认关闭，开启后在本地建 `session-index.db` 索引）；关闭时删除索引
+    #[serde(default = "default_session_content_search_enabled")]
+    pub session_content_search_enabled: bool,
     /// Whether to show the failover toggle independently on the main page
     #[serde(default)]
     pub enable_failover_toggle: bool,
@@ -809,6 +812,10 @@ fn default_session_auto_sync_enabled() -> bool {
     true
 }
 
+fn default_session_content_search_enabled() -> bool {
+    false
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -832,6 +839,7 @@ impl Default for AppSettings {
             auto_refresh_all_providers_usage: false,
             usage_display: None,
             session_auto_sync_enabled: true,
+            session_content_search_enabled: false,
             enable_failover_toggle: false,
             show_profile_switcher: false,
             show_provider_search: true,
@@ -2131,6 +2139,16 @@ mod tests {
             Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
             None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
         }
+    }
+
+    #[test]
+    fn session_content_search_defaults_off_and_keeps_a_saved_choice() {
+        assert!(!AppSettings::default().session_content_search_enabled);
+        let missing: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!missing.session_content_search_enabled);
+        let on: AppSettings =
+            serde_json::from_str(r#"{"sessionContentSearchEnabled":true}"#).unwrap();
+        assert!(on.session_content_search_enabled);
     }
 
     #[test]
