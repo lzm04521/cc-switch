@@ -1,0 +1,33 @@
+{
+  "version": "4.0.31-1",
+  "items": [
+    {
+      "type": "new",
+      "zh": "WorkBuddy 支持官方账号切换、额度与用量管理",
+      "zh-TW": "WorkBuddy 支援官方帳號切換、額度與用量管理",
+      "en": "WorkBuddy: official account switching, quota and usage management",
+      "ja": "WorkBuddy が公式アカウント切替・残高・使用量管理に対応"
+    },
+    {
+      "type": "new",
+      "zh": "新增 GitHub Copilot CLI 支持",
+      "zh-TW": "新增 GitHub Copilot CLI 支援",
+      "en": "New GitHub Copilot CLI support",
+      "ja": "GitHub Copilot CLI 対応を追加"
+    },
+    {
+      "type": "new",
+      "zh": "代理可检测并过滤请求中的隐私信息与密钥",
+      "zh-TW": "代理可偵測並過濾請求中的隱私資訊與金鑰",
+      "en": "Proxy can detect and filter private data and secrets in requests",
+      "ja": "プロキシがリクエスト内の個人情報とシークレットを検出・フィルタリング"
+    },
+    {
+      "type": "improve",
+      "zh": "界面新增韩语、俄语、德语三种语言",
+      "zh-TW": "介面新增韓語、俄語、德語三種語言",
+      "en": "UI adds Korean, Russian and German",
+      "ja": "UI に韓国語・ロシア語・ドイツ語を追加"
+    }
+  ]
+}
