@@ -21,6 +21,8 @@ describe("appConfig provider lifecycle", () => {
     "kimi",
     "dsh",
     "omp",
+    "copilot",
+    "workbuddy",
   ])("classifies %s as additive", (appId) => {
     expect(isAdditiveAppId(appId)).toBe(true);
   });
@@ -74,6 +76,17 @@ describe("Antigravity capabilities", () => {
     expect(MCP_APP_IDS).toContain("agy");
     expect(isAdditiveAppId("agy")).toBe(false);
     expect(isProxyAppId("agy")).toBe(false);
+  });
+});
+
+// WorkBuddy manages providers, prompts, MCP (~/.workbuddy/mcp.json) and Skills
+// (~/.workbuddy/skills) but has no local proxy.
+describe("WorkBuddy capabilities", () => {
+  it("is additive with MCP and Skills but without the local proxy", () => {
+    expect(isAdditiveAppId("workbuddy")).toBe(true);
+    expect(SKILLS_APP_IDS).toContain("workbuddy");
+    expect((MCP_APP_IDS as string[]).includes("workbuddy")).toBe(true);
+    expect(isProxyAppId("workbuddy")).toBe(false);
   });
 });
 

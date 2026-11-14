@@ -1,213 +1,562 @@
-//! WorkBuddy live 配置读写（`~/.workbuddy/mcp.json`）。
+//! WorkBuddy（腾讯）的自定义模型配置：`~/.workbuddy/models.json`。
 //!
-//! cc-switch 仅管理 WorkBuddy 的 skills 部署与 MCP 配置；provider 由
-//! WorkBuddy 应用内自管。MCP 配置为标准 Claude 风格：
-//! 顶层 `{"mcpServers": {"<id>": {...}}}`。
-
-use crate::config::write_json_file_with_contents;
+//! WorkBuddy 桌面端内置 CodeBuddy Code 引擎，启动引擎时把 `CODEBUDDY_CONFIG_DIR` 指到
+//! 自己的数据目录（默认 `~/.workbuddy`，可用 `WORKBUDDY_CONFIG_DIR` 覆盖），所以它和
+//! CodeBuddy 的 `~/.codebuddy` 互不共享。文件格式：
+//!
+//! ```json
+//! { "models": [{ "id": "...", "name": "...", "vendor": "...", "url": "...", "apiKey": "..." }],
+//!   "availableModels": ["..."] }
+//! ```
+//!
+//! 每个模型条目自带 `url` / `apiKey`，没有「供应商」这一层。CC Switch 的一个供应商展开成
+//! 多条模型，条目上打 [`OWNER_FIELD`] 标记归属；没有标记的条目属于用户（或 WorkBuddy 自己
+//! 的设置界面），这里只读不改。WorkBuddy 会热加载这个文件。
+//!
+//! 模型 `id` 在 WorkBuddy 里身兼三职：查找条目的唯一键（取第一条匹配的）、发给上游的
+//! 模型名（去掉 `custom-local:` 前缀后原样发），以及模型菜单标签的后半段（自定义模型显示成
+//! `name:id`，`name` 为空或与 id 相同时只显示 id）。所以同一个 id 只能属于一张卡，也没法
+//! 改个 id 让两家共存；菜单上要分清是哪家，靠 `name` 写供应商名。
+use crate::config::{atomic_write_private, get_home_dir};
 use crate::error::AppError;
 use indexmap::IndexMap;
-use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use serde_json::{Map, Value};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-fn workbuddy_config_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+/// 条目归属标记：值是 CC Switch 的供应商 id。WorkBuddy 不校验未知字段，会原样保留。
+pub(crate) const OWNER_FIELD: &str = "ccSwitchProviderId";
+
+/// 供应商层面的字段，写入时复制到每个模型条目（条目自己的同名字段优先）。
+const SHARED_FIELDS: [&str; 4] = ["vendor", "url", "apiKey", "api"];
+
+/// WorkBuddy 官方登录卡（`category: "official"`）：只绑定授权中心里的一个 WorkBuddy 账号，
+/// 卡片「添加」时还原那个号的登录文件（同一时间只有一张在「已添加」）。它不是自定义模型，从不写进 models.json（添加、编辑、
+/// 同步、移除、删除都跳过文件）。
+pub(crate) fn is_official_provider(provider: &crate::provider::Provider) -> bool {
+    provider.category.as_deref() == Some("official")
 }
 
-/// 获取 WorkBuddy 根目录（固定 `~/.workbuddy`，无 override / 环境变量）
-pub fn get_workbuddy_dir() -> PathBuf {
-    crate::config::get_home_dir().join(".workbuddy")
+pub(crate) fn data_dir() -> PathBuf {
+    explicit_data_dir(std::env::var("WORKBUDDY_CONFIG_DIR").ok().as_deref())
+        .unwrap_or_else(|| get_home_dir().join(".workbuddy"))
 }
 
-/// `~/.workbuddy/mcp.json`
-pub fn get_mcp_config_path() -> PathBuf {
-    get_workbuddy_dir().join("mcp.json")
+fn explicit_data_dir(value: Option<&str>) -> Option<PathBuf> {
+    value
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
-fn read_config_from_path(path: &Path) -> Result<Value, AppError> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            // 文件不存在视为空配置
-            return Ok(json!({}));
-        }
-        Err(err) => return Err(AppError::io(path, err)),
+pub(crate) fn config_path() -> PathBuf {
+    data_dir().join("models.json")
+}
+
+/// 读出整个文件；不存在或为空（WorkBuddy 首启会建一个 0 字节文件）都当作空对象。
+/// 顶层是数组的旧写法也接受（WorkBuddy 同样接受），写回时统一成对象。
+fn read(path: &Path) -> Result<Map<String, Value>, AppError> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(AppError::io(path, e)),
     };
-    let value: Value = serde_json::from_str(&content).map_err(|e| {
-        AppError::Config(format!(
-            "Failed to parse WorkBuddy config: {}: {e}",
-            path.display()
-        ))
-    })?;
-
-    // 根节点必须是对象：下游对 `mcpServers` 做索引赋值，数组/标量会 panic。
-    // 与 zcode_config 一致：报错而不是重建根节点，避免覆盖用户自有配置。
-    if !value.is_object() {
-        return Err(AppError::Config(format!(
-            "WorkBuddy 配置文件根节点必须是 JSON 对象: {}",
-            path.display()
-        )));
+    let text = text.trim_start_matches('\u{feff}').trim();
+    if text.is_empty() {
+        return Ok(Map::new());
     }
-
-    Ok(value)
+    match serde_json::from_str::<Value>(text).map_err(|e| AppError::json(path, e))? {
+        Value::Object(map) => Ok(map),
+        Value::Array(models) => {
+            let mut map = Map::new();
+            map.insert("models".into(), Value::Array(models));
+            Ok(map)
+        }
+        Value::Null => Ok(Map::new()),
+        _ => Err(AppError::Config(
+            "WorkBuddy models.json must be a JSON object".into(),
+        )),
+    }
 }
 
-fn write_config_to_path(path: &Path, config: &Value) -> Result<(), AppError> {
-    // 确保父目录存在（~/.workbuddy 可能尚未创建）
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
+fn models_of(document: &Map<String, Value>) -> Result<&[Value], AppError> {
+    match document.get("models") {
+        None | Some(Value::Null) => Ok(&[]),
+        Some(Value::Array(models)) => Ok(models),
+        Some(_) => Err(AppError::Config(
+            "WorkBuddy models.json \"models\" must be an array".into(),
+        )),
     }
-    write_json_file_with_contents(path, config)?;
-    log::debug!("WorkBuddy config written to {path:?}");
+}
+
+fn owner_of(model: &Value) -> Option<&str> {
+    model.get(OWNER_FIELD).and_then(Value::as_str)
+}
+
+fn model_id(model: &Value) -> Option<&str> {
+    model
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+}
+
+/// 按归属标记把条目还原成 CC Switch 的供应商配置：共享字段取第一条的值，
+/// 每条模型只留自己的字段。
+pub(crate) fn get_providers() -> Result<IndexMap<String, Value>, AppError> {
+    providers_at(&config_path())
+}
+
+fn providers_at(path: &Path) -> Result<IndexMap<String, Value>, AppError> {
+    let document = read(path)?;
+    let mut grouped: IndexMap<String, Vec<Map<String, Value>>> = IndexMap::new();
+    for model in models_of(&document)? {
+        let (Some(owner), Some(object)) = (owner_of(model), model.as_object()) else {
+            continue;
+        };
+        grouped
+            .entry(owner.to_string())
+            .or_default()
+            .push(object.clone());
+    }
+    Ok(grouped
+        .into_iter()
+        .map(|(id, entries)| {
+            let mut config = Map::new();
+            for field in SHARED_FIELDS {
+                if let Some(value) = entries.iter().find_map(|entry| entry.get(field)) {
+                    config.insert(field.into(), value.clone());
+                }
+            }
+            let models = entries
+                .into_iter()
+                .map(|mut entry| {
+                    entry.remove(OWNER_FIELD);
+                    // 写入时补的名字（= 厂商标签）不读回，改厂商标签后跟着变。
+                    if entry.contains_key("name") && entry.get("name") == entry.get("vendor") {
+                        entry.remove("name");
+                    }
+                    for field in SHARED_FIELDS {
+                        if entry.get(field) == config.get(field) {
+                            entry.remove(field);
+                        }
+                    }
+                    Value::Object(entry)
+                })
+                .collect();
+            config.insert("models".into(), Value::Array(models));
+            (id, Value::Object(config))
+        })
+        .collect())
+}
+
+pub(crate) fn validate_provider(config: &Value) -> Result<(), AppError> {
+    let Some(models) = config.get("models").and_then(Value::as_array) else {
+        return Err(AppError::InvalidInput(
+            "Add at least one WorkBuddy model".into(),
+        ));
+    };
+    if models.is_empty() {
+        return Err(AppError::InvalidInput(
+            "Add at least one WorkBuddy model".into(),
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for model in models {
+        let Some(id) = model_id(model) else {
+            return Err(AppError::InvalidInput(
+                "Every WorkBuddy model needs a model ID".into(),
+            ));
+        };
+        if !seen.insert(id) {
+            return Err(AppError::InvalidInput(format!(
+                "Duplicate WorkBuddy model ID '{id}'"
+            )));
+        }
+        let url = model
+            .get("url")
+            .or_else(|| config.get("url"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        // `${VAR}` 形式由 WorkBuddy 启动时展开，这里放行。
+        if !url.contains("${")
+            && !url::Url::parse(url).is_ok_and(|url| {
+                matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+            })
+        {
+            return Err(AppError::InvalidInput(
+                "Enter a valid WorkBuddy endpoint URL".into(),
+            ));
+        }
+    }
     Ok(())
 }
 
-/// 读取 `mcpServers` 段，返回 `IndexMap<String, Value>`（保留用户顺序）
-pub fn get_mcp_servers() -> Result<IndexMap<String, Value>, AppError> {
-    let config = read_config_from_path(&get_mcp_config_path())?;
-    let servers = config
-        .get("mcpServers")
-        .and_then(Value::as_object)
-        .map(|map| {
-            map.iter()
-                .map(|(id, spec)| (id.clone(), spec.clone()))
-                .collect()
-        })
+/// 供应商配置展开成写进 models.json 的条目。
+fn expand_entries(id: &str, config: &Value) -> Vec<Value> {
+    let models = config
+        .get("models")
+        .and_then(Value::as_array)
+        .cloned()
         .unwrap_or_default();
-    Ok(servers)
+    models
+        .into_iter()
+        .filter_map(|model| {
+            let Value::Object(model) = model else {
+                return None;
+            };
+            let mut entry = Map::new();
+            // id 放最前面，方便用户手看文件。
+            if let Some(model_id) = model.get("id") {
+                entry.insert("id".into(), model_id.clone());
+            }
+            for (key, value) in &model {
+                if key != "id" && key != OWNER_FIELD {
+                    entry.insert(key.clone(), value.clone());
+                }
+            }
+            for field in SHARED_FIELDS {
+                if entry.contains_key(field) {
+                    continue;
+                }
+                if let Some(value) = config.get(field).filter(|value| !is_blank(value)) {
+                    entry.insert(field.into(), value.clone());
+                }
+            }
+            // 没起名字的模型用厂商标签当名字，WorkBuddy 菜单显示成「厂商:模型 ID」，
+            // 不再是「模型名:模型 ID」两遍同一个模型。
+            if entry.get("name").is_none_or(is_blank) {
+                match entry
+                    .get("vendor")
+                    .filter(|value| !is_blank(value))
+                    .cloned()
+                {
+                    Some(vendor) => {
+                        entry.insert("name".into(), vendor);
+                    }
+                    None => {
+                        entry.remove("name");
+                    }
+                }
+            }
+            entry.insert(OWNER_FIELD.into(), Value::String(id.to_string()));
+            Some(Value::Object(entry))
+        })
+        .collect()
 }
 
-/// 写入或更新一个 MCP 服务器条目（写顶层 `mcpServers.<id>`）
-///
-/// 归一化：`mcpServers` 非对象时重置为空对象（与 `zcode_config::set_mcp_server`
-/// 同口径）。用户自有的无关顶层字段原样保留。
-pub fn set_mcp_server(id: &str, spec: Value) -> Result<(), AppError> {
-    let _guard = workbuddy_config_lock().lock()?;
-    let path = get_mcp_config_path();
-    let mut config = read_config_from_path(&path)?;
+fn is_blank(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(text) => text.trim().is_empty(),
+        _ => false,
+    }
+}
 
-    if !config.get("mcpServers").is_some_and(Value::is_object) {
-        if config.get("mcpServers").is_some() {
-            log::warn!("workbuddy mcp.json 的 mcpServers 不是对象，已重置为空对象");
+/// 替换（`Some`）或移除（`None`）一个供应商的全部条目，其余条目和顶层字段原样保留。
+fn update(path: &Path, id: &str, config: Option<&Value>) -> Result<(), AppError> {
+    let mut document = read(path)?;
+    let existing = models_of(&document)?.to_vec();
+    let removed_ids: Vec<String> = existing
+        .iter()
+        .filter(|model| owner_of(model) == Some(id))
+        .filter_map(|model| model_id(model).map(str::to_string))
+        .collect();
+    let mut kept: Vec<Value> = existing
+        .into_iter()
+        .filter(|model| owner_of(model) != Some(id))
+        .collect();
+
+    let new_entries = config.map(|config| expand_entries(id, config));
+    let new_ids: Vec<String> = new_entries
+        .iter()
+        .flatten()
+        .filter_map(|model| model_id(model).map(str::to_string))
+        .collect();
+
+    if config.is_none() && removed_ids.is_empty() {
+        return Ok(());
+    }
+
+    // 同一个模型 id 在 WorkBuddy 里只能有一条；别人的条目（用户自己的或别的供应商的）不覆盖。
+    if let Some(conflict) = kept
+        .iter()
+        .filter_map(model_id)
+        .find(|existing| new_ids.iter().any(|id| id == existing))
+    {
+        return Err(AppError::localized(
+            "workbuddy.model.duplicate",
+            format!("WorkBuddy 暂时不支持同一个模型添加多次，模型「{conflict}」已在别的卡里"),
+            format!(
+                "WorkBuddy doesn't support adding the same model more than once yet; \
+                 model '{conflict}' is already in another card"
+            ),
+        ));
+    }
+
+    if let Some(entries) = new_entries {
+        kept.extend(entries);
+    }
+    document.insert("models".into(), Value::Array(kept));
+
+    // availableModels 为空或不存在时 WorkBuddy 显示全部模型，这时不去创建它（创建了反而会
+    // 把内置模型藏起来）；已经有白名单时，把新模型加进去、把撤下的模型移出去。
+    if let Some(Value::Array(available)) = document.get_mut("availableModels") {
+        if !available.is_empty() {
+            available.retain(|value| {
+                value.as_str().is_none_or(|model| {
+                    !removed_ids.iter().any(|id| id == model)
+                        || new_ids.iter().any(|id| id == model)
+                })
+            });
+            for model in &new_ids {
+                if !available.iter().any(|value| value.as_str() == Some(model)) {
+                    available.push(Value::String(model.clone()));
+                }
+            }
         }
-        config["mcpServers"] = json!({});
     }
-    config
-        .get_mut("mcpServers")
-        .and_then(Value::as_object_mut)
-        .expect("mcpServers must be an object after normalization")
-        .insert(id.to_string(), spec);
 
-    write_config_to_path(&path, &config)
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
+    }
+    let json = serde_json::to_string_pretty(&Value::Object(document))
+        .map_err(|e| AppError::JsonSerialize { source: e })?;
+    atomic_write_private(path, format!("{json}\n").as_bytes())
 }
 
-/// 删除一个 MCP 服务器条目（保留其他 server 与无关顶层字段）
-pub fn remove_mcp_server(id: &str) -> Result<(), AppError> {
-    let _guard = workbuddy_config_lock().lock()?;
-    let path = get_mcp_config_path();
-    let mut config = read_config_from_path(&path)?;
+/// models.json 里的一个模型 id 和它的归属（CC Switch 供应商 id；`None` 是用户自己加的）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WorkBuddyModelOwner {
+    pub id: String,
+    pub owner: Option<String>,
+}
 
-    if let Some(servers) = config.get_mut("mcpServers").and_then(Value::as_object_mut) {
-        servers.remove(id);
+/// 列出 models.json 里已有的模型 id 及归属，添加 / 编辑表单据此避开被占用的 id。
+pub(crate) fn model_owners() -> Result<Vec<WorkBuddyModelOwner>, AppError> {
+    model_owners_at(&config_path())
+}
+
+fn model_owners_at(path: &Path) -> Result<Vec<WorkBuddyModelOwner>, AppError> {
+    let document = read(path)?;
+    Ok(models_of(&document)?
+        .iter()
+        .filter_map(|model| {
+            Some(WorkBuddyModelOwner {
+                id: model_id(model)?.to_string(),
+                owner: owner_of(model).map(str::to_string),
+            })
+        })
+        .collect())
+}
+
+pub(crate) fn set_provider(id: &str, config: &Value) -> Result<(), AppError> {
+    validate_provider(config)?;
+    update(&config_path(), id, Some(config))
+}
+
+pub(crate) fn remove_provider(id: &str) -> Result<(), AppError> {
+    let path = config_path();
+    if !path.exists() {
+        return Ok(());
     }
-
-    write_config_to_path(&path, &config)
+    update(&path, id, None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
+    use serde_json::json;
 
-    struct TestHomeGuard(Option<std::ffi::OsString>);
-    impl TestHomeGuard {
-        fn set(home: &std::path::Path) -> Self {
-            let guard = Self(std::env::var_os("CC_SWITCH_TEST_HOME"));
-            std::env::set_var("CC_SWITCH_TEST_HOME", home);
-            guard
-        }
-    }
-    impl Drop for TestHomeGuard {
-        fn drop(&mut self) {
-            match self.0.take() {
-                Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-                None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
-            }
-        }
+    fn provider() -> Value {
+        json!({
+            "vendor": "DeepSeek",
+            "url": "https://api.deepseek.com/v1/chat/completions",
+            "apiKey": "sk-test",
+            "models": [
+                { "id": "deepseek-chat", "name": "DeepSeek Chat", "supportsToolCall": true },
+                { "id": "deepseek-reasoner", "supportsReasoning": true }
+            ]
+        })
     }
 
     #[test]
-    #[serial]
-    fn get_mcp_servers_returns_empty_when_missing() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let _guard = TestHomeGuard::set(temp.path());
-
-        let servers = get_mcp_servers().expect("empty servers");
-        assert!(servers.is_empty());
+    fn data_dir_override_ignores_blank_values() {
+        assert_eq!(explicit_data_dir(Some(" /wb ")), Some("/wb".into()));
+        assert_eq!(explicit_data_dir(Some(" \t")), None);
+        assert_eq!(explicit_data_dir(None), None);
     }
 
     #[test]
-    #[serial]
-    fn set_mcp_server_writes_top_level_mcp_servers() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let _guard = TestHomeGuard::set(temp.path());
-
-        set_mcp_server("echo", json!({"type": "stdio", "command": "npx"}))
-            .expect("set must succeed");
-
-        let servers = get_mcp_servers().expect("reload");
-        assert_eq!(servers["echo"]["command"], "npx");
-    }
-
-    #[test]
-    #[serial]
-    fn set_mcp_server_preserves_unrelated_fields_and_normalizes_section() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let _guard = TestHomeGuard::set(temp.path());
-
-        // 预置用户自有无关字段 + 非对象的 mcpServers（数组）
-        std::fs::create_dir_all(get_workbuddy_dir()).expect("mkdir");
-        std::fs::write(
-            get_mcp_config_path(),
-            r#"{"someUserField": true, "mcpServers": []}"#,
+    fn writes_entries_and_preserves_user_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        fs::write(
+            &path,
+            r#"{"models":[{"id":"mine","url":"https://x.test/v1/chat/completions"}],"extra":1}"#,
         )
-        .expect("seed config");
+        .unwrap();
 
-        set_mcp_server("echo", json!({"command": "npx"})).expect("set must succeed");
+        update(&path, "ds", Some(&provider())).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let models = doc["models"].as_array().unwrap();
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[0]["id"], "mine");
+        assert_eq!(models[1]["id"], "deepseek-chat");
+        assert_eq!(models[1]["apiKey"], "sk-test");
+        assert_eq!(models[1]["vendor"], "DeepSeek");
+        assert_eq!(models[1][OWNER_FIELD], "ds");
+        assert_eq!(models[2]["supportsReasoning"], true);
+        // 起了名字的保留，没起的用厂商标签
+        assert_eq!(models[1]["name"], "DeepSeek Chat");
+        assert_eq!(models[2]["name"], "DeepSeek");
+        assert_eq!(doc["extra"], 1);
+        // 没有白名单时不创建白名单
+        assert!(doc.get("availableModels").is_none());
 
-        let raw = std::fs::read_to_string(get_mcp_config_path()).expect("raw");
-        let v: Value = serde_json::from_str(&raw).expect("parse");
-        assert_eq!(v["someUserField"], true, "unrelated user field preserved");
-        assert_eq!(v["mcpServers"]["echo"]["command"], "npx");
+        update(&path, "ds", None).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            doc["models"],
+            json!([{"id":"mine","url":"https://x.test/v1/chat/completions"}])
+        );
     }
 
     #[test]
-    #[serial]
-    fn remove_mcp_server_preserves_others() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let _guard = TestHomeGuard::set(temp.path());
+    fn existing_allow_list_is_kept_in_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        fs::write(
+            &path,
+            r#"{"models":[],"availableModels":["default-model"]}"#,
+        )
+        .unwrap();
 
-        set_mcp_server("keep", json!({"command": "keep-me"})).expect("set keep");
-        set_mcp_server("drop", json!({"command": "drop-me"})).expect("set drop");
+        update(&path, "ds", Some(&provider())).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            doc["availableModels"],
+            json!(["default-model", "deepseek-chat", "deepseek-reasoner"])
+        );
 
-        remove_mcp_server("drop").expect("remove must succeed");
-
-        let servers = get_mcp_servers().expect("reload");
-        assert_eq!(servers["keep"]["command"], "keep-me");
-        assert!(servers.get("drop").is_none());
+        let mut edited = provider();
+        edited["models"] = json!([{ "id": "deepseek-chat" }]);
+        update(&path, "ds", Some(&edited)).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            doc["availableModels"],
+            json!(["default-model", "deepseek-chat"])
+        );
     }
 
     #[test]
-    #[serial]
-    fn non_object_root_is_rejected() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let _guard = TestHomeGuard::set(temp.path());
+    fn refuses_to_overwrite_models_it_does_not_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        fs::write(&path, r#"{"models":[{"id":"deepseek-chat"}]}"#).unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        assert!(update(&path, "ds", Some(&provider())).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    }
 
-        std::fs::create_dir_all(get_workbuddy_dir()).expect("mkdir");
-        std::fs::write(get_mcp_config_path(), r#"[1, 2]"#).expect("seed bad root");
+    #[test]
+    fn empty_or_missing_file_is_treated_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        fs::write(&path, "").unwrap();
+        update(&path, "ds", Some(&provider())).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(doc["models"].as_array().unwrap().len(), 2);
 
-        assert!(get_mcp_servers().is_err(), "array root must be rejected");
+        let missing = dir.path().join("nested").join("models.json");
+        update(&missing, "ds", Some(&provider())).unwrap();
+        assert!(missing.exists());
+    }
+
+    #[test]
+    fn validation_requires_models_and_endpoint() {
+        assert!(validate_provider(&provider()).is_ok());
+        assert!(validate_provider(&json!({ "url": "https://a.test", "models": [] })).is_err());
+        assert!(validate_provider(&json!({ "models": [{ "id": "m" }] })).is_err());
+        assert!(validate_provider(&json!({
+            "url": "https://a.test/v1/chat/completions",
+            "models": [{ "id": "m" }, { "id": "m" }]
+        }))
+        .is_err());
+        assert!(validate_provider(&json!({
+            "url": "${WB_URL}",
+            "models": [{ "id": "m" }]
+        }))
+        .is_ok());
+    }
+
+    #[test]
+    fn blank_names_fall_back_to_vendor_only_when_there_is_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        let config = json!({
+            "url": "https://a.test/v1/chat/completions",
+            "models": [
+                { "id": "a", "name": "  " },
+                { "id": "b", "vendor": "Own" }
+            ]
+        });
+        update(&path, "p", Some(&config)).unwrap();
+        let doc: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        // 没有厂商标签：不留空名字，WorkBuddy 只显示模型 id
+        assert!(doc["models"][0].get("name").is_none());
+        assert_eq!(doc["models"][1]["name"], "Own");
+        // 读回时补上的名字去掉
+        assert!(providers_at(&path).unwrap()["p"]["models"][1]
+            .get("name")
+            .is_none());
+    }
+
+    #[test]
+    fn lists_model_owners() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        assert!(model_owners_at(&path).unwrap().is_empty());
+        fs::write(
+            &path,
+            r#"{"models":[{"id":"mine","url":"https://x.test"},{"id":" "}]}"#,
+        )
+        .unwrap();
+        update(&path, "ds", Some(&provider())).unwrap();
+        assert_eq!(
+            model_owners_at(&path).unwrap(),
+            vec![
+                WorkBuddyModelOwner {
+                    id: "mine".into(),
+                    owner: None
+                },
+                WorkBuddyModelOwner {
+                    id: "deepseek-chat".into(),
+                    owner: Some("ds".into())
+                },
+                WorkBuddyModelOwner {
+                    id: "deepseek-reasoner".into(),
+                    owner: Some("ds".into())
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn read_back_groups_by_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        fs::write(
+            &path,
+            r#"{"models":[{"id":"mine","url":"https://x.test"}]}"#,
+        )
+        .unwrap();
+        update(&path, "ds", Some(&provider())).unwrap();
+        let providers = providers_at(&path).unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers["ds"], provider());
     }
 }

@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension, Row};
 
 const MCP_SERVER_SELECT: &str =
-    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy, enabled_kimi, enabled_omp FROM mcp_servers";
+    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_mcode, enabled_pi, enabled_agy, enabled_kimi, enabled_omp, enabled_dsh, enabled_copilot, enabled_workbuddy, enabled_zcode FROM mcp_servers";
 
 fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let id: String = row.get(0)?;
@@ -24,15 +24,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let enabled_gemini: bool = row.get(9)?;
     let enabled_grokbuild: bool = row.get(10)?;
     let enabled_opencode: bool = row.get(11)?;
-    let enabled_mcode: bool = row.get(12)?;
-    let enabled_hermes: bool = row.get(13)?;
-    let enabled_zcode: bool = row.get(14)?;
-    let enabled_dsh: bool = row.get(15)?;
-    let enabled_workbuddy: bool = row.get(16)?;
-    let enabled_pi: bool = row.get(17)?;
-    let enabled_agy: bool = row.get(18)?;
-    let enabled_kimi: bool = row.get(19)?;
-    let enabled_omp: bool = row.get(20)?;
+    let enabled_hermes: bool = row.get(12)?;
 
     let server = serde_json::from_str(&server_config_str).unwrap_or_default();
     let tags = serde_json::from_str(&tags_str).unwrap_or_default();
@@ -49,15 +41,16 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
                 gemini: enabled_gemini,
                 grokbuild: enabled_grokbuild,
                 opencode: enabled_opencode,
-                mcode: enabled_mcode,
                 hermes: enabled_hermes,
-                zcode: enabled_zcode,
-                dsh: enabled_dsh,
-                workbuddy: enabled_workbuddy,
-                pi: enabled_pi,
-                agy: enabled_agy,
-                kimi: enabled_kimi,
-                omp: enabled_omp,
+                mcode: row.get(13)?,
+                pi: row.get(14)?,
+                agy: row.get(15)?,
+                kimi: row.get(16)?,
+                omp: row.get(17)?,
+                dsh: row.get(18)?,
+                copilot: row.get(19)?,
+                workbuddy: row.get(20)?,
+                zcode: row.get(21)?,
             },
             description,
             homepage,
@@ -107,11 +100,11 @@ impl Database {
             AppType::OpenCode => Some("enabled_opencode"),
             AppType::Hermes => Some("enabled_hermes"),
             AppType::Zcode => Some("enabled_zcode"),
-            AppType::Dsh => Some("enabled_dsh"),
-            AppType::Workbuddy => Some("enabled_workbuddy"),
-            // These applications intentionally have no MCP flag in the SSOT.
             AppType::Mcode => Some("enabled_mcode"),
             AppType::Kimi => Some("enabled_kimi"),
+            AppType::Dsh => Some("enabled_dsh"),
+            AppType::Copilot => Some("enabled_copilot"),
+            AppType::WorkBuddy => Some("enabled_workbuddy"),
             AppType::Pi => Some("enabled_pi"),
             AppType::Omp => Some("enabled_omp"),
             AppType::ClaudeDesktop | AppType::OpenClaw => None,
@@ -144,8 +137,8 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (
                 id, name, server_config, description, homepage, docs, tags,
-                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_mcode, enabled_hermes, enabled_zcode, enabled_dsh, enabled_workbuddy, enabled_pi, enabled_agy, enabled_kimi, enabled_omp
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_mcode, enabled_pi, enabled_agy, enabled_kimi, enabled_omp, enabled_dsh, enabled_copilot, enabled_workbuddy, enabled_zcode
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 server.id,
                 server.name,
@@ -162,15 +155,16 @@ impl Database {
                 server.apps.gemini,
                 server.apps.grokbuild,
                 server.apps.opencode,
-                server.apps.mcode,
                 server.apps.hermes,
-                server.apps.zcode,
-                server.apps.dsh,
-                server.apps.workbuddy,
+                server.apps.mcode,
                 server.apps.pi,
                 server.apps.agy,
                 server.apps.kimi,
                 server.apps.omp,
+                server.apps.dsh,
+                server.apps.copilot,
+                server.apps.workbuddy,
+                server.apps.zcode,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

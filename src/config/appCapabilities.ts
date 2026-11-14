@@ -157,6 +157,18 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilities> = {
     usage: false,
     defaultModel: false,
   }),
+  copilot: generic({
+    proxy: false,
+    failover: false,
+    prompts: true,
+    skills: true,
+    mcp: true,
+    sessions: false,
+    universal: false,
+    tray: false,
+    usage: false,
+    defaultModel: false,
+  }),
 };
 
 /** Return the immutable capability row for an application. */

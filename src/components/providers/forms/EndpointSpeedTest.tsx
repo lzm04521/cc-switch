@@ -25,6 +25,8 @@ const ENDPOINT_TIMEOUT_SECS: Partial<Record<AppId, number>> = {
   dsh: 8,
   agy: 8,
   omp: 8,
+  copilot: 8,
+  workbuddy: 8,
 };
 
 interface TestResult {

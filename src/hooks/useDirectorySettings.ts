@@ -10,7 +10,7 @@ import type { SettingsFormState } from "./useSettingsForm";
 // fork：DSH 目录保留覆盖设置（dshConfigDir → data_dir 覆盖），不进排除列表
 export type DirectoryAppId = Exclude<
   AppId,
-  "claude-desktop" | "workbuddy" | "mcode" | "agy" | "kimi"
+  "claude-desktop" | "mcode" | "agy" | "kimi" | "copilot" | "workbuddy"
 >;
 type AppDirectoryKey =
   | "claude"

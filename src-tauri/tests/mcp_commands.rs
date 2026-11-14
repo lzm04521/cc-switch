@@ -9,7 +9,7 @@ use cc_switch_lib::{
     AppSettings, AppType, McpApps, McpServer, McpService, MultiAppConfig, ProviderService,
 };
 
-#[path = "support.rs"]
+#[path = "support/mod.rs"]
 mod support;
 use support::{
     create_test_state, create_test_state_with_config, ensure_test_home, reset_test_fs, test_mutex,
@@ -877,9 +877,10 @@ command = "echo"
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1030,9 +1031,10 @@ fn set_mcp_enabled_for_codex_writes_live_config() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1104,9 +1106,10 @@ fn enabling_codex_mcp_skips_when_codex_dir_missing() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1148,7 +1151,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
     );
 
     let mut config = MultiAppConfig::default();
-    config.ensure_app(&AppType::Workbuddy);
+    config.ensure_app(&AppType::WorkBuddy);
 
     config.mcp.servers = Some(HashMap::new());
     config.mcp.servers.as_mut().unwrap().insert(
@@ -1174,6 +1177,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
                 agy: false,
                 kimi: false,
                 dsh: false,
+                copilot: false,
                 omp: false,
             },
             description: None,
@@ -1185,7 +1189,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
 
     let state = create_test_state_with_config(&config).expect("create test state");
 
-    McpService::toggle_app(&state, "workbuddy-server", AppType::Workbuddy, true)
+    McpService::toggle_app(&state, "workbuddy-server", AppType::WorkBuddy, true)
         .expect("toggle_app should succeed");
 
     let servers = state.db.get_all_mcp_servers().expect("get all mcp servers");
@@ -1216,7 +1220,7 @@ fn workbuddy_toggle_writes_live_mcp_json() {
     );
 
     // 关闭：条目应从 live mcp.json 移除
-    McpService::toggle_app(&state, "workbuddy-server", AppType::Workbuddy, false)
+    McpService::toggle_app(&state, "workbuddy-server", AppType::WorkBuddy, false)
         .expect("toggle off should succeed");
     let live: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(&mcp_json).expect("read workbuddy mcp.json after disable"),
@@ -1258,9 +1262,10 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1301,9 +1306,10 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1490,9 +1496,10 @@ fn enabling_gemini_mcp_skips_when_gemini_dir_missing() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1554,9 +1561,10 @@ fn enabling_claude_mcp_skips_when_claude_config_absent() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1618,9 +1626,10 @@ fn explicit_default_claude_dir_keeps_default_split_mcp_path() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1683,9 +1692,10 @@ fn custom_claude_dir_writes_mcp_inside_config_dir() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1771,9 +1781,10 @@ fn custom_claude_dir_sync_does_not_copy_default_profile() {
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1919,9 +1930,10 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -1950,9 +1962,10 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
                 hermes: false,
                 mcode: false,
                 zcode: false,
-                workbuddy: false,
                 kimi: false,
+                copilot: false,
                 dsh: false,
+                workbuddy: false,
                 pi: false,
                 omp: false,
             },
@@ -2003,10 +2016,11 @@ fn resync_targets_default_to_managed_apps_and_reject_unsupported() {
             "kimi",
             "dsh",
             "agy",
-            // fork：McpApps 还包含 zcode / dsh / workbuddy
+            // fork：AppType::all() 在 agy 后是 zcode / workbuddy / omp / copilot
             "zcode",
             "workbuddy",
-            "omp"
+            "omp",
+            "copilot"
         ]
     );
     assert_eq!(McpService::resync_targets(Some(&[])).unwrap(), all);

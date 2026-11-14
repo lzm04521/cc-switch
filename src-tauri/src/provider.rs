@@ -213,6 +213,15 @@ impl Provider {
                 (base_url, api_key)
             }
             // Hermes (config.yaml) flattens credentials at the top level, snake_case.
+            // Copilot CLI 自带模型卡：provider 节点（旧版环境变量形状兜底）。
+            AppType::Copilot => {
+                let converted = crate::copilot_config::convert_legacy_settings(settings);
+                let provider = converted.as_ref().unwrap_or(settings).get("provider");
+                (
+                    str_at(provider.and_then(|p| p.get("baseUrl"))),
+                    first_non_empty(provider, &["apiKey", "bearerToken"]),
+                )
+            }
             AppType::Dsh => (
                 str_at(settings.pointer("/options/baseURL")),
                 str_at(settings.pointer("/options/apiKey")),
@@ -236,6 +245,28 @@ impl Provider {
                 crate::pi_config::provider_base_url(settings).unwrap_or_default(),
                 crate::pi_config::resolve_usage_api_key(&str_at(settings.get("apiKey"))),
             ),
+            // WorkBuddy models.json: shared `url` / `apiKey`, or per-model overrides.
+            AppType::WorkBuddy => {
+                let first_model = settings
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .and_then(|models| models.first());
+                let pick = |field: &str| {
+                    let shared = str_at(settings.get(field));
+                    if shared.is_empty() {
+                        str_at(first_model.and_then(|model| model.get(field)))
+                    } else {
+                        shared
+                    }
+                };
+                let url = pick("url");
+                let base_url = url
+                    .trim_end_matches('/')
+                    .strip_suffix("/chat/completions")
+                    .map(str::to_string)
+                    .unwrap_or(url);
+                (base_url, pick("apiKey"))
+            }
             // OpenCode (OMO) nests credentials under `options` (the SDK options object).
             AppType::OpenCode | AppType::Mcode => {
                 let options = settings.get("options");
@@ -263,8 +294,6 @@ impl Provider {
             }
             // zcode 的 provider 由 zcode 应用内自管，settings 中无可用凭据
             AppType::Zcode => (String::new(), String::new()),
-            // workbuddy 的 provider 由 workbuddy 应用内自管，settings 中无可用凭据
-            AppType::Workbuddy => (String::new(), String::new()),
             // Oh My Pi custom providers use the models.yml field names. omp reads `apiKey` as
             // an environment variable name first, so resolve it before sending.
             AppType::Omp => (
@@ -978,7 +1007,6 @@ impl UniversalProvider {
             r#"model_provider = "custom"
 model = "{model}"
 model_reasoning_effort = "{reasoning_effort}"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "NewAPI"

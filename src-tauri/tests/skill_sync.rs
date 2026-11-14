@@ -4,7 +4,7 @@ use cc_switch_lib::{
     migrate_skills_to_ssot, AppType, ImportSkillSelection, InstalledSkill, SkillApps, SkillService,
 };
 
-#[path = "support.rs"]
+#[path = "support/mod.rs"]
 mod support;
 use support::{create_test_state, ensure_test_home, reset_test_fs, test_mutex};
 
@@ -502,7 +502,7 @@ fn workbuddy_skill_toggle_syncs_workbuddy_skills_dir() {
     let skill = imported.first().expect("imported skill");
 
     // import 只入库不落盘，toggle 才同步到部署目录
-    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, true)
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::WorkBuddy, true)
         .expect("enable workbuddy");
 
     let deployed = home
@@ -515,7 +515,7 @@ fn workbuddy_skill_toggle_syncs_workbuddy_skills_dir() {
     );
 
     // 关闭 WorkBuddy：部署目录中的条目必须移除
-    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, false)
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::WorkBuddy, false)
         .expect("disable workbuddy");
     assert!(
         !deployed.exists(),
@@ -523,7 +523,7 @@ fn workbuddy_skill_toggle_syncs_workbuddy_skills_dir() {
     );
 
     // 重新开启：恢复
-    SkillService::toggle_app(&state.db, &skill.id, &AppType::Workbuddy, true)
+    SkillService::toggle_app(&state.db, &skill.id, &AppType::WorkBuddy, true)
         .expect("enable workbuddy");
     assert!(deployed.exists());
 }

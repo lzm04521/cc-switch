@@ -86,6 +86,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
   dsh: {},
   agy: {},
   omp: {},
+  copilot: {},
 });
 
 const createDefaultCurrent = (): CurrentProviderState => ({
@@ -105,6 +106,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
   dsh: "",
   agy: "",
   omp: "",
+  copilot: "",
 });
 
 let providers = createDefaultProviders();
@@ -232,6 +234,7 @@ let mcpConfigs: McpConfigState = {
   dsh: {},
   agy: {},
   omp: {},
+  copilot: {},
 };
 
 const cloneProviders = (value: ProvidersByApp) =>
@@ -259,6 +262,21 @@ export interface CustomIconFixture {
 }
 
 let customIconsState: CustomIconFixture[] = [];
+
+export interface WorkBuddyModelOwnerFixture {
+  id: string;
+  owner: string | null;
+}
+let workbuddyModelOwnersState: WorkBuddyModelOwnerFixture[] = [];
+
+export const getWorkBuddyModelOwners = () =>
+  deepClone(workbuddyModelOwnersState);
+
+export const setWorkBuddyModelOwners = (
+  owners: WorkBuddyModelOwnerFixture[],
+) => {
+  workbuddyModelOwnersState = deepClone(owners);
+};
 
 export const listCustomIcons = () => deepClone(customIconsState);
 
@@ -294,6 +312,7 @@ export const deleteCustomIcon = (id: string) => {
 export const resetProviderState = () => {
   pendingDeepLink = null;
   customIconsState = [];
+  workbuddyModelOwnersState = [];
   providers = createDefaultProviders();
   current = createDefaultCurrent();
   liveProviderIds = {
@@ -373,6 +392,7 @@ export const resetProviderState = () => {
     dsh: {},
     agy: {},
     omp: {},
+    copilot: {},
   };
 };
 

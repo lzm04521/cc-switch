@@ -93,6 +93,10 @@ pub async fn get_status(State(state): State<ProxyState>) -> Result<Json<ProxySta
 /// cc-switch–owned `model_catalog_json`, using the same path ownership rules as
 /// Codex live-setting import.
 ///
+/// 没有 CC Switch 的目录、路由的是官方卡时，转给官方上游（见
+/// [`super::codex_models_passthrough`]）：官方列表按账号返回，Codex 自带的列表缺账号
+/// 专属的模型和 Daybreak 权限。
+///
 /// Claude Code 的模型发现（`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`）也打到这里：
 /// 按 [`is_claude_model_discovery`] 认出来，返回 Anthropic 形状的 Stack 模型列表。
 ///
@@ -104,24 +108,39 @@ pub async fn handle_models(
     State(state): State<ProxyState>,
     uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
-) -> Result<Json<Value>, ProxyError> {
+) -> Result<axum::response::Response, ProxyError> {
     if is_claude_model_discovery(&uri, &headers) {
-        return Ok(Json(claude_model_discovery(&state)));
+        return Ok(Json(claude_model_discovery(&state)).into_response());
     }
-    let mut catalog = read_active_codex_catalog();
+    let mut catalog = match read_active_codex_catalog() {
+        Some(catalog) => catalog,
+        None => {
+            // 目录未激活：无 CC Switch 的目录、路由的是官方卡时，转给官方上游（见
+            // [`super::codex_models_passthrough`]）：官方列表按账号返回，Codex 自带的列表
+            // 缺账号专属的模型和 Daybreak 权限。
+            if let Some(response) =
+                super::codex_models_passthrough::forward_if_official_route(&state.db, &uri, &headers)
+                    .await
+            {
+                return Ok(response);
+            }
+            json!({"models": []})
+        }
+    };
 
     // fork Task 6: 非发现路径合并 codex 形态聚合条目（完整 + 每成员短形式）
-    // （doc/20261009-设计文档-会话路由改造为聚合模式 §7）
+    // （doc/20260911-实施计划-chat-completions接入Responses型上游.md 关联设计 §7）
     let store = crate::live::engine::DeviceStore::for_device();
     let data = codex_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     merge_stack_models_into_catalog(&mut catalog, data);
-    Ok(Json(catalog))
+    Ok(Json(catalog).into_response())
 }
 
 /// 读取当前 Codex 模型目录：仅当 live config.toml 的 `model_catalog_json`
 /// 仍指向 cc-switch 目录文件时才服务（stale guard），读取失败回退空目录。
-/// `/v1/models` 与 `/codex/v1/models` 共用。
-fn read_active_codex_catalog() -> Value {
+/// `/v1/models` 与 `/codex/v1/models` 共用。未激活时返回 `None`，由调用方
+/// 决定是否走官方路由透传（`codex_models_passthrough`）。
+fn read_active_codex_catalog() -> Option<Value> {
     let config_dir = crate::codex_config::get_codex_config_dir();
     let active_catalog_path = match crate::codex_config::read_codex_config_text() {
         Ok(config_text) => {
@@ -132,10 +151,10 @@ fn read_active_codex_catalog() -> Value {
 
     if let Some(catalog_path) = active_catalog_path.as_ref().filter(|path| path.exists()) {
         match crate::codex_config::read_codex_model_catalog_text(catalog_path) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or(json!({"models": []})),
+            Ok(text) => Some(serde_json::from_str(&text).unwrap_or(json!({"models": []}))),
             Err(error) => {
                 log::warn!("[models] 拒绝读取越界或过大的目录文件: {error}");
-                json!({"models": []})
+                Some(json!({"models": []}))
             }
         }
     } else {
@@ -144,7 +163,7 @@ fn read_active_codex_catalog() -> Value {
                 "[models] stale guard: catalog not served (model_catalog_json not set to cc-switch catalog)"
             );
         }
-        json!({"models": []})
+        None
     }
 }
 
@@ -338,11 +357,11 @@ fn stack_configured_prefix() -> String {
 /// 不含 Codex 目录（那是 `/v1/models` 与 `/codex/v1/models` 的职责）。
 pub async fn handle_claude_models(
     State(state): State<ProxyState>,
-) -> Result<Json<Value>, ProxyError> {
+) -> Result<axum::response::Response, ProxyError> {
     let store = crate::live::engine::DeviceStore::for_device();
     let data =
         claude_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
-    Ok(Json(build_anthropic_models_response(data)))
+    Ok(Json(build_anthropic_models_response(data)).into_response())
 }
 
 /// 把聚合条目包装成 Anthropic 风格 models 响应。包装字段与
@@ -370,13 +389,14 @@ fn build_anthropic_models_response(data: Vec<Value>) -> Value {
 /// 建立后跟随绑定成员，语义不稳定且误导）；聚合关 / 条目为空时与现状一致。
 pub async fn handle_codex_models(
     State(state): State<ProxyState>,
-) -> Result<Json<Value>, ProxyError> {
-    let mut catalog = project_catalog_to_openai_list(read_active_codex_catalog());
+) -> Result<axum::response::Response, ProxyError> {
+    let mut catalog =
+        project_catalog_to_openai_list(read_active_codex_catalog().unwrap_or_else(|| json!({"models": []})));
 
     let store = crate::live::engine::DeviceStore::for_device();
     let data = codex_stack_entries_for(&state.db, &store, crate::settings::get_route_models_mode());
     apply_stack_models_to_openai_list(&mut catalog, data);
-    Ok(Json(catalog))
+    Ok(Json(catalog).into_response())
 }
 
 /// Codex 目录 → OpenAI list 风格投影（纯函数）：保留顶层 `models` 原样并
@@ -1034,12 +1054,19 @@ async fn handle_claude_transform(
             // 用 ctx 的 app_type：Claude Desktop 网关也走此转换路径，硬编码
             // "claude" 会把 claude-desktop 的行错记到 claude 名下
             let app_type_str = ctx.app_type_str;
+            // Gemini 转换出的 message_delta 是最终 usage 快照，按它记账（见 parser 注释）。
+            let final_delta_authoritative = api_format == "gemini_native";
 
             Some(SseUsageCollector::new(
                 start_time,
                 Some(claude_stream_usage_event_filter),
                 move |events, first_token_ms| {
-                    if let Some(usage) = TokenUsage::from_claude_stream_events(&events) {
+                    let parsed = if final_delta_authoritative {
+                        TokenUsage::from_converted_claude_stream_events(&events)
+                    } else {
+                        TokenUsage::from_claude_stream_events(&events)
+                    };
+                    if let Some(usage) = parsed {
                         let model = usage
                             .model
                             .clone()
@@ -3142,6 +3169,7 @@ fn codex_proxy_error_json(
 fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
     match error {
         ProxyError::CodexQuotaProtection(_) => "cc_switch_codex_quota_protection",
+        ProxyError::CodexOfficialLoginPaused => "cc_switch_codex_official_login_paused",
         ProxyError::ForwardFailed(_) => "cc_switch_forward_failed",
         ProxyError::Timeout(_) | ProxyError::StreamIdleTimeout(_) => "cc_switch_timeout",
         ProxyError::NoAvailableProvider => "cc_switch_no_available_provider",
@@ -3336,8 +3364,9 @@ async fn responses_sse_stream_to_anthropic_message(
 /// 把 OpenAI Responses SSE 流聚合成一个完整的 Responses JSON 对象，供下游转成 Anthropic
 /// 非流响应。用于上游把 `stream:false` 强制升级为 SSE 的场景。
 ///
-/// 复用 `proxy::sse` 的 `SseBlocks`/`strip_sse_field`：`SseBlocks` 同时支持
-/// `\n\n` 与 `\r\n\r\n` 两种分隔符，`strip_sse_field` 兼容带/不带空格的字段写法。
+/// 复用 `proxy::sse` 的 `SseBlocks`/`strip_sse_field`：`SseBlocks` 支持
+/// `\n\n`、`\r\n\r\n`、`\n\r\n` 和 `\r\n\n` 四种分隔符；
+/// `strip_sse_field` 兼容带/不带空格的字段写法。
 fn responses_sse_to_response_value(body: &str) -> Result<Value, ProxyError> {
     let mut sse_blocks = SseBlocks::new(body.trim_start_matches('\u{feff}'));
     let mut completed_response: Option<Value> = None;
@@ -5112,8 +5141,8 @@ data: {"type":"response.completed","response":{"id":"resp_1","status":"completed
 
     #[test]
     fn responses_sse_to_response_value_handles_crlf_delimiters() {
-        // 真实 HTTP SSE 按规范使用 \r\n\r\n 分隔事件；SseBlocks 必须同时处理两种分隔符，
-        // 否则此路径在任何标准上游（含 Codex OAuth HTTPS 后端）下都会 TransformError。
+        // SseBlocks 支持 LF/CRLF 任意组合形成的四种事件分隔符；
+        // 此处覆盖 \r\n\r\n，避免 CRLF 上游响应触发 TransformError。
         let sse = "event: response.output_item.done\r\n\
 data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hi\"}]}}\r\n\
 \r\n\
@@ -6370,13 +6399,14 @@ mod stack_tests {
     async fn claude_model_discovery_lists_nothing_outside_proxy_mode() {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
-        let Json(body) = handle_models(
+        let response = handle_models(
             State(proxy_state()),
             "/v1/models?limit=1000".parse().unwrap(),
             headers,
         )
         .await
         .expect("models");
+        let (_, body) = json_of(response).await;
         assert_eq!(body, json!({ "data": [], "has_more": false }));
     }
 

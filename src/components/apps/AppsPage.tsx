@@ -42,7 +42,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import type { AppId } from "@/lib/api";
+import { settingsApi, type AppId } from "@/lib/api";
 import { providersApi } from "@/lib/api/providers";
 import type { ToolInstallationReport } from "@/lib/api/settings";
 import type { VisibleApps } from "@/types";
@@ -114,14 +114,17 @@ const SOURCE_LABEL: Record<string, string> = {
 type Row =
   | { kind: "tool"; tool: ToolName }
   | { kind: "desktop" }
+  | { kind: "workbuddy" }
   | { kind: "forkApp"; app: ForkAppId };
 
-// fork 定制：cc-switch 只做配置管理、不走工具检测/安装的应用
-const FORK_APPS = ["dsh", "zcode", "workbuddy"] as const;
+// WorkBuddy 是桌面应用、自己负责更新，这里和 Claude Desktop 一样只管侧栏显示。
+// fork 定制：cc-switch 只做配置管理、不走工具检测/安装的应用（dsh / zcode）
+const FORK_APPS = ["dsh", "zcode"] as const;
 type ForkAppId = (typeof FORK_APPS)[number];
 
 const ROW_BY_APP = Object.fromEntries([
   ["claude-desktop", { kind: "desktop" }],
+  ["workbuddy", { kind: "workbuddy" }],
   ...TOOL_NAMES.map((tool) => [TOOL_APP_IDS[tool], { kind: "tool", tool }]),
   ...FORK_APPS.map((app) => [app, { kind: "forkApp", app }]),
 ]) as Record<AppId, Row>;
@@ -133,6 +136,8 @@ const rowKey = (row: Row): AppId =>
     ? "claude-desktop"
     : row.kind === "forkApp"
       ? row.app
+    : row.kind === "workbuddy"
+      ? "workbuddy"
       : TOOL_APP_IDS[row.tool];
 
 // 只上下拖，且停在本组的列表框里：列表框裁掉超出的部分，拖出去整行会看不见
@@ -200,6 +205,12 @@ export function AppsPage() {
     queryFn: () => providersApi.getClaudeDesktopStatus(),
     staleTime: 30_000,
   });
+  const { data: workbuddyStatus, isPending: isWorkbuddyStatusPending } =
+    useQuery({
+      queryKey: ["config-status", "workbuddy"],
+      queryFn: () => settingsApi.getConfigStatus("workbuddy"),
+      staleTime: 30_000,
+    });
 
   // 按「已安装 / 未安装」分两组。Claude Desktop 没有命令可探，用后端按数据目录 / 应用包推断的结果。
   // 首次探测还没出结果时不分组，免得各行探完一个跳一个；之后重新检查时沿用上次结果，位置不动。
@@ -209,6 +220,10 @@ export function AppsPage() {
     }
     // fork 应用不走工具探测，恒视为已安装（配置管理始终可用，也允许拖动排序）
     if (row.kind === "forkApp") return true;
+    // WorkBuddy 同样没有命令可探，按配置目录（~/.workbuddy）在不在判断
+    if (row.kind === "workbuddy") {
+      return isWorkbuddyStatusPending ? null : Boolean(workbuddyStatus?.exists);
+    }
     const info = tools.toolVersionByName.get(row.tool);
     if (!info && tools.isLoadingTools) return null;
     return isToolPresent(info, tools.installReports?.[row.tool]);
@@ -396,7 +411,24 @@ export function AppsPage() {
   };
 
   const renderRow = (row: Row) =>
-    row.kind === "desktop" ? (
+    row.kind === "workbuddy" ? (
+      <AppRow
+        key="workbuddy"
+        app="workbuddy"
+        name={<span className="truncate">{APP_DISPLAY_NAME.workbuddy}</span>}
+        version={
+          <span className="inline-flex items-center gap-1 text-caption text-fg-2">
+            {workbuddyStatus?.exists
+              ? t("appsPage.desktopConnected")
+              : t("appsPage.desktopNotConnected")}
+            <HelpTip title={APP_DISPLAY_NAME.workbuddy} align="end">
+              {t("appsPage.workbuddyHelp")}
+            </HelpTip>
+          </span>
+        }
+        switches={switchesFor("workbuddy")}
+      />
+    ) : row.kind === "desktop" ? (
       <AppRow
         key="claude-desktop"
         app="claude-desktop"
@@ -874,7 +906,24 @@ function ToolRow({
   ) : null;
 
   const installHint = t(`appsPage.installHint.${tool}`, { defaultValue: "" });
-  const meta = defaultInstall ? (
+  // 执行期间副行换成进度：排队中，或已用时间 + 命令最新一行输出
+  const progress = isBusy ? tools.toolProgress.get(tool) : undefined;
+  const progressMeta =
+    progress?.stage === "queued" ? (
+      <span className="truncate">{t("appsPage.toolQueued")}</span>
+    ) : progress?.stage === "running" ? (
+      <>
+        <ElapsedTime since={progress.startedAt} />
+        {progress.line && (
+          <span className="min-w-0 truncate font-mono" title={progress.line}>
+            {progress.line}
+          </span>
+        )}
+      </>
+    ) : null;
+  const meta = progressMeta ? (
+    progressMeta
+  ) : defaultInstall ? (
     <>
       <span className="min-w-0 truncate font-mono" title={defaultInstall.path}>
         {defaultInstall.path}
@@ -1041,6 +1090,30 @@ function ToolRow({
       }
       footer={footer}
     />
+  );
+}
+
+function formatElapsed(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
+
+function ElapsedTime({ since }: { since: number }) {
+  const { t } = useTranslation();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <span className="shrink-0 tabular-nums">
+      {t("appsPage.toolElapsed", { time: formatElapsed(now - since) })}
+    </span>
   );
 }
 

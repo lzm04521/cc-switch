@@ -32,6 +32,7 @@ export const APP_IDS: AppId[] = [
   "dsh",
   "agy",
   "omp",
+  "copilot",
   "zcode",
   "workbuddy",
 ];
@@ -53,6 +54,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   workbuddy: false, // 默认不显示，需用户手动启用（同 zcode）
   agy: true,
   omp: true,
+  copilot: true,
 };
 
 /**
@@ -106,8 +108,8 @@ export const SKILLS_APP_IDS: AppId[] = [
   "dsh",
   "agy",
   "omp",
+  "copilot",
   "zcode",
-  "dsh",
   "workbuddy",
 ];
 
@@ -156,9 +158,22 @@ export function isStackAppId(appId: string): appId is StackAppId {
   return (STACK_APP_IDS as string[]).includes(appId);
 }
 
+/**
+ * 累加式应用（后端 `AppType::is_additive_mode`）。Copilot CLI 是混合的：自带模型卡累加写进
+ * providers.json，官方卡仍是启动式（只有「打开终端」）。
+ */
 export type AdditiveAppId = Extract<
   AppId,
-  "opencode" | "openclaw" | "hermes" | "pi" | "mcode" | "kimi" | "dsh" | "omp"
+  | "opencode"
+  | "openclaw"
+  | "hermes"
+  | "pi"
+  | "mcode"
+  | "kimi"
+  | "dsh"
+  | "omp"
+  | "copilot"
+  | "workbuddy"
 >;
 
 export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
@@ -170,6 +185,8 @@ export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
   "hermes",
   "pi",
   "omp",
+  "copilot",
+  "workbuddy",
 ];
 
 export function isAdditiveAppId(appId: string): appId is AdditiveAppId {
@@ -213,8 +230,8 @@ export const MCP_APP_IDS: McpAppId[] = [
   "dsh",
   "agy",
   "omp",
+  "copilot",
   "zcode",
-  "dsh",
   "workbuddy",
 ];
 
@@ -341,6 +358,14 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
     badgeClass:
       "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-500/20 border-0 gap-1.5",
   },
+  workbuddy: {
+    label: "WorkBuddy",
+    icon: <ProviderIcon icon="workbuddy" name="WorkBuddy" size={14} />,
+    activeClass:
+      "bg-teal-500/10 ring-1 ring-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400",
+    badgeClass:
+      "bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 border-0 gap-1.5",
+  },
   agy: {
     label: "Antigravity",
     icon: (
@@ -366,14 +391,6 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
     badgeClass:
       "bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 border-0 gap-1.5",
   },
-  workbuddy: {
-    label: "WorkBuddy",
-    icon: <ProviderIcon name="WorkBuddy" size={14} />,
-    activeClass:
-      "bg-teal-500/10 ring-1 ring-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400",
-    badgeClass:
-      "bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 border-0 gap-1.5",
-  },
   omp: {
     label: "Oh My Pi",
     icon: (
@@ -383,6 +400,21 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-cyan-500/10 ring-1 ring-cyan-500/20 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
     badgeClass:
       "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/20 border-0 gap-1.5",
+  },
+  copilot: {
+    label: "Copilot CLI",
+    icon: (
+      <ProviderIcon
+        icon="githubcopilot"
+        name="GitHub Copilot CLI"
+        size={14}
+        showFallback={false}
+      />
+    ),
+    activeClass:
+      "bg-slate-500/10 ring-1 ring-slate-500/20 hover:bg-slate-500/20 text-slate-700 dark:text-slate-300",
+    badgeClass:
+      "bg-slate-500/10 text-slate-700 dark:text-slate-300 hover:bg-slate-500/20 border-0 gap-1.5",
   },
 };
 

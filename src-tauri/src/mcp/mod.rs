@@ -23,7 +23,6 @@ mod hermes;
 pub(crate) mod omp;
 mod opencode;
 pub(crate) mod validation;
-mod workbuddy;
 mod zcode;
 
 // 重新导出公共 API
@@ -46,11 +45,10 @@ pub use omp::{remove_server_from_omp, sync_single_server_to_omp};
 pub use opencode::{
     import_from_opencode, remove_server_from_opencode, sync_single_server_to_opencode,
 };
-pub use workbuddy::{
-    import_from_workbuddy, remove_server_from_workbuddy, sync_single_server_to_workbuddy,
-};
 pub use zcode::{import_from_zcode, remove_server_from_zcode, sync_single_server_to_zcode};
 
+pub(crate) mod copilot;
 pub(crate) mod kimi;
 pub(crate) mod mcode;
 pub(crate) mod pi;
+pub(crate) mod workbuddy;

@@ -1140,7 +1140,7 @@ pub fn build_sections(
             app_type,
             crate::app_config::AppType::Zcode
                 | crate::app_config::AppType::Dsh
-                | crate::app_config::AppType::Workbuddy
+                | crate::app_config::AppType::WorkBuddy
         ) {
             continue;
         }
